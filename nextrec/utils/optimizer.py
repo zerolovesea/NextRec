@@ -9,7 +9,7 @@ import torch
 from typing import Iterable
 
 
-def get_optimizer_fn(
+def get_optimizer(
     optimizer: str = "adam",
     params: Iterable[torch.nn.Parameter] | None = None,
     **optimizer_params
@@ -18,8 +18,8 @@ def get_optimizer_fn(
     Get optimizer function based on optimizer name or instance.
         
     Examples:
-        >>> optimizer = get_optimizer_fn("adam", model.parameters(), lr=1e-3)
-        >>> optimizer = get_optimizer_fn("sgd", model.parameters(), lr=0.01, momentum=0.9)
+        >>> optimizer = get_optimizer("adam", model.parameters(), lr=1e-3)
+        >>> optimizer = get_optimizer("sgd", model.parameters(), lr=0.01, momentum=0.9)
     """
     if params is None:
         raise ValueError("params cannot be None. Please provide model parameters.")
@@ -51,13 +51,13 @@ def get_optimizer_fn(
     return optimizer_fn
 
 
-def get_scheduler_fn(scheduler, optimizer, **scheduler_params):
+def get_scheduler(scheduler, optimizer, **scheduler_params):
     """
     Get learning rate scheduler function.
     
     Examples:
-        >>> scheduler = get_scheduler_fn("step", optimizer, step_size=10, gamma=0.1)
-        >>> scheduler = get_scheduler_fn("cosine", optimizer, T_max=100)
+        >>> scheduler = get_scheduler("step", optimizer, step_size=10, gamma=0.1)
+        >>> scheduler = get_scheduler("cosine", optimizer, T_max=100)
     """
     if isinstance(scheduler, str):
         if scheduler == "step":

@@ -12,10 +12,26 @@ nextrec.loss.loss\_utils module
    :undoc-members:
    :show-inheritance:
 
-nextrec.loss.match\_losses module
----------------------------------
+nextrec.loss.pointwise module
+-----------------------------
 
-.. automodule:: nextrec.loss.match_losses
+.. automodule:: nextrec.loss.pointwise
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+nextrec.loss.pairwise module
+----------------------------
+
+.. automodule:: nextrec.loss.pairwise
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+nextrec.loss.listwise module
+----------------------------
+
+.. automodule:: nextrec.loss.listwise
    :members:
    :undoc-members:
    :show-inheritance:

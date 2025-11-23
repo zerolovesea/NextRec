@@ -1,9 +1,7 @@
 """
 Date: create on 09/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
-Reference:
-    [1] Tang H, Liu J, Zhao M, et al. Progressive layered extraction (ple): A novel multi-task learning (mtl) model for personalized recommendations[C]//RecSys. 2020: 269-278.
+Author: Yang Zhou,zyaztec@gmail.com
+Reference: [1] Tang H, Liu J, Zhao M, et al. Progressive layered extraction (ple): A novel multi-task learning (mtl) model for personalized recommendations[C]//RecSys. 2020: 269-278.
 """
 
 import torch
@@ -47,6 +45,7 @@ class PLE(BaseModel):
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+                 loss_params: dict | list[dict] | None = None,
                  device: str = 'cpu',
                  embedding_l1_reg=1e-6,
                  dense_l1_reg=1e-5,
@@ -166,7 +165,8 @@ class PLE(BaseModel):
         self.compile(
             optimizer=optimizer,
             optimizer_params=optimizer_params,
-            loss=loss
+            loss=loss,
+            loss_params=loss_params,
         )
 
     def forward(self, x):

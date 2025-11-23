@@ -6,18 +6,15 @@ Author: Yang Zhou,zyaztec@gmail.com
 """
 
 import os
-import datetime
+import tqdm
 import logging
-import os
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import tqdm
 
+from pathlib import Path
 from typing import Union, Literal
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -25,11 +22,11 @@ from nextrec.basic.callback import EarlyStopper
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureConfig
 from nextrec.basic.metrics import configure_metrics, evaluate_metrics
 
-from nextrec.loss import get_loss_fn
+from nextrec.loss import get_loss_fn, get_loss_kwargs
 from nextrec.data import get_column_data
 from nextrec.data.dataloader import build_tensors_from_data
 from nextrec.basic.loggers import setup_logger, colorize
-from nextrec.utils import get_optimizer_fn, get_scheduler_fn
+from nextrec.utils import get_optimizer, get_scheduler
 from nextrec.basic.session import resolve_save_path, create_session
 
 
@@ -400,7 +397,9 @@ class BaseModel(FeatureConfig, nn.Module):
                 optimizer_params: dict | None = None,
                 scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None,
                 scheduler_params: dict | None = None,
-                loss: str | nn.Module | list[str | nn.Module] | None= "bce"):
+                loss: str | nn.Module | list[str | nn.Module] | None= "bce",
+                loss_params: dict | list[dict] | None = None):
+        
         if optimizer_params is None:
             optimizer_params = {}
         
@@ -415,9 +414,10 @@ class BaseModel(FeatureConfig, nn.Module):
             self._scheduler_name = None
         self._scheduler_params = scheduler_params or {}
         self._loss_config = loss
+        self._loss_params = loss_params
         
         # set optimizer
-        self.optimizer_fn = get_optimizer_fn(
+        self.optimizer_fn = get_optimizer(
             optimizer=optimizer, 
             params=self.parameters(), 
             **optimizer_params
@@ -430,7 +430,12 @@ class BaseModel(FeatureConfig, nn.Module):
             # For ranking and multitask, use pointwise training
             training_mode = 'pointwise' if self.task_type in ['ranking', 'multitask'] else None
             # Use task_type directly, not self.task_type for single task
-            self.loss_fn = [get_loss_fn(task_type=task_type, training_mode=training_mode, loss=loss_value)]
+            self.loss_fn = [get_loss_fn(
+                task_type=task_type,
+                training_mode=training_mode,
+                loss=loss_value,
+                **get_loss_kwargs(loss_params)
+            )]
         else:
             self.loss_fn = []
             for i in range(self.nums_task):
@@ -443,10 +448,15 @@ class BaseModel(FeatureConfig, nn.Module):
                 
                 # Multitask always uses pointwise training
                 training_mode = 'pointwise'
-                self.loss_fn.append(get_loss_fn(task_type=task_type, training_mode=training_mode, loss=loss_value))
+                self.loss_fn.append(get_loss_fn(
+                    task_type=task_type,
+                    training_mode=training_mode,
+                    loss=loss_value,
+                    **get_loss_kwargs(loss_params, i)
+                ))
         
         # set scheduler
-        self.scheduler_fn = get_scheduler_fn(scheduler, self.optimizer_fn, **(scheduler_params or {})) if scheduler else None
+        self.scheduler_fn = get_scheduler(scheduler, self.optimizer_fn, **(scheduler_params or {})) if scheduler else None
 
     def compute_loss(self, y_pred, y_true):
         if y_true is None:
@@ -1130,10 +1140,13 @@ class BaseMatchModel(BaseModel):
     Base class for match (retrieval/recall) models
     Supports pointwise, pairwise, and listwise training modes
     """
-    
+    @property
+    def model_name(self) -> str:
+        raise NotImplementedError
+
     @property
     def task_type(self) -> str:
-        return 'match'
+        raise NotImplementedError
     
     @property
     def support_training_modes(self) -> list[str]:
@@ -1209,45 +1222,47 @@ class BaseMatchModel(BaseModel):
         self.num_negative_samples = num_negative_samples
         self.temperature = temperature
         self.similarity_metric = similarity_metric
-    
+
+        self.user_feature_names = [f.name for f in (
+            self.user_dense_features + self.user_sparse_features + self.user_sequence_features
+        )]
+        self.item_feature_names = [f.name for f in (
+            self.item_dense_features + self.item_sparse_features + self.item_sequence_features
+        )]
+
     def get_user_features(self, X_input: dict) -> dict:
-        user_input = {}
-        all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
-        for feature in all_user_features:
-            if feature.name in X_input:
-                user_input[feature.name] = X_input[feature.name]
-        return user_input
-    
+        return {
+            name: X_input[name]
+            for name in self.user_feature_names
+            if name in X_input
+        }
+
     def get_item_features(self, X_input: dict) -> dict:
-        item_input = {}
-        all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
-        for feature in all_item_features:
-            if feature.name in X_input:
-                item_input[feature.name] = X_input[feature.name]
-        return item_input
-    
+        return {
+            name: X_input[name]
+            for name in self.item_feature_names
+            if name in X_input
+        }
+        
     def compile(self, 
-                optimizer = "adam",
+                optimizer: str | torch.optim.Optimizer = "adam",
                 optimizer_params: dict | None = None,
                 scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None,
                 scheduler_params: dict | None = None,
-                loss: str | nn.Module | list[str | nn.Module] | None= None):
+                loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+                loss_params: dict | list[dict] | None = None):
         """
         Compile match model with optimizer, scheduler, and loss function.
-        Validates that training_mode is supported by the model.
+        Mirrors BaseModel.compile while adding training_mode validation for match tasks.
         """
-        from nextrec.loss import validate_training_mode
-        
-        # Validate training mode is supported
-        validate_training_mode(
-            training_mode=self.training_mode,
-            support_training_modes=self.support_training_modes,
-            model_name=self.model_name
-        )
-        
+        if self.training_mode not in self.support_training_modes:
+            raise ValueError(
+                f"{self.model_name} does not support training_mode='{self.training_mode}'. "
+                f"Supported modes: {self.support_training_modes}"
+            )
+
         # Call parent compile with match-specific logic
-        if optimizer_params is None:
-            optimizer_params = {}
+        optimizer_params = optimizer_params or {}
         
         self._optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
         self._optimizer_params = optimizer_params
@@ -1260,24 +1275,42 @@ class BaseMatchModel(BaseModel):
             self._scheduler_name = None
         self._scheduler_params = scheduler_params or {}
         self._loss_config = loss
+        self._loss_params = loss_params
         
         # set optimizer
-        self.optimizer_fn = get_optimizer_fn(
+        self.optimizer_fn = get_optimizer(
             optimizer=optimizer, 
             params=self.parameters(), 
             **optimizer_params
         )
         
         # Set loss function based on training mode
-        loss_value = loss[0] if isinstance(loss, list) else loss
+        default_losses = {
+            'pointwise': 'bce',
+            'pairwise': 'bpr',
+            'listwise': 'sampled_softmax',
+        }
+
+        if loss is None:
+            loss_value = default_losses.get(self.training_mode, "bce")
+        elif isinstance(loss, list):
+            loss_value = loss[0] if loss and loss[0] is not None else default_losses.get(self.training_mode, "bce")
+        else:
+            loss_value = loss
+
+        # Pairwise/listwise modes do not support BCE, fall back to sensible defaults
+        if self.training_mode in {"pairwise", "listwise"} and loss_value in {"bce", "binary_crossentropy"}:
+            loss_value = default_losses.get(self.training_mode, loss_value)
+
         self.loss_fn = [get_loss_fn(
             task_type='match',
             training_mode=self.training_mode,
-            loss=loss_value
+            loss=loss_value,
+            **get_loss_kwargs(loss_params, 0)
         )]
         
         # set scheduler
-        self.scheduler_fn = get_scheduler_fn(scheduler, self.optimizer_fn, **(scheduler_params or {})) if scheduler else None
+        self.scheduler_fn = get_scheduler(scheduler, self.optimizer_fn, **(scheduler_params or {})) if scheduler else None
 
     def compute_similarity(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
         if self.similarity_metric == 'dot':

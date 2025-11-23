@@ -1,3 +1,7 @@
+from .fm import FM
+from .afm import AFM
+from .masknet import MaskNet
+from .pnn import PNN
 from .deepfm import DeepFM
 from .autoint import AutoInt
 from .widedeep import WideDeep
@@ -14,4 +18,8 @@ __all__ = [
     'DCN',
     'DIN',
     'DIEN',
+    'FM',
+    'AFM',
+    'MaskNet',
+    'PNN',
 ]

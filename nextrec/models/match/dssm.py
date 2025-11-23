@@ -19,7 +19,8 @@ class DSSM(BaseMatchModel):
     """
     Deep Structured Semantic Model
     
-    双塔模型，分别对user和item特征编码为embedding，通过余弦相似度或点积计算匹配分数
+    Dual-tower model that encodes user and item features separately and
+    computes similarity via cosine or dot product.
     """
     
     @property
@@ -48,6 +49,12 @@ class DSSM(BaseMatchModel):
                  embedding_l2_reg: float = 0.0,
                  dense_l2_reg: float = 0.0,
                  early_stop_patience: int = 20,
+                 optimizer: str | torch.optim.Optimizer = "adam",
+                 optimizer_params: dict | None = None,
+                 scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None,
+                 scheduler_params: dict | None = None,
+                 loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+                 loss_params: dict | list[dict] | None = None,
                  **kwargs):
         
         super(DSSM, self).__init__(
@@ -86,7 +93,7 @@ class DSSM(BaseMatchModel):
         if len(user_features) > 0:
             self.user_embedding = EmbeddingLayer(user_features)
             
-            # 计算user tower输入维度
+            # Compute user tower input dimension
             user_input_dim = 0
             for feat in user_dense_features or []:
                 user_input_dim += 1
@@ -117,7 +124,7 @@ class DSSM(BaseMatchModel):
         if len(item_features) > 0:
             self.item_embedding = EmbeddingLayer(item_features)
             
-            # 计算item tower输入维度
+            # Compute item tower input dimension
             item_input_dim = 0
             for feat in item_dense_features or []:
                 item_input_dim += 1
@@ -136,7 +143,6 @@ class DSSM(BaseMatchModel):
                 activation=dnn_activation
             )
         
-        # 注册正则化权重
         self._register_regularization_weights(
             embedding_attr='user_embedding',
             include_modules=['user_dnn']
@@ -146,28 +152,33 @@ class DSSM(BaseMatchModel):
             include_modules=['item_dnn']
         )
         
+        if optimizer_params is None:
+            optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5}
+
         self.compile(
-            optimizer="adam",
-            optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            scheduler=scheduler,
+            scheduler_params=scheduler_params,
+            loss=loss,
+            loss_params=loss_params,
         )
 
         self.to(device)
     
     def user_tower(self, user_input: dict) -> torch.Tensor:
         """
-        User tower: 将user特征编码为embedding
+        User tower encodes user features into embeddings.
         
         Args:
-            user_input: user特征字典
+            user_input: user feature dict
         
         Returns:
             user_emb: [batch_size, embedding_dim]
         """
-        # 获取user特征的embedding
         all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
         user_emb = self.user_embedding(user_input, all_user_features, squeeze_dim=True)
         
-        # 通过user DNN
         user_emb = self.user_dnn(user_emb)
         
         # L2 normalize for cosine similarity
@@ -178,19 +189,17 @@ class DSSM(BaseMatchModel):
     
     def item_tower(self, item_input: dict) -> torch.Tensor:
         """
-        Item tower: 将item特征编码为embedding
+        Item tower encodes item features into embeddings.
         
         Args:
-            item_input: item特征字典
+            item_input: item feature dict
         
         Returns:
-            item_emb: [batch_size, embedding_dim] 或 [batch_size, num_items, embedding_dim]
+            item_emb: [batch_size, embedding_dim] or [batch_size, num_items, embedding_dim]
         """
-        # 获取item特征的embedding
         all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
         item_emb = self.item_embedding(item_input, all_item_features, squeeze_dim=True)
         
-        # 通过item DNN
         item_emb = self.item_dnn(item_emb)
         
         # L2 normalize for cosine similarity

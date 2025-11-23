@@ -17,11 +17,10 @@ from nextrec.basic.layers import MLP, EmbeddingLayer, AveragePooling
 
 class YoutubeDNN(BaseMatchModel):
     """
-    YouTube Deep Neural Network for Recommendations
-    
-    用户塔：历史行为序列 + 用户特征 -> 用户embedding
-    物品塔：物品特征 -> 物品embedding
-    训练：sampled softmax loss (listwise)
+    YouTube Deep Neural Network for Recommendations.
+    User tower: behavior sequence + user features -> user embedding.
+    Item tower: item features -> item embedding.
+    Training usually uses listwise / sampled softmax style objectives.
     """
     
     @property
@@ -50,6 +49,12 @@ class YoutubeDNN(BaseMatchModel):
                  embedding_l2_reg: float = 0.0,
                  dense_l2_reg: float = 0.0,
                  early_stop_patience: int = 20,
+                 optimizer: str | torch.optim.Optimizer = "adam",
+                 optimizer_params: dict | None = None,
+                 scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None,
+                 scheduler_params: dict | None = None,
+                 loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+                 loss_params: dict | list[dict] | None = None,
                  **kwargs):
         
         super(YoutubeDNN, self).__init__(
@@ -94,7 +99,7 @@ class YoutubeDNN(BaseMatchModel):
             for feat in user_sparse_features or []:
                 user_input_dim += feat.embedding_dim
             for feat in user_sequence_features or []:
-                # 序列特征通过平均池化聚合
+                # Sequence features are pooled before entering the DNN
                 user_input_dim += feat.embedding_dim
             
             user_dnn_units = user_dnn_hidden_units + [embedding_dim]
@@ -144,12 +149,20 @@ class YoutubeDNN(BaseMatchModel):
             include_modules=['item_dnn']
         )
         
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            scheduler=scheduler,
+            scheduler_params=scheduler_params,
+            loss=loss,
+            loss_params=loss_params,
+        )
+
         self.to(device)
     
     def user_tower(self, user_input: dict) -> torch.Tensor:
         """
-        User tower
-        处理用户历史行为序列和其他用户特征
+        User tower to encode historical behavior sequences and user features.
         """
         all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
         user_emb = self.user_embedding(user_input, all_user_features, squeeze_dim=True)

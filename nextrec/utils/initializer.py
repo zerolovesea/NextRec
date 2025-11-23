@@ -8,14 +8,14 @@ Author: Yang Zhou, zyaztec@gmail.com
 import torch.nn as nn
 
 
-def get_initializer_fn(init_type='normal', activation='linear', param=None):
+def get_initializer(init_type='normal', activation='linear', param=None):
     """
     Get parameter initialization function.
         
     Examples:
-        >>> init_fn = get_initializer_fn('xavier_uniform', 'relu')
+        >>> init_fn = get_initializer('xavier_uniform', 'relu')
         >>> init_fn(tensor)
-        >>> init_fn = get_initializer_fn('normal', param={'mean': 0.0, 'std': 0.01})
+        >>> init_fn = get_initializer('normal', param={'mean': 0.0, 'std': 0.01})
     """
     param = param or {}
 

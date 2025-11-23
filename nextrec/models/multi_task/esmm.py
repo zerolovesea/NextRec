@@ -1,9 +1,7 @@
 """
 Date: create on 09/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
-Reference:
-    [1] Ma X, Zhao L, Huang G, et al. Entire space multi-task model: An effective approach for estimating post-click conversion rate[C]//SIGIR. 2018: 1137-1140.
+Author: Yang Zhou,zyaztec@gmail.com
+Reference: [1] Ma X, Zhao L, Huang G, et al. Entire space multi-task model: An effective approach for estimating post-click conversion rate[C]//SIGIR. 2018: 1137-1140.
 """
 
 import torch
@@ -46,6 +44,7 @@ class ESMM(BaseModel):
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+                 loss_params: dict | list[dict] | None = None,
                  device: str = 'cpu',
                  embedding_l1_reg=1e-6,
                  dense_l1_reg=1e-5,
@@ -106,7 +105,8 @@ class ESMM(BaseModel):
         self.compile(
             optimizer=optimizer,
             optimizer_params=optimizer_params,
-            loss=loss
+            loss=loss,
+            loss_params=loss_params,
         )
 
     def forward(self, x):
