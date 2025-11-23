@@ -41,7 +41,7 @@ class MIND(BaseMatchModel):
                  item_dnn_hidden_units: list[int] = [256, 128],
                  dnn_activation: str = 'relu',
                  dnn_dropout: float = 0.0,
-                 training_mode: Literal['pointwise', 'pairwise', 'listwise'] = 'listwise',
+                 training_mode: Literal['pointwise', 'pairwise', 'listwise'] = 'pointwise',
                  num_negative_samples: int = 100,
                  temperature: float = 1.0,
                  similarity_metric: Literal['dot', 'cosine', 'euclidean'] = 'dot',
@@ -51,6 +51,12 @@ class MIND(BaseMatchModel):
                  embedding_l2_reg: float = 0.0,
                  dense_l2_reg: float = 0.0,
                  early_stop_patience: int = 20,
+                 optimizer: str | torch.optim.Optimizer = "adam",
+                 optimizer_params: dict | None = None,
+                 scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None,
+                 scheduler_params: dict | None = None,
+                 loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+                 loss_params: dict | list[dict] | None = None,
                  **kwargs):
         
         super(MIND, self).__init__(
@@ -152,6 +158,15 @@ class MIND(BaseMatchModel):
             include_modules=['item_dnn'] if self.item_dnn else []
         )
         
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            scheduler=scheduler,
+            scheduler_params=scheduler_params,
+            loss=loss,
+            loss_params=loss_params,
+        )
+
         self.to(device)
     
     def user_tower(self, user_input: dict) -> torch.Tensor:

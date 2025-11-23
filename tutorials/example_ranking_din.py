@@ -99,7 +99,8 @@ model = DIN(
     target=['label'],
     optimizer="adam",
     optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
-    loss="bce",
+    loss="focal",  # imbalance-friendly loss, see nextrec.loss.pointwise for options
+    loss_params={"gamma": 2.0, "alpha": 0.25},  # Example focal loss parameters
     device='mps',
     session_id="din_exp001",
     embedding_l1_reg=1e-6,
@@ -107,6 +108,13 @@ model = DIN(
     dense_l1_reg=1e-5,
     dense_l2_reg=1e-4,
 )
+
+model.compile(
+            optimizer = "adam",
+            optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5},
+            loss = "focal",
+            loss_params={"gamma": 2.0, "alpha": 0.25},
+        )
 
 print(f"\nModel: {model.model_name}")
 print(f"Attention: compute relevance between history and candidate item")
@@ -129,6 +137,8 @@ model.fit(
     verbose=1,
     user_id_column='user_id'  # Specify user_id column for GAUC
 )
+
+
 
 print("\n" + "=" * 60)
 print("Training Complete!")

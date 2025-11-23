@@ -52,6 +52,12 @@ class SDM(BaseMatchModel):
                  embedding_l2_reg: float = 0.0,
                  dense_l2_reg: float = 0.0,
                  early_stop_patience: int = 20,
+                 optimizer: str | torch.optim.Optimizer = "adam",
+                 optimizer_params: dict | None = None,
+                 scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None,
+                 scheduler_params: dict | None = None,
+                 loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+                 loss_params: dict | list[dict] | None = None,
                  **kwargs):
         
         super(SDM, self).__init__(
@@ -179,6 +185,15 @@ class SDM(BaseMatchModel):
             include_modules=['item_dnn'] if self.item_dnn else []
         )
         
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            scheduler=scheduler,
+            scheduler_params=scheduler_params,
+            loss=loss,
+            loss_params=loss_params,
+        )
+
         self.to(device)
     
     def user_tower(self, user_input: dict) -> torch.Tensor:

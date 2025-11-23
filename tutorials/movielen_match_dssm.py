@@ -112,6 +112,9 @@ def example_movielens_100k_dssm():
         session_id="movielens_dssm"
     )
 
+    # Pairwise training requires a pairwise loss such as BPR
+    model.compile(loss='bpr')
+
     model.fit(
         train_data=train_df,          
         valid_data=valid_df,          

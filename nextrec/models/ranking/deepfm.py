@@ -31,6 +31,7 @@ class DeepFM(BaseModel):
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
+                 loss_params: dict | list[dict] | None = None,
                  device: str = 'cpu',
                  embedding_l1_reg=1e-6,
                  dense_l1_reg=1e-5,
@@ -79,7 +80,8 @@ class DeepFM(BaseModel):
         self.compile(
             optimizer=optimizer,
             optimizer_params=optimizer_params,
-            loss=loss
+            loss=loss,
+            loss_params=loss_params,
         )
 
     def forward(self, x):

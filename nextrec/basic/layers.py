@@ -16,7 +16,7 @@ import torch.nn.functional as F
 
 from nextrec.basic.activation import activation_layer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.utils.initializer import get_initializer_fn
+from nextrec.utils.initializer import get_initializer
 
 Feature = Union[DenseFeature, SparseFeature, SequenceFeature]
 
@@ -160,7 +160,7 @@ class EmbeddingLayer(nn.Module):
                 )
                 embedding.weight.requires_grad = feature.trainable
 
-                initialization = get_initializer_fn(
+                initialization = get_initializer(
                     init_type=feature.init_type,
                     activation="linear",
                     param=feature.init_params,
