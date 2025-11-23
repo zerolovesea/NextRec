@@ -5,25 +5,30 @@ Date: create on 27/10/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 import os
-import glob
 import tqdm
 import torch
 import logging
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from pathlib import Path
 from typing import Iterator, Literal, Union, Optional
 
-from nextrec.data.preprocessor import DataProcessor
 from torch.utils.data import DataLoader, TensorDataset, IterableDataset
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.data.preprocessor import DataProcessor
+from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureConfig
 
 from nextrec.basic.loggers import colorize
-from nextrec.data import get_column_data, collate_fn
+from nextrec.data import (
+    get_column_data,
+    collate_fn,
+    resolve_file_paths,
+    read_table,
+)
 
 
-class FileDataset(IterableDataset):
+class FileDataset(FeatureConfig, IterableDataset):
     """
     Iterable dataset that streams CSV/Parquet files in chunks and yields tensor tuples.
 
@@ -51,34 +56,19 @@ class FileDataset(IterableDataset):
                  target_columns: list[str],                   # target column names
                  id_columns: list[str] | None = None,         # id columns to carry through (not used for model inputs)
                  chunk_size: int = 10000,
-                 file_type: Literal['csv', 'parquet'] = 'csv',
-                 processor: Optional['DataProcessor'] = None): # optional DataProcessor for transformation
+                 file_type: str = 'csv',
+                 processor: DataProcessor | None = None): # optional DataProcessor for transformation
         """
         Initialize a streaming dataset backed by on-disk files.
-
-        :param file_paths: File paths to read (CSV/Parquet).
-        :param dense_features: Dense feature definitions.
-        :param sparse_features: Sparse feature definitions.
-        :param sequence_features: Sequence feature definitions.
-        :param target_columns: Target/label columns.
-        :param id_columns: Optional ID columns to append.
-        :param chunk_size: Rows per chunk when reading.
-        :param file_type: ``\"csv\"`` or ``\"parquet\"``.
-        :param processor: Optional fitted ``DataProcessor``.
         """
 
         self.file_paths = file_paths
-        self.dense_features = dense_features
-        self.sparse_features = sparse_features
-        self.sequence_features = sequence_features
-        self.target_columns = target_columns
-        self.id_columns = id_columns or []
         self.chunk_size = chunk_size
         self.file_type = file_type
         self.processor = processor
-        
-        self.all_features = dense_features + sparse_features + sequence_features
-        self.feature_names = [f.name for f in self.all_features]
+
+        self._set_feature_config(dense_features, sparse_features, sequence_features)
+        self._set_target_config(target_columns, id_columns or [])
         self.current_file_index = 0
         self.total_files = len(file_paths)
     
@@ -117,7 +107,6 @@ class FileDataset(IterableDataset):
             elif self.file_type == 'parquet':
                 yield from self._read_parquet_chunks(file_path)
         
-        # Close file progress bar
         if self._file_pbar is not None:
             self._file_pbar.close()
     
@@ -142,7 +131,7 @@ class FileDataset(IterableDataset):
         :param file_path: Path to the Parquet file.
         :yields: Tensor tuples for each batch.
         """
-        import pyarrow.parquet as pq
+
         parquet_file = pq.ParquetFile(file_path)
         for batch in parquet_file.iter_batches(batch_size=self.chunk_size):
             chunk = batch.to_pandas()            
@@ -165,17 +154,17 @@ class FileDataset(IterableDataset):
         else:
             transformed_data = df
 
-        return _build_tensors_from_data(
+        return build_tensors_from_data(
             data=transformed_data,
             raw_data=df,
             features=self.all_features,
             target_columns=self.target_columns,
             id_columns=self.id_columns,
-            on_missing_feature="warn",
+            on_missing_feature="raise",
         )
 
 
-class RecDataLoader:
+class RecDataLoader(FeatureConfig):
     """
     Convenience wrapper for building PyTorch ``DataLoader`` objects for recommendation models.
 
@@ -221,14 +210,9 @@ class RecDataLoader:
         :param processor: Optional fitted ``DataProcessor`` for preprocessing.
         """
 
-        self.dense_features = dense_features if dense_features else []
-        self.sparse_features = sparse_features if sparse_features else []
-        self.sequence_features = sequence_features if sequence_features else []
         self.processor = processor
-        self.all_features = self.dense_features + self.sparse_features + self.sequence_features
-
-        self.target_columns = [target] if isinstance(target, str) else (target if isinstance(target, list) else [])
-        self.id_columns = [id_columns] if isinstance(id_columns, str) else (id_columns if isinstance(id_columns, list) else [])
+        self._set_feature_config(dense_features, sparse_features, sequence_features)
+        self._set_target_config(target, id_columns)
 
     def create_dataloader(self,
                          data: Union[dict, pd.DataFrame, str, DataLoader],
@@ -276,7 +260,7 @@ class RecDataLoader:
             assert self.processor.is_fitted, "DataProcessor must be fitted before using in RecDataLoader"
             data = self.processor.transform(data, return_dict=True)
 
-        tensors = _build_tensors_from_data(
+        tensors = build_tensors_from_data(
             data=data,
             raw_data=raw_data,
             features=self.all_features,
@@ -307,47 +291,44 @@ class RecDataLoader:
         :returns: A ``DataLoader`` (in-memory or streaming).
         """
 
-        path_obj = Path(path)
-        
-        # Determine if it's a file or directory
-        if path_obj.is_file():
-            file_paths = [str(path_obj)]
-            file_type = self._get_file_type(str(path_obj))
-        elif path_obj.is_dir():
-            # Find all CSV and Parquet files in directory
-            csv_files = glob.glob(os.path.join(path, "*.csv"))
-            parquet_files = glob.glob(os.path.join(path, "*.parquet"))
-            assert not (csv_files and parquet_files), "Directory contains both CSV and Parquet files. Please use a single format."
-            
-            file_paths = csv_files if csv_files else parquet_files
-            assert file_paths, f"No CSV or Parquet files found in directory: {path}"
-            
-            file_type = 'csv' if csv_files else 'parquet'
-            file_paths.sort()  # Sort for consistent ordering
-        else:
-            raise ValueError(f"Invalid path: {path}")
+        file_paths, file_type = resolve_file_paths(str(Path(path)))
         
         # Load full data into memory
         if load_full:
             dfs = []
+            total_bytes = 0
             for file_path in file_paths:
-                if file_type == 'csv':
-                    df = pd.read_csv(file_path)
-                else:  # parquet
-                    df = pd.read_parquet(file_path)
-                dfs.append(df)
+                try:
+                    total_bytes += os.path.getsize(file_path)
+                except OSError:
+                    pass
+                try:
+                    df = read_table(file_path, file_type)
+                    dfs.append(df)
+                except MemoryError as exc:
+                    raise MemoryError(
+                        f"Out of memory while reading {file_path}. "
+                        f"Consider using load_full=False with streaming."
+                    ) from exc
             
-            combined_df = pd.concat(dfs, ignore_index=True)
+            try:
+                combined_df = pd.concat(dfs, ignore_index=True)
+            except MemoryError as exc:
+                raise MemoryError(
+                    f"Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). "
+                    f"Use load_full=False to stream or reduce chunk_size."
+                ) from exc
+
             return self._create_from_memory(combined_df, batch_size, shuffle)
         else:
-            return self._load_files_streaming(file_paths, file_type, batch_size, chunk_size)
-    
+            return self._load_files_streaming(file_paths, file_type, batch_size, chunk_size, shuffle)
 
     def _load_files_streaming(self,
                              file_paths: list[str],
-                             file_type: Literal['csv', 'parquet'],
+                             file_type: str,
                              batch_size: int,
-                             chunk_size: int) -> DataLoader:
+                             chunk_size: int,
+                             shuffle: bool) -> DataLoader:
         """
         Create a streaming ``DataLoader`` that yields chunked tensors from files.
 
@@ -358,7 +339,16 @@ class RecDataLoader:
         :returns: Streaming ``DataLoader`` with custom ``collate_fn``.
         """
         
-        # Create FileDataset for streaming
+        if shuffle:
+            logging.warning(colorize("Shuffle is ignored in streaming mode (IterableDataset).", "yellow"))
+
+        if batch_size != 1:
+            logging.warning(colorize(
+                "Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput.",
+                "yellow",
+            ))
+        effective_batch_size = 1
+
         dataset = FileDataset(
             file_paths=file_paths,
             dense_features=self.dense_features,
@@ -371,23 +361,7 @@ class RecDataLoader:
             processor=self.processor
         )
         
-        return DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
-    
-    def _get_file_type(self, file_path: str) -> Literal['csv', 'parquet']:
-        """
-        Infer file type from extension.
-
-        :param file_path: Path to a file.
-        :returns: ``\"csv\"`` or ``\"parquet\"``.
-        :raises ValueError: If extension is unsupported.
-        """
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == '.csv':
-            return 'csv'
-        elif ext == '.parquet':
-            return 'parquet'
-        else:
-            raise ValueError(f"Unsupported file type: {ext}")
+        return DataLoader(dataset, batch_size=effective_batch_size, collate_fn=collate_fn)
 
 def _normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
     """
@@ -400,43 +374,58 @@ def _normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
     if isinstance(column, pd.Series):
         column = column.tolist()
 
-    if isinstance(column, list):
+    if isinstance(column, (list, tuple)):
         column = np.array(column, dtype=object)
 
-    if isinstance(column, np.ndarray):
-        if column.dtype == object and len(column) > 0 and isinstance(column[0], (list, tuple, np.ndarray)):
-            try:
-                column = np.stack([np.asarray(seq, dtype=np.int64) for seq in column])
-            except Exception:
-                sequences = []
-                max_len = getattr(feature, "max_len", 0)
-                for seq in column:
-                    arr = np.asarray(seq, dtype=np.int64) if isinstance(seq, (list, tuple, np.ndarray)) else np.array([], dtype=np.int64)
-                    sequences.append(arr)
-                if max_len == 0:
-                    max_len = max((len(seq) for seq in sequences), default=1)
-                padded = []
-                for seq in sequences:
-                    if len(seq) > max_len:
-                        padded.append(seq[:max_len])
-                    else:
-                        pad_value = getattr(feature, "padding_idx", 0)
-                        padded.append(np.pad(seq, (0, max_len - len(seq)), constant_values=pad_value))
-                column = np.stack(padded)
-        elif column.ndim == 1:
-            column = column.reshape(-1, 1)
+    if not isinstance(column, np.ndarray):
+        column = np.array([column], dtype=object)
+
+    if column.ndim == 0:
+        column = column.reshape(1)
+
+    if column.dtype == object and any(isinstance(v, str) for v in column.ravel()):
+        raise TypeError(
+            f"Sequence feature '{feature.name}' expects numeric sequences; found string values."
+        )
+
+    if column.dtype == object and len(column) > 0 and isinstance(column[0], (list, tuple, np.ndarray)):
+        sequences = []
+        for seq in column:
+            if isinstance(seq, str):
+                raise TypeError(
+                    f"Sequence feature '{feature.name}' expects numeric sequences; found string values."
+                )
+            if isinstance(seq, (list, tuple, np.ndarray)):
+                arr = np.asarray(seq, dtype=np.int64)
+            else:
+                arr = np.asarray([seq], dtype=np.int64)
+            sequences.append(arr)
+
+        max_len = getattr(feature, "max_len", 0)
+        if max_len <= 0:
+            max_len = max((len(seq) for seq in sequences), default=1)
+
+        pad_value = getattr(feature, "padding_idx", 0)
+        padded = []
+        for seq in sequences:
+            if len(seq) > max_len:
+                padded.append(seq[:max_len])
+            else:
+                padded.append(np.pad(seq, (0, max_len - len(seq)), constant_values=pad_value))
+        column = np.stack(padded)
+    elif column.ndim == 1:
+        column = column.reshape(-1, 1)
 
     return np.asarray(column, dtype=np.int64)
 
 
-def _build_tensors_from_data(  # noqa: C901
+def build_tensors_from_data(  # noqa: C901
     data: dict | pd.DataFrame,
     raw_data: dict | pd.DataFrame,
     features: list,
     target_columns: list[str],
     id_columns: list[str],
-    *,
-    on_missing_feature: Literal["warn", "raise"] = "raise",
+    on_missing_feature: str = "raise",
 ) -> tuple | None:
     """
     Shared routine to convert structured data into a tuple of tensors.
@@ -469,19 +458,19 @@ def _build_tensors_from_data(  # noqa: C901
         tensors.append(tensor)
 
     label_tensors = []
-    for target_name in target_columns:
-        column = get_column_data(data, target_name)
-        if column is None:
-            continue
+    if target_columns:
+        for target_name in target_columns:
+            column = get_column_data(data, target_name)
+            assert column is not None, f"Target column '{target_name}' not found in data."
 
-        label_tensor = torch.from_numpy(np.asarray(column, dtype=np.float32))
+            label_tensor = torch.from_numpy(np.asarray(column, dtype=np.float32))
 
-        if label_tensor.dim() == 1:
-            label_tensor = label_tensor.view(-1, 1)
-        elif label_tensor.dim() == 2 and label_tensor.shape[0] == 1 and label_tensor.shape[1] > 1:
-            label_tensor = label_tensor.t()
+            if label_tensor.dim() == 1:
+                label_tensor = label_tensor.view(-1, 1)
+            elif label_tensor.dim() == 2 and label_tensor.shape[0] == 1 and label_tensor.shape[1] > 1:
+                label_tensor = label_tensor.t()
 
-        label_tensors.append(label_tensor)
+            label_tensors.append(label_tensor)
 
     if label_tensors:
         if len(label_tensors) == 1 and label_tensors[0].shape[1] > 1:
@@ -518,3 +507,7 @@ def _build_tensors_from_data(  # noqa: C901
         return None
 
     return tuple(tensors)
+
+
+# Backward compatible alias
+_build_tensors_from_data = build_tensors_from_data

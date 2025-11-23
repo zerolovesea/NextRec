@@ -4,6 +4,14 @@ nextrec.data package
 Submodules
 ----------
 
+nextrec.data.dataloader module
+-------------------------------
+
+.. automodule:: nextrec.data.dataloader
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 nextrec.data.data\_utils module
 -------------------------------
 

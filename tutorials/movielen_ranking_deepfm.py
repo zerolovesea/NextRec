@@ -16,12 +16,12 @@ def example_movielens_100k_deepfm():
     """Example: MovieLens 100K for rating prediction."""
     df = pd.read_csv("dataset/movielens_100k.csv")
 
-    processor = DataProcessor()
+    processor = DataProcessor(session_id="movielens_deepfm")
     processor.add_sparse_feature('movie_title', encode_method='hash', hash_size=1000)
     processor.fit(df)
 
     df = processor.transform(df, return_dict=False)
-
+    processor.save(save_path="movielens_deepfm_processor")
     print(f"\nSample training data:")
     print(df.head())
 
@@ -46,14 +46,14 @@ def example_movielens_100k_deepfm():
         optimizer="adam",
         optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
         device='cpu',
-        model_id="movielens_deepfm"
+        session_id="/Users/zyaztec/Downloads/movielens_deepfm"
     )
     
     model.fit(
         train_data=train_df,
         valid_data=test_df,
         metrics=['auc', 'recall','precision'],
-        epochs=10,  
+        epochs=1,  
         batch_size=512,
         shuffle=True
     )

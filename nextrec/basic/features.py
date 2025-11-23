@@ -4,9 +4,9 @@ Feature definitions
 Date: create on 27/10/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
-
-from typing import Optional
-from nextrec.utils import get_auto_embedding_dim
+from __future__ import annotations
+from typing import List, Sequence, Optional    
+from nextrec.utils.embedding import get_auto_embedding_dim
 
 class BaseFeature(object):
     def __repr__(self):
@@ -25,9 +25,9 @@ class SequenceFeature(BaseFeature):
         vocab_size: int,
         max_len: int = 20,
         embedding_name: str = '',
-        embedding_dim: Optional[int] = 4,
+        embedding_dim: int | None = 4,
         combiner: str = "mean",
-        padding_idx: Optional[int] = None,
+        padding_idx: int | None = None,
         init_type: str='normal',
         init_params: dict|None = None,
         l1_reg: float = 0.0,
@@ -54,7 +54,7 @@ class SparseFeature(BaseFeature):
                  name: str, 
                  vocab_size: int, 
                  embedding_name: str = '', 
-                 embedding_dim: int = 4, 
+                 embedding_dim: int | None  = 4, 
                  padding_idx: int | None = None,
                  init_type: str='normal',
                  init_params: dict|None = None,
@@ -83,4 +83,36 @@ class DenseFeature(BaseFeature):
         self.embedding_dim = embedding_dim
 
 
+class FeatureConfig:
+    """
+    Mixin that normalizes dense/sparse/sequence feature lists and target/id columns.
+    """
 
+    def _set_feature_config(
+        self,
+        dense_features: Sequence[DenseFeature] | None = None,
+        sparse_features: Sequence[SparseFeature] | None = None,
+        sequence_features: Sequence[SequenceFeature] | None = None,
+    ) -> None:
+        self.dense_features: List[DenseFeature] = list(dense_features) if dense_features else []
+        self.sparse_features: List[SparseFeature] = list(sparse_features) if sparse_features else []
+        self.sequence_features: List[SequenceFeature] = list(sequence_features) if sequence_features else []
+
+        self.all_features = self.dense_features + self.sparse_features + self.sequence_features
+        self.feature_names = [feat.name for feat in self.all_features]
+
+    def _set_target_config(
+        self,
+        target: str | Sequence[str] | None = None,
+        id_columns: str | Sequence[str] | None = None,
+    ) -> None:
+        self.target_columns = self._normalize_to_list(target)
+        self.id_columns = self._normalize_to_list(id_columns)
+
+    @staticmethod
+    def _normalize_to_list(value: str | Sequence[str] | None) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        return list(value)

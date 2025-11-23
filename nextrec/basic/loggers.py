@@ -5,12 +5,15 @@ Date: create on 27/10/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
+
 import os
 import re
 import sys
 import copy
 import datetime
 import logging
+from pathlib import Path
+from nextrec.basic.session import resolve_save_path, create_session
 
 ANSI_CODES = {
     'black': '\033[30m',
@@ -88,16 +91,19 @@ def colorize(text: str, color: str | None = None, bold: bool = False) -> str:
 
     return result
 
-def setup_logger(log_dir: str | None = None):
+def setup_logger(session_id: str | os.PathLike | None = None):
     """Set up a logger that logs to both console and a file with ANSI formatting.
-       Only console output has colors; file output is stripped of ANSI codes.    
+       Only console output has colors; file output is stripped of ANSI codes.
+       Logs are stored under ``log/<experiment_id>/logs`` by default. A stable
+       log file is used per experiment so multiple components (e.g. data
+       processor and model training) append to the same file instead of creating
+       separate timestamped files.
     """
-    if log_dir is None:
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_dir = os.path.join(project_root, "..", "logs")
-    
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, f"nextrec_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+
+    session = create_session(str(session_id) if session_id is not None else None)
+    log_dir = session.logs_dir
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{session.experiment_id}.log"
 
     console_format = '%(message)s'
     file_format = '%(asctime)s - %(levelname)s - %(message)s'

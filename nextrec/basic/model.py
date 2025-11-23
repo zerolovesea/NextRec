@@ -6,29 +6,34 @@ Author: Yang Zhou,zyaztec@gmail.com
 """
 
 import os
-import tqdm
-import torch
-import logging
 import datetime
+import logging
+import os
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tqdm
 
 from typing import Union, Literal
 from torch.utils.data import DataLoader, TensorDataset
 
 from nextrec.basic.callback import EarlyStopper
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureConfig
 from nextrec.basic.metrics import configure_metrics, evaluate_metrics
 
+from nextrec.loss import get_loss_fn
 from nextrec.data import get_column_data
+from nextrec.data.dataloader import build_tensors_from_data
 from nextrec.basic.loggers import setup_logger, colorize
 from nextrec.utils import get_optimizer_fn, get_scheduler_fn
-from nextrec.loss import get_loss_fn
+from nextrec.basic.session import resolve_save_path, create_session
 
 
-class BaseModel(nn.Module):
+class BaseModel(FeatureConfig, nn.Module):
     @property
     def model_name(self) -> str:
         raise NotImplementedError
@@ -42,6 +47,7 @@ class BaseModel(nn.Module):
                  sparse_features: list[SparseFeature] | None = None, 
                  sequence_features: list[SequenceFeature] | None = None,
                  target: list[str] | str | None = None,
+                 id_columns: list[str] | str | None = None,
                  task: str|list[str] = 'binary',
                  device: str = 'cpu',
                  embedding_l1_reg: float = 0.0,
@@ -49,26 +55,40 @@ class BaseModel(nn.Module):
                  embedding_l2_reg: float = 0.0, 
                  dense_l2_reg: float = 0.0,
                  early_stop_patience: int = 20, 
-                 model_path: str = './',
-                 model_id: str = 'baseline'): 
+                 session_id: str | None = None,): 
         
         super(BaseModel, self).__init__()
 
         try:
             self.device = torch.device(device)
         except Exception as e:
-            logging.warning(colorize("Invalid device , defaulting to CPU.", color='yellow'))
+            logging.warning("Invalid device , defaulting to CPU.")
             self.device = torch.device('cpu')
 
-        self.dense_features = list(dense_features) if dense_features is not None else []
-        self.sparse_features = list(sparse_features) if sparse_features is not None else []
-        self.sequence_features = list(sequence_features) if sequence_features is not None else []
-        
-        if isinstance(target, str):
-            self.target = [target]
-        else:
-            self.target = list(target) if target is not None else []
-        
+        self.session_id = session_id
+        self.session = create_session(session_id)
+        self.session_path = Path(self.session.logs_dir)
+        checkpoint_dir = self.session.checkpoints_dir / self.model_name
+
+        self.checkpoint = resolve_save_path(
+            path=None,
+            default_dir=checkpoint_dir,
+            default_name=self.model_name,
+            suffix=".model",
+            add_timestamp=True,
+        )
+
+        self.best = resolve_save_path(
+            path="best.model",
+            default_dir=checkpoint_dir,
+            default_name="best",
+            suffix=".model",
+        )
+
+        self._set_feature_config(dense_features, sparse_features, sequence_features)
+        self._set_target_config(target, id_columns)
+
+        self.target = self.target_columns
         self.target_index = {target_name: idx for idx, target_name in enumerate(self.target)}
 
         self.task = task
@@ -84,14 +104,6 @@ class BaseModel(nn.Module):
 
         self.early_stop_patience = early_stop_patience
         self._max_gradient_norm = 1.0   # Maximum gradient norm for gradient clipping
-
-        self.model_id = model_id
-
-        model_path = os.path.abspath(os.getcwd() if model_path in [None, './'] else model_path)
-        checkpoint_dir = os.path.join(model_path, "checkpoints", self.model_id)
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        self.checkpoint = os.path.join(checkpoint_dir, f"{self.model_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.model")
-        self.best = os.path.join(checkpoint_dir, f"{self.model_name}_{self.model_id}_best.model")
 
         self._logger_initialized = False
         self._verbose = 1
@@ -455,54 +467,15 @@ class BaseModel(nn.Module):
     def _prepare_data_loader(self, data: dict|pd.DataFrame|DataLoader, batch_size: int = 32, shuffle: bool = True):
         if isinstance(data, DataLoader):
             return data
-        tensors = []
-        all_features = self.dense_features + self.sparse_features + self.sequence_features
-        
-        for feature in all_features:
-            column = get_column_data(data, feature.name)
-            if column is None:
-                raise KeyError(f"Feature {feature.name} not found in provided data.")
-            
-            if isinstance(feature, SequenceFeature):
-                if isinstance(column, pd.Series):
-                    column = column.values
-                if isinstance(column, np.ndarray) and column.dtype == object:
-                    column = np.array([np.array(seq, dtype=np.int64) if not isinstance(seq, np.ndarray) else seq for seq in column])
-                if isinstance(column, np.ndarray) and column.ndim == 1 and column.dtype == object:
-                    column = np.vstack([c if isinstance(c, np.ndarray) else np.array(c) for c in column])  # type: ignore
-                tensor = torch.from_numpy(np.asarray(column, dtype=np.int64)).to('cpu')
-            else:
-                dtype = torch.float32 if isinstance(feature, DenseFeature) else torch.long
-                tensor = self._to_tensor(column, dtype=dtype, device='cpu')
-            
-            tensors.append(tensor)
-        
-        label_tensors = []
-        for target_name in self.target:
-            column = get_column_data(data, target_name)
-            if column is None:
-                continue
-            label_tensor = self._to_tensor(column, dtype=torch.float32, device='cpu')
-            
-            if label_tensor.dim() == 1:
-                # 1D tensor: (N,) -> (N, 1)
-                label_tensor = label_tensor.view(-1, 1)
-            elif label_tensor.dim() == 2:
-                if label_tensor.shape[0] == 1 and label_tensor.shape[1] > 1:
-                    label_tensor = label_tensor.t()
-            
-            label_tensors.append(label_tensor)
-        
-        if label_tensors:
-            if len(label_tensors) == 1 and label_tensors[0].shape[1] > 1:
-                y_tensor = label_tensors[0]
-            else:
-                y_tensor = torch.cat(label_tensors, dim=1)
-
-            if y_tensor.shape[1] == 1:
-                y_tensor = y_tensor.squeeze(1)
-            tensors.append(y_tensor)
-        
+        tensors = build_tensors_from_data(
+            data=data,
+            raw_data=data,
+            features=self.all_features,
+            target_columns=self.target,
+            id_columns=getattr(self, "id_columns", []),
+            on_missing_feature="raise",
+        )
+        assert tensors is not None, "No tensors were created from provided data."
         dataset = TensorDataset(*tensors)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
@@ -548,7 +521,7 @@ class BaseModel(nn.Module):
 
         self.to(self.device)
         if not self._logger_initialized:
-            setup_logger()
+            setup_logger(session_id=self.session_id)
             self._logger_initialized = True
         self._verbose = verbose
         self._set_metrics(metrics) # add self.metrics, self.task_specific_metrics, self.best_metrics_mode, self.early_stopper
@@ -975,7 +948,11 @@ class BaseModel(nn.Module):
         )
 
 
-    def predict(self, data: str|dict|pd.DataFrame|DataLoader, batch_size: int = 32) -> np.ndarray:
+    def predict(self, 
+                data: str|dict|pd.DataFrame|DataLoader, 
+                batch_size: int = 32,
+                save_path: str | os.PathLike | None = None,
+                save_format: Literal["npy", "csv"] = "npy") -> np.ndarray:
         self.eval()
         # todo: handle file path input later
         if isinstance(data, (str, os.PathLike)):
@@ -998,12 +975,38 @@ class BaseModel(nn.Module):
 
         if len(y_pred_list) > 0:
             y_pred_all = np.concatenate(y_pred_list, axis=0)
-            return y_pred_all
         else:
-            return np.array([])
+            y_pred_all = np.array([])
+
+        if save_path is not None:
+            suffix = ".npy" if save_format == "npy" else ".csv"
+            target_path = resolve_save_path(
+                path=save_path,
+                default_dir=self.session.predictions_dir,
+                default_name="predictions",
+                suffix=suffix,
+                add_timestamp=True if save_path is None else False,
+            )
+
+            if save_format == "npy":
+                np.save(target_path, y_pred_all)
+            else:
+                pd.DataFrame(y_pred_all).to_csv(target_path, index=False)
+
+            if self._verbose:
+                logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
+
+        return y_pred_all
     
-    def save_weights(self, model_path: str):
-        torch.save(self.state_dict(), model_path)
+    def save_weights(self, model_path: str | os.PathLike | None):
+        target_path = resolve_save_path(
+            path=model_path,
+            default_dir=self.session.checkpoints_dir / self.model_name,
+            default_name=self.model_name,
+            suffix=".model",
+            add_timestamp=model_path is None,
+        )
+        torch.save(self.state_dict(), target_path)
     
     def load_weights(self, checkpoint):
         self.to(self.device)
@@ -1115,7 +1118,7 @@ class BaseModel(nn.Module):
         logger.info("Other Settings:")
         logger.info(f"  Early Stop Patience:   {self.early_stop_patience}")
         logger.info(f"  Max Gradient Norm:     {self._max_gradient_norm}")
-        logger.info(f"  Model ID:              {self.model_id}")
+        logger.info(f"  Session ID:            {self.session_id}")
         logger.info(f"  Checkpoint Path:       {self.checkpoint}")
         
         logger.info("")
@@ -1160,7 +1163,7 @@ class BaseMatchModel(BaseModel):
                  embedding_l2_reg: float = 0.0,
                  dense_l2_reg: float = 0.0,
                  early_stop_patience: int = 20,
-                 model_id: str = 'baseline'):
+                 **kwargs):
         
         all_dense_features = []
         all_sparse_features = []
@@ -1191,7 +1194,7 @@ class BaseMatchModel(BaseModel):
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
             early_stop_patience=early_stop_patience,
-            model_id=model_id
+            **kwargs
         )
         
         self.user_dense_features = list(user_dense_features) if user_dense_features else []

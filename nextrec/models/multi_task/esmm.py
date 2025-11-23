@@ -47,11 +47,11 @@ class ESMM(BaseModel):
                  optimizer_params: dict = {},
                  loss: str | nn.Module | list[str | nn.Module] | None = "bce",
                  device: str = 'cpu',
-                 model_id: str = "baseline",
                  embedding_l1_reg=1e-6,
                  dense_l1_reg=1e-5,
                  embedding_l2_reg=1e-5,
-                 dense_l2_reg=1e-4):
+                 dense_l2_reg=1e-4,
+                 **kwargs):
         
         # ESMM requires exactly 2 targets: ctr and ctcvr
         if len(target) != 2:
@@ -69,7 +69,7 @@ class ESMM(BaseModel):
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
             early_stop_patience=20,
-            model_id=model_id
+            **kwargs
         )
 
         self.loss = loss

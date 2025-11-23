@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.1.11-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.2.1-orange.svg)
 
 English | [中文版](README_zh.md)
 
@@ -67,7 +67,7 @@ model = DeepFM(
     mlp_params={"dims": [256, 128], "activation": "relu", "dropout": 0.5},
     target=target,
     device='cpu',
-    model_id="deepfm_with_processor",
+    session_id="deepfm_with_processor",
     embedding_l1_reg=1e-6,
     dense_l1_reg=1e-5,
     embedding_l2_reg=1e-5,

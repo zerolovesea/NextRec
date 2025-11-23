@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath('../nextrec'))
 project = "NextRec"
 copyright = "2025, Yang Zhou"
 author = "Yang Zhou"
-release = "0.1.11"
+release = "0.2.1"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
