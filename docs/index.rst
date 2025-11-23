@@ -59,7 +59,7 @@ Train and predict on MovieLens-style data:
        sparse_features=sparse_features,
        target="label",
        device="cpu",
-       model_id="deepfm_demo",
+       session_id="deepfm_demo",
    )
 
    model.compile(

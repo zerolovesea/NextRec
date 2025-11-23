@@ -109,7 +109,7 @@ def example_movielens_100k_dssm():
         item_dnn_hidden_units=[256, 128],
         training_mode='pairwise',   
         device='cpu',
-        model_id="movielens_dssm"
+        session_id="movielens_dssm"
     )
 
     model.fit(

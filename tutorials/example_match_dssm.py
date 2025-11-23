@@ -103,7 +103,7 @@ model = DSSM(
     similarity_metric='cosine',
     temperature=0.05,  
     device='mps',
-    model_id='dssm_exp001',
+    session_id='dssm_exp001',
 )
 
 print(f"Model: {model.model_name}")

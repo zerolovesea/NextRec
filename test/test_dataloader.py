@@ -14,7 +14,7 @@ import torch
 from torch.utils.data import DataLoader
 import logging
 
-from nextrec.basic.dataloader import RecDataLoader
+from nextrec.data.dataloader import RecDataLoader
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 logger = logging.getLogger(__name__)

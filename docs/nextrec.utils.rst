@@ -4,14 +4,6 @@ nextrec.utils package
 Submodules
 ----------
 
-nextrec.utils.common module
----------------------------
-
-.. automodule:: nextrec.utils.common
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 nextrec.utils.embedding module
 ------------------------------
 

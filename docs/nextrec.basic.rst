@@ -20,14 +20,6 @@ nextrec.basic.callback module
    :undoc-members:
    :show-inheritance:
 
-nextrec.basic.dataloader module
--------------------------------
-
-.. automodule:: nextrec.basic.dataloader
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 nextrec.basic.features module
 -----------------------------
 

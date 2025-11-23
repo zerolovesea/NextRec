@@ -3,6 +3,8 @@
 import torch
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
+from pathlib import Path
 
 def collate_fn(batch):
     """Collate a list of tensor tuples from ``FileDataset`` into batched tensors."""
@@ -14,7 +16,20 @@ def collate_fn(batch):
     
     for i in range(num_tensors):
         tensor_list = [item[i] for item in batch]
-        stacked = torch.cat(tensor_list, dim=0)
+        first = tensor_list[0]
+
+        if isinstance(first, torch.Tensor):
+            stacked = torch.cat(tensor_list, dim=0)
+        elif isinstance(first, np.ndarray):
+            stacked = np.concatenate(tensor_list, axis=0)
+        elif isinstance(first, list):
+            combined = []
+            for entry in tensor_list:
+                combined.extend(entry)
+            stacked = combined
+        else:
+            stacked = tensor_list
+
         result.append(stacked)
     
     return tuple(result)
@@ -32,6 +47,62 @@ def get_column_data(data: dict | pd.DataFrame, name: str):
         if hasattr(data, name):
             return getattr(data, name)
         raise KeyError(f"Unsupported data type for extracting column {name}")
+
+
+def resolve_file_paths(path: str) -> tuple[list[str], str]:
+    """Resolve file or directory path into a sorted list of files and file type."""
+    path_obj = Path(path)
+
+    if path_obj.is_file():
+        file_type = path_obj.suffix.lower().lstrip(".")
+        assert file_type in ["csv", "parquet"], f"Unsupported file extension: {file_type}"
+        return [str(path_obj)], file_type
+
+    if path_obj.is_dir():
+        collected_files = [p for p in path_obj.iterdir() if p.is_file()]
+        csv_files = [str(p) for p in collected_files if p.suffix.lower() == ".csv"]
+        parquet_files = [str(p) for p in collected_files if p.suffix.lower() == ".parquet"]
+
+        if csv_files and parquet_files:
+            raise ValueError("Directory contains both CSV and Parquet files. Please keep a single format.")
+        file_paths = csv_files if csv_files else parquet_files
+        if not file_paths:
+            raise ValueError(f"No CSV or Parquet files found in directory: {path}")
+        file_paths.sort()
+        file_type = "csv" if csv_files else "parquet"
+        return file_paths, file_type
+
+    raise ValueError(f"Invalid path: {path}")
+
+
+def iter_file_chunks(file_path: str, file_type: str, chunk_size: int):
+    """Yield DataFrame chunks for CSV/Parquet without loading the whole file."""
+    if file_type == "csv":
+        yield from pd.read_csv(file_path, chunksize=chunk_size)
+        return
+    parquet_file = pq.ParquetFile(file_path)
+    for batch in parquet_file.iter_batches(batch_size=chunk_size):
+        yield batch.to_pandas()
+
+
+def read_table(file_path: str, file_type: str) -> pd.DataFrame:
+    """Read a single CSV/Parquet file."""
+    if file_type == "csv":
+        return pd.read_csv(file_path)
+    return pd.read_parquet(file_path)
+
+
+def load_dataframes(file_paths: list[str], file_type: str) -> list[pd.DataFrame]:
+    """Load multiple files of the same type into DataFrames."""
+    return [read_table(fp, file_type) for fp in file_paths]
+
+
+def default_output_dir(path: str) -> Path:
+    """Generate a default output directory path based on the input path."""
+    path_obj = Path(path)
+    if path_obj.is_file():
+        return path_obj.parent / f"{path_obj.stem}_preprocessed"
+    return path_obj.with_name(f"{path_obj.name}_preprocessed")
 
 
 def split_dict_random(data_dict: dict, test_size: float=0.2, random_state:int|None=None):

@@ -71,6 +71,7 @@ uv.lock
 # Log files
 logs/
 *.log
+nextrec_logs/
 
 # Checkpoints
 checkpoints/
@@ -121,6 +122,7 @@ linux_train_tutorial.py
 
 # DataProcessor saved files
 processor/
+session/
 
 pypirc.template
 

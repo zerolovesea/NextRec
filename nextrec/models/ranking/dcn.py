@@ -36,11 +36,11 @@ class DCN(BaseModel):
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
                  device: str = 'cpu',
-                 model_id: str = "baseline",
                  embedding_l1_reg=1e-6,
                  dense_l1_reg=1e-5,
                  embedding_l2_reg=1e-5,
-                 dense_l2_reg=1e-4):
+                 dense_l2_reg=1e-4,
+                 **kwargs):
         
         super(DCN, self).__init__(
             dense_features=dense_features,
@@ -54,7 +54,7 @@ class DCN(BaseModel):
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
             early_stop_patience=20,
-            model_id=model_id
+            **kwargs
         )
 
         self.loss = loss

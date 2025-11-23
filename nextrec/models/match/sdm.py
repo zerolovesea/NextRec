@@ -52,7 +52,7 @@ class SDM(BaseMatchModel):
                  embedding_l2_reg: float = 0.0,
                  dense_l2_reg: float = 0.0,
                  early_stop_patience: int = 20,
-                 model_id: str = 'sdm'):
+                 **kwargs):
         
         super(SDM, self).__init__(
             user_dense_features=user_dense_features,
@@ -71,7 +71,7 @@ class SDM(BaseMatchModel):
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
             early_stop_patience=early_stop_patience,
-            model_id=model_id
+            **kwargs
         )
         
         self.embedding_dim = embedding_dim
