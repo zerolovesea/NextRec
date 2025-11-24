@@ -127,4 +127,4 @@ session/
 pypirc.template
 
 # Sphinx build
-docs/_build/
+docs/rtd/_build/

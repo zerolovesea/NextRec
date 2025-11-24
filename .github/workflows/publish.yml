@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # dev 分支 -> TestPyPI
+  # dev -> TestPyPI
   publish-to-testpypi:
     if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
@@ -36,7 +36,7 @@ jobs:
         run: |
           twine upload --verbose --repository testpypi dist/*
 
-  # main 分支 -> 正式 PyPI
+  # main -> PyPI
   publish-to-pypi:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

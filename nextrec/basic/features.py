@@ -83,7 +83,7 @@ class DenseFeature(BaseFeature):
         self.embedding_dim = embedding_dim
 
 
-class FeatureConfig:
+class FeatureSpecMixin:
     """
     Mixin that normalizes dense/sparse/sequence feature lists and target/id columns.
     """
@@ -116,3 +116,4 @@ class FeatureConfig:
         if isinstance(value, str):
             return [value]
         return list(value)
+

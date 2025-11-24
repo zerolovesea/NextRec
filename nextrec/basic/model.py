@@ -19,7 +19,7 @@ from typing import Union, Literal
 from torch.utils.data import DataLoader, TensorDataset
 
 from nextrec.basic.callback import EarlyStopper
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureConfig
+from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSpecMixin
 from nextrec.basic.metrics import configure_metrics, evaluate_metrics
 
 from nextrec.loss import get_loss_fn, get_loss_kwargs
@@ -30,7 +30,7 @@ from nextrec.utils import get_optimizer, get_scheduler
 from nextrec.basic.session import resolve_save_path, create_session
 
 
-class BaseModel(FeatureConfig, nn.Module):
+class BaseModel(FeatureSpecMixin, nn.Module):
     @property
     def model_name(self) -> str:
         raise NotImplementedError

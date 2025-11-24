@@ -17,7 +17,7 @@ from typing import Iterator, Literal, Union, Optional
 
 from torch.utils.data import DataLoader, TensorDataset, IterableDataset
 from nextrec.data.preprocessor import DataProcessor
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureConfig
+from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSpecMixin
 
 from nextrec.basic.loggers import colorize
 from nextrec.data import (
@@ -28,7 +28,7 @@ from nextrec.data import (
 )
 
 
-class FileDataset(FeatureConfig, IterableDataset):
+class FileDataset(FeatureSpecMixin, IterableDataset):
     """
     Iterable dataset that streams CSV/Parquet files in chunks and yields tensor tuples.
 
@@ -164,7 +164,7 @@ class FileDataset(FeatureConfig, IterableDataset):
         )
 
 
-class RecDataLoader(FeatureConfig):
+class RecDataLoader(FeatureSpecMixin):
     """
     Convenience wrapper for building PyTorch ``DataLoader`` objects for recommendation models.
 

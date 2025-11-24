@@ -18,9 +18,7 @@ from nextrec.data.data_utils import (
     read_table,
     load_dataframes,
 )
-from nextrec.basic.features import FeatureConfig
-
-# For backward compatibility, keep utils accessible
+from nextrec.basic.features import FeatureSpecMixin
 from nextrec.data import data_utils
 
 __all__ = [
@@ -33,6 +31,6 @@ __all__ = [
     'iter_file_chunks',
     'read_table',
     'load_dataframes',
-    'FeatureConfig',
+    'FeatureSpecMixin',
     'data_utils',
 ]

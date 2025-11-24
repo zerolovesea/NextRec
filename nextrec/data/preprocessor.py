@@ -31,9 +31,9 @@ from nextrec.data.data_utils import (
     default_output_dir,
 )
 from nextrec.basic.session import create_session, resolve_save_path
-from nextrec.basic.features import FeatureConfig
+from nextrec.basic.features import FeatureSpecMixin
 
-class DataProcessor(FeatureConfig):
+class DataProcessor(FeatureSpecMixin):
     """DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
     
     Examples:

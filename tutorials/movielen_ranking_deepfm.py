@@ -43,12 +43,16 @@ def example_movielens_100k_deepfm():
         sparse_features=sparse_features,
         mlp_params={"dims": [256, 128], "activation": "relu", "dropout": 0.2},
         target='label',
-        optimizer="adam",
-        optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
         device='cpu',
         session_id="/Users/zyaztec/Downloads/movielens_deepfm"
     )
     
+    model.compile(
+        optimizer="adam",
+        optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
+        loss='binary_crossentropy',
+    )
+
     model.fit(
         train_data=train_df,
         valid_data=test_df,
