@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.2.5-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.2.6-orange.svg)
 
 [English Version](README.md) | 中文版
 

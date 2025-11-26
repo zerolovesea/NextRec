@@ -614,7 +614,8 @@ class DataProcessor(FeatureSpecMixin):
             columns_dict = {}
             for key, value in result.items():
                 if key in self.sequence_features:
-                    columns_dict[key] = [list(seq) for seq in value]
+                    # Use tolist to coerce numpy scalars to native Python ints for stable CSV rendering
+                    columns_dict[key] = [np.asarray(seq).tolist() for seq in value]
                 else:
                     columns_dict[key] = value
             return pd.DataFrame(columns_dict)
@@ -769,7 +770,7 @@ class DataProcessor(FeatureSpecMixin):
             default_dir=Path(os.getcwd()),
             default_name="fitted_processor",
             suffix=".pkl",
-            add_timestamp=True
+            add_timestamp=False
         )
         state = {
             "numeric_features": self.numeric_features,

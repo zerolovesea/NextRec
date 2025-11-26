@@ -115,11 +115,7 @@ dmypy.json
 .temp/
 
 # test files
-local_deepfm.py
-local_mmoe.py
-online_test.py
-linux_train_tutorial.py
-linux_predict_tutorial.py
+*iflytek*
 
 # DataProcessor saved files
 processor/
