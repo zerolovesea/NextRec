@@ -37,6 +37,5 @@ __all__ = [
     # Utilities
     "get_loss_fn",
     "get_loss_kwargs",
-    "validate_training_mode",
     "VALID_TASK_TYPES",
 ]
