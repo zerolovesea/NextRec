@@ -49,10 +49,6 @@ __all__ = [
 
 
 class PredictionLayer(nn.Module):
-    _CLASSIFICATION_TASKS = {"classification", "binary", "ctr", "ranking", "match", "matching"}
-    _REGRESSION_TASKS = {"regression", "continuous"}
-    _MULTICLASS_TASKS = {"multiclass", "softmax"}
-
     def __init__(
         self,
         task_type: Union[str, Sequence[str]] = "binary",
@@ -131,11 +127,11 @@ class PredictionLayer(nn.Module):
 
     def _get_activation(self, task_type: str):
         task = task_type.lower()
-        if task in self._CLASSIFICATION_TASKS:
+        if task in ['binary','multiclass']:
             return torch.sigmoid
-        if task in self._REGRESSION_TASKS:
+        if task in ['regression']:
             return lambda x: x
-        if task in self._MULTICLASS_TASKS:
+        if task in ['multiclass']:
             return lambda x: torch.softmax(x, dim=-1)
         raise ValueError(f"Unsupported task_type '{task_type}'.")
 

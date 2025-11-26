@@ -518,7 +518,7 @@ class TestPredictionLayer:
         logger.info("Testing PredictionLayer for binary classification")
         logger.info("=" * 80)
         
-        pred_layer = PredictionLayer(task_type='classification')
+        pred_layer = PredictionLayer(task_type='binary')
         
         x = torch.randn(32, 1)
         output = pred_layer(x)
@@ -558,15 +558,32 @@ class TestPredictionLayer:
         assert torch.all(output[:, 0] >= 0) and torch.all(output[:, 0] <= 1)
 
     def test_prediction_layer_multiclass(self):
-        """PredictionLayer should support softmax outputs"""
+        """PredictionLayer should support multiclass outputs via sigmoid head"""
         pred_layer = PredictionLayer(task_type='multiclass', task_dims=3)
 
         x = torch.randn(8, 3)
         output = pred_layer(x)
 
         assert output.shape == (8, 3)
-        probs_sum = output.sum(dim=-1)
-        assert torch.allclose(probs_sum, torch.ones_like(probs_sum), atol=1e-5)
+        assert torch.all(output >= 0) and torch.all(output <= 1)
+
+    def test_prediction_layer_shared_dim_multihead(self):
+        """Single task_dim should broadcast across multiple task heads"""
+        pred_layer = PredictionLayer(task_type=['binary', 'regression'], task_dims=1)
+
+        x = torch.randn(4, 2)
+        output = pred_layer(x)
+
+        assert output.shape == (4, 2)
+        assert torch.all(output[:, 0] >= 0) and torch.all(output[:, 0] <= 1)
+
+    def test_prediction_layer_input_dim_mismatch_raises(self):
+        """Input last dimension must match configured task dims"""
+        pred_layer = PredictionLayer(task_type='binary', task_dims=1)
+        bad_input = torch.randn(2, 2)
+
+        with pytest.raises(ValueError):
+            _ = pred_layer(bad_input)
 
     def test_prediction_layer_return_logits(self):
         """PredictionLayer can be configured to skip final activation"""

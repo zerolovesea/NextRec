@@ -102,11 +102,11 @@ model = DIN(
     loss="focal",  # imbalance-friendly loss, see nextrec.loss.pointwise for options
     loss_params={"gamma": 2.0, "alpha": 0.25},  # Example focal loss parameters
     device='mps',
-    session_id="din_exp001",
     embedding_l1_reg=1e-6,
     embedding_l2_reg=1e-5,
     dense_l1_reg=1e-5,
     dense_l2_reg=1e-4,
+    session_id="din_tutorial",
 )
 
 model.compile(
@@ -131,10 +131,9 @@ model.fit(
     train_data=train_df,
     valid_data=valid_df,
     metrics=['auc', 'gauc', 'logloss'],  # Added GAUC metric
-    epochs=8,
+    epochs=3,
     batch_size=512,
     shuffle=True,
-    verbose=1,
     user_id_column='user_id'  # Specify user_id column for GAUC
 )
 

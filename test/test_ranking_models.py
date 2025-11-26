@@ -20,11 +20,15 @@ import logging
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.models.ranking.din import DIN
+from nextrec.models.ranking.fm import FM
 from nextrec.models.ranking.autoint import AutoInt
 from nextrec.models.ranking.widedeep import WideDeep
 from nextrec.models.ranking.xdeepfm import xDeepFM
 from nextrec.models.ranking.dcn import DCN
 from nextrec.models.ranking.dien import DIEN
+from nextrec.models.ranking.fibinet import FiBiNET
+from nextrec.models.ranking.afm import AFM
+from nextrec.models.ranking.pnn import PNN
 
 from test.test_utils import (
     assert_model_output_shape,
@@ -36,6 +40,33 @@ from test.test_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class TestFMModel:
+    """Test suite for FM ranking model"""
+
+    def test_fm_initialization(self, sample_sparse_features, sample_sequence_features, device):
+        model = FM(
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=['label'],
+            device=device,
+        )
+        assert model.model_name == "FM"
+        assert model.task_type == "binary"
+
+    def test_fm_forward_pass(self, sample_sparse_features, sample_sequence_features, sample_batch_data, device, batch_size):
+        model = FM(
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=['label'],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != 'label'}
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
 
 
 class TestDeepFM:
@@ -972,6 +1003,94 @@ class TestDIEN:
         assert_no_nan_or_inf(output, "DIEN output")
         
         logger.info("DIEN forward pass successful")
+
+
+class TestFiBiNET:
+    """Test suite for FiBiNET"""
+
+    def test_fibinet_initialization(self, sample_dense_features, sample_sparse_features,
+                                    sample_sequence_features, device):
+        mlp_params = {'dims': [128, 64], 'dropout': 0.0, 'activation': 'relu'}
+        model = FiBiNET(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            mlp_params=mlp_params,
+            target=['label'],
+            device=device,
+        )
+        assert model.model_name == "FiBiNET"
+
+    def test_fibinet_forward_pass(self, sample_dense_features, sample_sparse_features,
+                                  sample_sequence_features, sample_batch_data,
+                                  device, batch_size):
+        mlp_params = {'dims': [64, 32], 'dropout': 0.0, 'activation': 'relu'}
+        model = FiBiNET(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            mlp_params=mlp_params,
+            target=['label'],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != 'label'}
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+        assert_no_nan_or_inf(output, "FiBiNET output")
+
+
+class TestAFM:
+    """Test suite for AFM"""
+
+    def test_afm_initialization(self, sample_sparse_features, sample_sequence_features, device):
+        model = AFM(
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            attention_dim=16,
+            target=['label'],
+            device=device,
+        )
+        assert model.model_name == "AFM"
+
+    def test_afm_forward_pass(self, sample_sparse_features, sample_sequence_features,
+                              sample_batch_data, device, batch_size):
+        model = AFM(
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            attention_dim=8,
+            target=['label'],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != 'label'}
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+
+
+class TestPNN:
+    """Test suite for PNN"""
+
+    @pytest.mark.parametrize("product_type,outer_dim", [("inner", None), ("outer", 8)])
+    def test_pnn_forward_pass(self, product_type, outer_dim, sample_sparse_features,
+                              sample_sequence_features, sample_batch_data, device, batch_size):
+        mlp_params = {'dims': [64], 'dropout': 0.0, 'activation': 'relu'}
+        model = PNN(
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            mlp_params=mlp_params,
+            product_type=product_type,
+            outer_product_dim=outer_dim,
+            target=['label'],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != 'label'}
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
 
 
 if __name__ == "__main__":

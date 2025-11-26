@@ -126,8 +126,8 @@ model.fit(
 
 scores = model.evaluate(valid_df_or_loader)    # returns metric dict
 preds = model.predict(test_df_or_loader)       # numpy array or dict
-model.save_weights("checkpoint.model")
-model.load_weights("checkpoint.model", map_location="cpu")
+model.save_model("checkpoint.model")              # default no timestamp (overwrite)
+model.load_model("checkpoint.model", map_location="cpu")
 ```
 
 ## Model zoo (`nextrec.models`)

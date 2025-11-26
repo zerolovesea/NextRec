@@ -40,7 +40,7 @@ class ESMM(BaseModel):
                  ctr_params: dict,
                  cvr_params: dict,
                  target: list[str] = ['ctr', 'ctcvr'],  # Note: ctcvr = ctr * cvr
-                 task: str | list[str] = 'binary',
+                 task: list[str] = ['binary', 'binary'],
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | list[str | nn.Module] | None = "bce",

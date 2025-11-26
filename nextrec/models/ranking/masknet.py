@@ -144,7 +144,7 @@ class MaskNet(BaseModel):
 
     @property
     def task_type(self):
-        return "binary"
+        return "binary_classification"
 
     def __init__(
         self,

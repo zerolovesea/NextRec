@@ -10,6 +10,8 @@ from nextrec.loss import (
     ListNetLoss,
     SampledSoftmaxLoss,
     WeightedBCELoss,
+    HingeLoss,
+    TripletLoss,
     get_loss_fn,
 )
 
@@ -86,8 +88,17 @@ def test_sampled_softmax_shapes():
 
 
 def test_get_loss_fn_routes_pairwise():
-    loss_fn = get_loss_fn(task_type="match", training_mode="pairwise", loss="bpr")
+    loss_fn = get_loss_fn(loss="bpr")
     assert isinstance(loss_fn, BPRLoss)
+
+
+def test_get_loss_fn_routes_hinge_and_triplet():
+    hinge = get_loss_fn(loss="hinge")
+    triplet = get_loss_fn(loss="triplet", margin=0.3)
+
+    assert isinstance(hinge, HingeLoss)
+    assert isinstance(triplet, TripletLoss)
+    assert triplet.margin == 0.3
 
 
 class _DummyBinaryModel(BaseModel):  # type: ignore[misc]

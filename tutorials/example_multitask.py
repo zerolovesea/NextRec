@@ -4,14 +4,14 @@ Uses multitask_task.csv generated data
 """
 
 import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
 import pandas as pd
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, log_loss
 
 from nextrec.models.multi_task.esmm import ESMM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-from sklearn.model_selection import train_test_split
-
+from nextrec.basic.metrics import compute_gauc
 
 # Load generated data
 df = pd.read_csv('dataset/multitask_task.csv')
@@ -105,11 +105,11 @@ model = ESMM(
     optimizer_params={"lr": 5e-4, "weight_decay": 1e-4},  
     loss=['bce', 'bce'],
     device='mps',
-    session_id="esmm_exp001",
     embedding_l1_reg=1e-5,  
     embedding_l2_reg=1e-4,  
     dense_l1_reg=1e-4, 
     dense_l2_reg=1e-3, 
+    session_id="esmm_tutorial",
 )
 
 print(f"\nModel: {model.model_name}")
@@ -125,10 +125,9 @@ model.fit(
     train_data=train_df,
     valid_data=valid_df,
     metrics=['auc', 'gauc', 'logloss'],  # Added GAUC metric
-    epochs=8,
+    epochs=3,
     batch_size=512,
     shuffle=True,
-    verbose=1,
     user_id_column='user_id'  # Specify user_id column for GAUC
 )
 
@@ -152,8 +151,6 @@ print("\n" + "=" * 60)
 print("Evaluation with GAUC")
 print("=" * 60)
 
-from sklearn.metrics import roc_auc_score, log_loss
-from nextrec.basic.metrics import compute_gauc
 
 for i, task_name in enumerate(task_labels):
     y_true = valid_df[task_name].values

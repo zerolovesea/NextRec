@@ -93,6 +93,8 @@ class FeatureSpecMixin:
         dense_features: Sequence[DenseFeature] | None = None,
         sparse_features: Sequence[SparseFeature] | None = None,
         sequence_features: Sequence[SequenceFeature] | None = None,
+        target: str | Sequence[str] | None = None,
+        id_columns: str | Sequence[str] | None = None,
     ) -> None:
         self.dense_features: List[DenseFeature] = list(dense_features) if dense_features else []
         self.sparse_features: List[SparseFeature] = list(sparse_features) if sparse_features else []
@@ -100,8 +102,10 @@ class FeatureSpecMixin:
 
         self.all_features = self.dense_features + self.sparse_features + self.sequence_features
         self.feature_names = [feat.name for feat in self.all_features]
+        self.target_columns = self._normalize_to_list(target)
+        self.id_columns = self._normalize_to_list(id_columns)
 
-    def _set_target_config(
+    def _set_target_id_config(
         self,
         target: str | Sequence[str] | None = None,
         id_columns: str | Sequence[str] | None = None,

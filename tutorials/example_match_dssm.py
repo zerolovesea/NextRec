@@ -4,18 +4,13 @@ Uses match_task.csv generated data
 """
 
 import sys
-import torch
-import numpy as np
 import pandas as pd
-
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
 
 from sklearn.model_selection import train_test_split
 
+from nextrec.utils.commom import resolve_device
 from nextrec.models.match.dssm import DSSM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-
 
 # Load generated data
 df = pd.read_csv('dataset/match_task.csv')
@@ -87,6 +82,9 @@ print("\n" + "=" * 60)
 print("Build DSSM Model")
 print("=" * 60)
 
+device = resolve_device()
+print(f"Using device: {device}")
+
 model = DSSM(
     user_dense_features=user_dense_features,
     user_sparse_features=user_sparse_features,
@@ -102,8 +100,8 @@ model = DSSM(
     training_mode='pointwise',  
     similarity_metric='cosine',
     temperature=0.05,  
-    device='mps',
-    session_id='dssm_exp001',
+    device=device,
+    session_id='dssm_tutorial',
 )
 
 print(f"Model: {model.model_name}")
@@ -121,7 +119,6 @@ model.fit(
     epochs=10,
     batch_size=512,
     shuffle=True,
-    verbose=1,
     user_id_column='user_id'  # Specify user_id column for GAUC
 )
 

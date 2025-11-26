@@ -6,32 +6,64 @@ import pandas as pd
 import pyarrow.parquet as pq
 from pathlib import Path
 
-def collate_fn(batch):
-    """Collate a list of tensor tuples from ``FileDataset`` into batched tensors."""
-    if not batch:
-        return tuple()
 
-    num_tensors = len(batch[0])
+def _stack_section(batch: list[dict], section: str):
+    """Stack one section of the batch (features/labels/ids)."""
+    entries = [item.get(section) for item in batch if item.get(section) is not None]
+    if not entries:
+        return None
+    merged: dict = {}
+    for name in entries[0]:
+        tensors = [item[section][name] for item in batch if item.get(section) is not None and name in item[section]]
+        merged[name] = torch.stack(tensors, dim=0)
+    return merged
+
+
+def collate_fn(batch):
+    """
+    Collate a list of sample dicts into the unified batch format:
+    {
+        "features": {name: Tensor(B, ...)},
+        "labels": {target: Tensor(B, ...)} or None,
+        "ids": {id_name: Tensor(B, ...)} or None,
+    }
+    """
+    if not batch:
+        return {"features": {}, "labels": None, "ids": None}
+
+    first = batch[0]
+    if isinstance(first, dict) and "features" in first:
+        # Streaming dataset yields already-batched chunks; avoid adding an extra dim.
+        if first.get("_already_batched") and len(batch) == 1:
+            return {
+                "features": first.get("features", {}),
+                "labels": first.get("labels"),
+                "ids": first.get("ids"),
+            }
+        return {
+            "features": _stack_section(batch, "features") or {},
+            "labels": _stack_section(batch, "labels"),
+            "ids": _stack_section(batch, "ids"),
+        }
+
+    # Fallback: stack tuples/lists of tensors
+    num_tensors = len(first)
     result = []
-    
     for i in range(num_tensors):
         tensor_list = [item[i] for item in batch]
-        first = tensor_list[0]
-
-        if isinstance(first, torch.Tensor):
+        first_item = tensor_list[0]
+        if isinstance(first_item, torch.Tensor):
             stacked = torch.cat(tensor_list, dim=0)
-        elif isinstance(first, np.ndarray):
+        elif isinstance(first_item, np.ndarray):
             stacked = np.concatenate(tensor_list, axis=0)
-        elif isinstance(first, list):
+        elif isinstance(first_item, list):
             combined = []
             for entry in tensor_list:
                 combined.extend(entry)
             stacked = combined
         else:
             stacked = tensor_list
-
         result.append(stacked)
-    
     return tuple(result)
 
 

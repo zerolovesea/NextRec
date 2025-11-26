@@ -1,9 +1,3 @@
-import sys
-from pathlib import Path
-
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
@@ -16,12 +10,12 @@ def example_movielens_100k_deepfm():
     """Example: MovieLens 100K for rating prediction."""
     df = pd.read_csv("dataset/movielens_100k.csv")
 
-    processor = DataProcessor(session_id="movielens_deepfm")
+    processor = DataProcessor()
     processor.add_sparse_feature('movie_title', encode_method='hash', hash_size=1000)
     processor.fit(df)
 
     df = processor.transform(df, return_dict=False)
-    processor.save(save_path="movielens_deepfm_processor")
+    processor.save(save_path="./")
     print(f"\nSample training data:")
     print(df.head())
 
@@ -44,7 +38,7 @@ def example_movielens_100k_deepfm():
         mlp_params={"dims": [256, 128], "activation": "relu", "dropout": 0.2},
         target='label',
         device='cpu',
-        session_id="/Users/zyaztec/Downloads/movielens_deepfm"
+        session_id="movielens_deepfm_tutorial",
     )
     
     model.compile(
