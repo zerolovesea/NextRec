@@ -115,7 +115,7 @@ class AutoInt(BaseModel):
         self.att_embedding_dim = att_embedding_dim
         
         # Use sparse and sequence features for interaction
-        self.interaction_features = sparse_features + sequence_features
+        self.interaction_features = dense_features + sparse_features + sequence_features 
         
         # All features for embedding
         self.all_features = dense_features + sparse_features + sequence_features
