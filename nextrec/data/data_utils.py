@@ -6,18 +6,16 @@ import pandas as pd
 import pyarrow.parquet as pq
 from pathlib import Path
 
-
 def _stack_section(batch: list[dict], section: str):
     """Stack one section of the batch (features/labels/ids)."""
     entries = [item.get(section) for item in batch if item.get(section) is not None]
     if not entries:
         return None
     merged: dict = {}
-    for name in entries[0]:
+    for name in entries[0]: # type: ignore
         tensors = [item[section][name] for item in batch if item.get(section) is not None and name in item[section]]
         merged[name] = torch.stack(tensors, dim=0)
     return merged
-
 
 def collate_fn(batch):
     """
@@ -66,7 +64,6 @@ def collate_fn(batch):
         result.append(stacked)
     return tuple(result)
 
-
 def get_column_data(data: dict | pd.DataFrame, name: str):
     """Extract column data from various data structures."""
     if isinstance(data, dict):
@@ -79,7 +76,6 @@ def get_column_data(data: dict | pd.DataFrame, name: str):
         if hasattr(data, name):
             return getattr(data, name)
         raise KeyError(f"Unsupported data type for extracting column {name}")
-
 
 def resolve_file_paths(path: str) -> tuple[list[str], str]:
     """Resolve file or directory path into a sorted list of files and file type."""
@@ -106,7 +102,6 @@ def resolve_file_paths(path: str) -> tuple[list[str], str]:
 
     raise ValueError(f"Invalid path: {path}")
 
-
 def iter_file_chunks(file_path: str, file_type: str, chunk_size: int):
     """Yield DataFrame chunks for CSV/Parquet without loading the whole file."""
     if file_type == "csv":
@@ -116,18 +111,15 @@ def iter_file_chunks(file_path: str, file_type: str, chunk_size: int):
     for batch in parquet_file.iter_batches(batch_size=chunk_size):
         yield batch.to_pandas()
 
-
 def read_table(file_path: str, file_type: str) -> pd.DataFrame:
     """Read a single CSV/Parquet file."""
     if file_type == "csv":
         return pd.read_csv(file_path)
     return pd.read_parquet(file_path)
 
-
 def load_dataframes(file_paths: list[str], file_type: str) -> list[pd.DataFrame]:
     """Load multiple files of the same type into DataFrames."""
     return [read_table(fp, file_type) for fp in file_paths]
-
 
 def default_output_dir(path: str) -> Path:
     """Generate a default output directory path based on the input path."""
@@ -136,19 +128,16 @@ def default_output_dir(path: str) -> Path:
         return path_obj.parent / f"{path_obj.stem}_preprocessed"
     return path_obj.with_name(f"{path_obj.name}_preprocessed")
 
-
-def split_dict_random(data_dict: dict, test_size: float=0.2, random_state:int|None=None):
+def split_dict_random(data_dict: dict, test_size: float = 0.2, random_state: int | None = None):
     """Randomly split a dictionary of data into training and testing sets."""
     lengths = [len(v) for v in data_dict.values()]
     if len(set(lengths)) != 1:
         raise ValueError(f"Length mismatch: {lengths}")
     n = lengths[0]
-
     rng = np.random.default_rng(random_state)
     perm = rng.permutation(n)
     cut = int(round(n * (1 - test_size)))
     train_idx, test_idx = perm[:cut], perm[cut:]
-
     def take(v, idx):
         if isinstance(v, np.ndarray):
             return v[idx]
@@ -157,11 +146,9 @@ def split_dict_random(data_dict: dict, test_size: float=0.2, random_state:int|No
         else:
             v_arr = np.asarray(v, dtype=object)  
             return v_arr[idx]
-
     train_dict = {k: take(v, train_idx) for k, v in data_dict.items()}
     test_dict  = {k: take(v, test_idx)  for k, v in data_dict.items()}
     return train_dict, test_dict
-
 
 def build_eval_candidates(
     df_all: pd.DataFrame,
@@ -179,37 +166,26 @@ def build_eval_candidates(
 
     users = df_all[user_col].unique()
     all_items = item_features[item_col].unique()
-
     rows = []
-
-    user_hist_items = {
-        u: df_all[df_all[user_col] == u][item_col].unique()
-        for u in users
-    }
-
+    user_hist_items = {u: df_all[df_all[user_col] == u][item_col].unique() for u in users}
     for u in users:
         df_user = df_all[df_all[user_col] == u]
         pos_items = df_user[df_user[label_col] == 1][item_col].unique()
         if len(pos_items) == 0:
             continue
-
         pos_items = pos_items[:num_pos_per_user]
         seen_items = set(user_hist_items[u])
-
         neg_pool = np.setdiff1d(all_items, np.fromiter(seen_items, dtype=all_items.dtype))
         if len(neg_pool) == 0:
             continue
-
         for pos in pos_items:
             if len(neg_pool) <= num_neg_per_pos:
                 neg_items = neg_pool
             else:
                 neg_items = rng.choice(neg_pool, size=num_neg_per_pos, replace=False)
-
             rows.append((u, pos, 1))
             for ni in neg_items:
                 rows.append((u, ni, 0))
-
     eval_df = pd.DataFrame(rows, columns=[user_col, item_col, label_col])
     eval_df = eval_df.merge(user_features, on=user_col, how='left')
     eval_df = eval_df.merge(item_features, on=item_col, how='left')

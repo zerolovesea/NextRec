@@ -2,7 +2,8 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Author: Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 29/11/2025
+Author: Yang Zhou, zyaztec@gmail.com
 """
 
 
@@ -10,10 +11,8 @@ import os
 import re
 import sys
 import copy
-import datetime
 import logging
-from pathlib import Path
-from nextrec.basic.session import resolve_save_path, create_session
+from nextrec.basic.session import create_session
 
 ANSI_CODES = {
     'black': '\033[30m',

@@ -17,9 +17,7 @@ import logging
 from nextrec.basic.layers import (
     MLP,
     FM,
-    CIN,
     LR,
-    CrossNetwork,
     CrossLayer,
     EmbeddingLayer,
     MultiHeadSelfAttention,
@@ -27,6 +25,8 @@ from nextrec.basic.layers import (
     SumPooling,
     AveragePooling
 )
+from nextrec.models.ranking.dcn import CrossNetwork
+from nextrec.models.ranking.xdeepfm import CIN
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 logger = logging.getLogger(__name__)
@@ -328,7 +328,7 @@ class TestEmbeddingLayer:
     @pytest.fixture
     def sample_features(self):
         """Create sample features for embedding"""
-        dense_features = [DenseFeature(name='age', embedding_dim=1)]
+        dense_features = [DenseFeature(name='age', embedding_dim=16)]
         sparse_features = [
             SparseFeature(name='user_id', vocab_size=1000, embedding_dim=16),
             SparseFeature(name='item_id', vocab_size=500, embedding_dim=16),

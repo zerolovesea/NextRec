@@ -1,7 +1,45 @@
 """
 Date: create on 09/11/2025
+Checkpoint: edit on 29/11/2025
 Author: Yang Zhou,zyaztec@gmail.com
-Reference: [1] Ma J, Zhao Z, Yi X, et al. Modeling task relationships in multi-task learning with multi-gate mixture-of-experts[C]//KDD. 2018: 1930-1939.
+Reference:
+[1] Ma J, Zhao Z, Yi X, et al. Modeling task relationships in multi-task learning with
+multi-gate mixture-of-experts[C]//KDD. 2018: 1930-1939.
+(https://dl.acm.org/doi/10.1145/3219819.3220007)
+
+Multi-gate Mixture-of-Experts (MMoE) extends shared-bottom multi-task learning by
+introducing multiple experts and task-specific softmax gates. Each task learns its
+own routing weights over the expert pool, enabling both shared and task-specialized
+representations while alleviating gradient conflicts across tasks.
+
+In each forward pass:
+  (1) Shared embeddings encode all dense/sparse/sequence features
+  (2) Each expert processes the same input to produce candidate shared representations
+  (3) Every task gate outputs a simplex over experts to softly route information
+  (4) The task-specific weighted sum is passed into its tower and prediction head
+
+Key Advantages:
+- Soft parameter sharing reduces negative transfer between heterogeneous tasks
+- Gates let tasks adaptively allocate expert capacity based on their difficulty
+- Supports many tasks without duplicating full networks
+- Works with mixed feature types via unified embeddings
+- Simple to scale the number of experts or gates for capacity control
+
+MMoE（Multi-gate Mixture-of-Experts）是多任务学习框架，通过多个专家网络与
+任务特定门控进行软路由，兼顾共享表示与任务特化，减轻梯度冲突问题。
+
+一次前向流程：
+  (1) 共享 embedding 统一编码稠密、稀疏与序列特征
+  (2) 每个专家对相同输入进行特征变换，得到候选共享表示
+  (3) 每个任务的门控产生对专家的概率分布，完成软选择与加权
+  (4) 加权结果输入到对应任务的塔网络与预测头
+
+主要优点：
+- 软参数共享，缓解任务间负迁移
+- 按任务难度自适应分配专家容量
+- 便于扩展多任务，而无需复制完整网络
+- 支持多种特征类型的统一建模
+- 专家与门控数量可灵活调节以控制模型容量
 """
 
 import torch
@@ -75,18 +113,14 @@ class MMOE(BaseModel):
         
         if len(tower_params_list) != self.num_tasks:
             raise ValueError(f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})")
-            
-        # All features
+
         self.all_features = dense_features + sparse_features + sequence_features
-
-        # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
+        input_dim = self.embedding.input_dim
+        # emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
+        # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
+        # input_dim = emb_dim_total + dense_input_dim
 
-        # Calculate input dimension
-        emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
-        dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
-        input_dim = emb_dim_total + dense_input_dim
-        
         # Expert networks (shared by all tasks)
         self.experts = nn.ModuleList()
         for _ in range(num_experts):
@@ -102,10 +136,7 @@ class MMOE(BaseModel):
         # Task-specific gates
         self.gates = nn.ModuleList()
         for _ in range(self.num_tasks):
-            gate = nn.Sequential(
-                nn.Linear(input_dim, num_experts),
-                nn.Softmax(dim=1)
-            )
+            gate = nn.Sequential(nn.Linear(input_dim, num_experts), nn.Softmax(dim=1))
             self.gates.append(gate)
         
         # Task-specific towers
@@ -113,23 +144,10 @@ class MMOE(BaseModel):
         for tower_params in tower_params_list:
             tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
-        self.prediction_layer = PredictionLayer(
-            task_type=self.task_type,
-            task_dims=[1] * self.num_tasks
-        )
-
+        self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1] * self.num_tasks)
         # Register regularization weights
-        self._register_regularization_weights(
-            embedding_attr='embedding',
-            include_modules=['experts', 'gates', 'towers']
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
-        )
+        self._register_regularization_weights(embedding_attr='embedding', include_modules=['experts', 'gates', 'towers'])
+        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params,)
 
     def forward(self, x):
         # Get all embeddings and flatten

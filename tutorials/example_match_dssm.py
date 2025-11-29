@@ -3,11 +3,9 @@ DSSM (Deep Structured Semantic Model) Example with GAUC metric
 Uses match_task.csv generated data
 """
 
-import sys
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
-
 from nextrec.utils.common import resolve_device
 from nextrec.models.match.dssm import DSSM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature

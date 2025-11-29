@@ -1,11 +1,42 @@
 """
 Date: create on 09/11/2025
+Checkpoint: edit on 24/11/2025
 Author:
     Yang Zhou,zyaztec@gmail.com
 Reference:
-    [1] Cheng H T, Koc L, Harmsen J, et al. Wide & deep learning for recommender systems[C]
-        //Proceedings of the 1st workshop on deep learning for recommender systems. 2016: 7-10.
+    [1] Cheng H T, Koc L, Harmsen J, et al. Wide & Deep learning for recommender systems[C]
+        //Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. 2016: 7-10.
         (https://arxiv.org/abs/1606.07792)
+
+Wide & Deep blends a linear wide component (memorization of cross features) with a
+deep neural network (generalization) sharing the same feature space. The wide part
+captures co-occurrence patterns and manual crosses, while the deep part learns dense
+representations and nonlinear interactions, improving both accuracy and coverage.
+
+Workflow:
+  (1) Wide: linear/logistic model over raw or embedded features
+  (2) Deep: embeddings plus dense features feed into an MLP
+  (3) Sum wide and deep logits, then apply the final prediction layer
+
+Key Advantages:
+- Balances memorization (wide) and generalization (deep)
+- Compatible with manual crosses and automatically learned embeddings
+- Simple architecture with strong baselines for CTR/ranking
+- Shared feature space reduces duplication and engineering overhead
+
+Wide & Deep 同时使用宽线性部分（记忆共现/手工交叉）与深网络部分（泛化非线性交互），
+共享特征表示，既保留记忆能力又具备泛化能力，常用于 CTR/排序任务。
+
+流程：
+  (1) Wide：线性/逻辑回归建模原始或 embedding 后的特征
+  (2) Deep：embedding 与稠密特征输入 MLP
+  (3) 宽深输出求和后进入最终预测
+
+主要优点：
+- 兼顾记忆与泛化
+- 支持手工交叉与自动 embedding 联合
+- 结构简单，基线性能稳定
+- 共享特征空间，减少工程开销
 """
 
 import torch
@@ -63,7 +94,6 @@ class WideDeep(BaseModel):
             
         # Wide part: use all features for linear model
         self.wide_features = sparse_features + sequence_features
-        
         # Deep part: use all features
         self.deep_features = dense_features + sparse_features + sequence_features
 
@@ -75,23 +105,14 @@ class WideDeep(BaseModel):
         self.linear = LR(wide_dim)
         
         # Deep part: MLP
-        deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
-        dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
-        self.mlp = MLP(input_dim=deep_emb_dim_total + dense_input_dim, **mlp_params)
+        input_dim = self.embedding.input_dim
+        # deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
+        # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
+        self.mlp = MLP(input_dim=input_dim, **mlp_params)
         self.prediction_layer = PredictionLayer(task_type=self.task_type)
-
         # Register regularization weights
-        self._register_regularization_weights(
-            embedding_attr='embedding',
-            include_modules=['linear', 'mlp']
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
-        )
+        self._register_regularization_weights(embedding_attr='embedding', include_modules=['linear', 'mlp'])
+        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x):
         # Deep part

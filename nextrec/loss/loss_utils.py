@@ -1,5 +1,9 @@
 """
 Loss utilities for NextRec.
+
+Date: create on 27/10/2025
+Checkpoint: edit on 29/11/2025
+Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from typing import Literal
@@ -39,7 +43,7 @@ def get_loss_fn(loss=None, **kw):
     if isinstance(loss, nn.Module):
         return loss
     if loss is None:
-        raise ValueError("loss must be provided explicitly")
+        raise ValueError("[Loss Error] loss must be provided explicitly")
     if loss in ["bce", "binary_crossentropy"]:
         return nn.BCELoss(**kw)
     if loss == "weighted_bce":
@@ -75,15 +79,15 @@ def get_loss_fn(loss=None, **kw):
     if loss == "approx_ndcg":
         return ApproxNDCGLoss(**kw)
 
-    raise ValueError(f"Unsupported loss: {loss}")
+    raise ValueError(f"[Loss Error] Unsupported loss: {loss}")
 
 def get_loss_kwargs(loss_params: dict | list[dict] | None, index: int = 0) -> dict:
     """
-    解析每个 head 对应的 loss_kwargs。
+    Parse loss_kwargs for each head.
 
-    - loss_params 为 None       -> {}
-    - loss_params 为 dict       -> 所有 head 共用
-    - loss_params 为 list[dict] -> 用 loss_params[index]（若存在且非 None），否则 {}
+    - loss_params is None       -> {}
+    - loss_params is dict       -> shared by all heads
+    - loss_params is list[dict] -> use loss_params[index] (if exists and not None), else {}
     """
     if loss_params is None:
         return {}

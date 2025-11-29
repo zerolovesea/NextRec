@@ -1,5 +1,9 @@
 """
 Pairwise loss functions for learning-to-rank and matching tasks.
+
+Date: create on 27/10/2025
+Checkpoint: edit on 29/11/2025
+Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from typing import Literal
@@ -32,7 +36,6 @@ class BPRLoss(nn.Module):
             return loss.sum()
         return loss
 
-
 class HingeLoss(nn.Module):
     """
     Hinge loss for pairwise ranking.
@@ -55,7 +58,6 @@ class HingeLoss(nn.Module):
         if self.reduction == "sum":
             return loss.sum()
         return loss
-
 
 class TripletLoss(nn.Module):
     """
@@ -95,7 +97,7 @@ class TripletLoss(nn.Module):
             if neg_dist.dim() == 2:
                 pos_dist = pos_dist.unsqueeze(1)
         else:
-            raise ValueError(f"Unsupported distance: {self.distance}")
+            raise ValueError(f"[Loss Error] Unsupported distance: {self.distance}")
 
         loss = torch.clamp(pos_dist - neg_dist + self.margin, min=0)
         if self.reduction == "mean":

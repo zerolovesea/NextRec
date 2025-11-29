@@ -3,15 +3,11 @@ Multi-task Learning Example with GAUC metric
 Uses multitask_task.csv generated data
 """
 
-import sys
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score, log_loss
-
 from nextrec.models.multi_task.esmm import ESMM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-from nextrec.basic.metrics import compute_gauc
 
 # Load generated data
 df = pd.read_csv('dataset/multitask_task.csv')
@@ -121,6 +117,14 @@ print("=" * 60)
 print(f"Train size: {len(train_df)}")
 print(f"Valid size: {len(valid_df)}")
 
+model.compile(
+    optimizer = "adam",
+    optimizer_params = {"lr": 5e-4, "weight_decay": 1e-4},
+    loss = ["bce", "bce"],
+    loss_params = None,
+    loss_weights = [1.0, 2.0],
+)
+
 model.fit(
     train_data=train_df,
     valid_data=valid_df,
@@ -131,40 +135,30 @@ model.fit(
     user_id_column='user_id'  # Specify user_id column for GAUC
 )
 
-print("\n" + "=" * 60)
-print("Training Complete!")
-print("=" * 60)
 
 # Predict
-print("\n" + "=" * 60)
+print(" ")
 print("Model Prediction")
-print("=" * 60)
+print(" ")
 
-predictions = model.predict(valid_df, batch_size=512)
-print(f"Prediction shape: {predictions.shape}  # (samples, tasks)")
-print(f"\nTask predictions samples:")
-for i, task_name in enumerate(task_labels):
-    print(f"  {task_name}: {predictions[:5, i]}")
+pred_df = model.predict(valid_df, batch_size=512)
+preview = pred_df.head(5)
+print(f"\nPrediction sample (first 5 rows):\n{preview}")
 
 # Evaluation
-print("\n" + "=" * 60)
+print(" ")
 print("Evaluation with GAUC")
-print("=" * 60)
+print(" ")
 
+metrics = model.evaluate(
+    valid_df,
+    metrics=['auc', 'gauc', 'logloss'],
+    batch_size=512,
+    user_id_column='user_id'
+)
+for name, value in metrics.items():
+    print(f"{name}: {value:.4f}")
 
-for i, task_name in enumerate(task_labels):
-    y_true = valid_df[task_name].values
-    y_pred = predictions[:, i]
-    
-    auc = roc_auc_score(y_true, y_pred)
-    gauc = compute_gauc(y_true, y_pred, valid_df['user_id'].values)
-    logloss = log_loss(y_true, y_pred)
-    
-    print(f"\nTask: {task_name}")
-    print(f"  AUC: {auc:.4f}")
-    print(f"  GAUC: {gauc:.4f}")
-    print(f"  LogLoss: {logloss:.4f}")
-
-print("\n" + "=" * 60)
+print(" ")
 print("Multi-task Example Complete!")
-print("=" * 60)
+print(" ")

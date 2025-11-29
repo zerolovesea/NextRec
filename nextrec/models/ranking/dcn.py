@@ -12,8 +12,27 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import EmbeddingLayer, MLP, CrossNetwork, PredictionLayer
+from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+
+class CrossNetwork(nn.Module):
+    """Stacked Cross Layers from DCN (Wang et al., 2017)."""
+
+    def __init__(self, input_dim, num_layers):
+        super().__init__()
+        self.num_layers = num_layers
+        self.w = torch.nn.ModuleList([torch.nn.Linear(input_dim, 1, bias=False) for _ in range(num_layers)])
+        self.b = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)])
+
+    def forward(self, x):
+        """
+        :param x: Float tensor of size ``(batch_size, num_fields, embed_dim)``
+        """
+        x0 = x
+        for i in range(self.num_layers):
+            xw = self.w[i](x)
+            x = x0 * xw + self.b[i] + x
+        return x
 
 
 class DCN(BaseModel):

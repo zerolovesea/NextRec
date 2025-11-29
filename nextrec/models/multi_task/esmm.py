@@ -1,7 +1,44 @@
 """
 Date: create on 09/11/2025
+Checkpoint: edit on 29/11/2025
 Author: Yang Zhou,zyaztec@gmail.com
-Reference: [1] Ma X, Zhao L, Huang G, et al. Entire space multi-task model: An effective approach for estimating post-click conversion rate[C]//SIGIR. 2018: 1137-1140.
+Reference:
+[1] Ma X, Zhao L, Huang G, et al. Entire space multi-task model: An effective approach
+for estimating post-click conversion rate[C]//SIGIR. 2018: 1137-1140.
+(https://dl.acm.org/doi/10.1145/3209978.3210007)
+
+Entire Space Multi-task Model (ESMM) targets CVR estimation by jointly optimizing
+CTR and CTCVR on the full impression space, mitigating sample selection bias and
+conversion sparsity. CTR predicts P(click | impression), CVR predicts P(conversion |
+click), and their product forms CTCVR supervised on impression labels.
+
+Workflow:
+  (1) Shared embeddings encode all features from impressions
+  (2) CTR tower outputs click probability conditioned on impression
+  (3) CVR tower outputs conversion probability conditioned on click
+  (4) CTCVR = CTR * CVR enables end-to-end training without filtering clicked data
+
+Key Advantages:
+- Trains on the entire impression space to remove selection bias
+- Transfers rich click signals to sparse conversion prediction via shared embeddings
+- Stable optimization by decomposing CTCVR into well-defined sub-tasks
+- Simple architecture that can pair with other multi-task variants
+
+ESMM（Entire Space Multi-task Model）用于 CVR 预估，通过在曝光全空间联合训练
+CTR 与 CTCVR，缓解样本选择偏差和转化数据稀疏问题。CTR 预测 P(click|impression)，
+CVR 预测 P(conversion|click)，二者相乘得到 CTCVR 并在曝光标签上直接监督。
+
+流程：
+  (1) 共享 embedding 统一处理曝光特征
+  (2) CTR 塔输出曝光下的点击概率
+  (3) CVR 塔输出点击后的转化概率
+  (4) CTR 与 CVR 相乘得到 CTCVR，无需只在点击子集上训练
+
+主要优点：
+- 在曝光空间训练，避免样本选择偏差
+- 通过共享表示将点击信号迁移到稀疏的转化任务
+- 将 CTCVR 分解为子任务，优化稳定
+- 结构简单，可与其它多任务方法组合使用
 """
 
 import torch
@@ -77,37 +114,22 @@ class ESMM(BaseModel):
             
         # All features
         self.all_features = dense_features + sparse_features + sequence_features
-
         # Shared embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
+        input_dim = self.embedding.input_dim # Calculate input dimension, better way than below
+        # emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
+        # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
+        # input_dim = emb_dim_total + dense_input_dim
 
-        # Calculate input dimension
-        emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
-        dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
-        input_dim = emb_dim_total + dense_input_dim
-        
         # CTR tower
         self.ctr_tower = MLP(input_dim=input_dim, output_layer=True, **ctr_params)
         
         # CVR tower
         self.cvr_tower = MLP(input_dim=input_dim, output_layer=True, **cvr_params)
-        self.prediction_layer = PredictionLayer(
-            task_type=self.task_type,
-            task_dims=[1, 1]
-        )
-
+        self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1, 1])
         # Register regularization weights
-        self._register_regularization_weights(
-            embedding_attr='embedding',
-            include_modules=['ctr_tower', 'cvr_tower']
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
-        )
+        self._register_regularization_weights(embedding_attr='embedding', include_modules=['ctr_tower', 'cvr_tower'])
+        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x):
         # Get all embeddings and flatten
@@ -119,11 +141,8 @@ class ESMM(BaseModel):
         logits = torch.cat([ctr_logit, cvr_logit], dim=1)
         preds = self.prediction_layer(logits)
         ctr, cvr = preds.chunk(2, dim=1)
-        
-        # CTCVR prediction: P(click & conversion | impression) = P(click) * P(conversion | click)
         ctcvr = ctr * cvr  # [B, 1]
         
-        # Output: [CTR, CTCVR]
-        # Note: We supervise CTR with click labels and CTCVR with conversion labels
+        # Output: [CTR, CTCVR], We supervise CTR with click labels and CTCVR with conversion labels
         y = torch.cat([ctr, ctcvr], dim=1)  # [B, 2]
         return y  # [B, 2], where y[:, 0] is CTR and y[:, 1] is CTCVR

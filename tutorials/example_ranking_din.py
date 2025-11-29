@@ -2,16 +2,11 @@
 DIN (Deep Interest Network) Ranking Model Example with GAUC metric
 Uses ranking_task.csv generated data
 """
-import sys
 import pandas as pd
 
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
-
+from sklearn.model_selection import train_test_split
 from nextrec.models.ranking.din import DIN
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-
-from sklearn.model_selection import train_test_split
 
 # Load generated data
 df = pd.read_csv('dataset/ranking_task.csv')
@@ -40,43 +35,18 @@ print(f"  actual length: {len([x for x in df['sequence_1'].iloc[0] if x != 0])}"
 train_df, valid_df = train_test_split(df, test_size=0.2, random_state=2024)
 
 # Dense features
-dense_features = [
-    DenseFeature(f'dense_{i}')
-    for i in range(8)
-]
+dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1) for i in range(8)]
 
 # Sparse features (including user_id and item_id)
-sparse_features = [
-    SparseFeature('user_id', vocab_size=int(df['user_id'].max() + 1), embedding_dim=32),
-    SparseFeature('item_id', vocab_size=int(df['item_id'].max() + 1), embedding_dim=32),
-]
+sparse_features = [SparseFeature(name='user_id', embedding_name='user_emb', vocab_size=int(df['user_id'].max() + 1), embedding_dim=32), SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=int(df['item_id'].max() + 1), embedding_dim=32),]
 
 # Add other sparse features
-sparse_features.extend([
-    SparseFeature(
-        f'sparse_{i}',
-        vocab_size=int(df[f'sparse_{i}'].max() + 1),
-        embedding_dim=32
-    )
-    for i in range(10)
-])
+sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'sparse_{i}_emb', vocab_size=int(df[f'sparse_{i}'].max() + 1), embedding_dim=32) for i in range(10)])
 
 # Sequence features
 sequence_features = [
-    SequenceFeature(
-        'sequence_0',
-        vocab_size=int(df['sequence_0'].apply(lambda x: max(x)).max() + 1),
-        embedding_dim=32,
-        padding_idx=0,
-        embedding_name='item_emb'
-    ),
-    SequenceFeature(
-        'sequence_1',
-        vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1),
-        embedding_dim=16,
-        padding_idx=0
-    )
-]
+    SequenceFeature(name='sequence_0', vocab_size=int(df['sequence_0'].apply(lambda x: max(x)).max() + 1), embedding_dim=32, padding_idx=0, embedding_name='item_emb'),
+    SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sparse_0_emb'),]
 
 print(f"\nDense features: {len(dense_features)}")
 print(f"Sparse features: {len(sparse_features)} (including user_id and item_id)")
@@ -138,33 +108,26 @@ model.fit(
 )
 
 
-
-print("\n" + "=" * 60)
-print("Training Complete!")
-print("=" * 60)
-
 # Predict
-print("\n" + "=" * 60)
+print(" ")
 print("Model Prediction")
-print("=" * 60)
+print(" ")
 
-predictions = model.predict(valid_df, batch_size=512)
-print(f"Prediction shape: {predictions.shape}")
-print(f"Prediction sample: {predictions[:10]}")
-print(f"Prediction range: [{predictions.min():.4f}, {predictions.max():.4f}]")
+
+pred_df = model.predict(valid_df, batch_size=512)
+preview = pred_df.head(5)
+print(f"\nPrediction sample (first 5 rows):\n{preview}")
 
 # Evaluate
-from sklearn.metrics import roc_auc_score, log_loss
-from nextrec.basic.metrics import compute_gauc
+metrics = model.evaluate(
+    valid_df,
+    metrics=['auc', 'gauc', 'logloss'],
+    batch_size=512,
+    user_id_column='user_id'
+)
+for name, value in metrics.items():
+    print(f"{name}: {value:.6f}")
 
-auc = roc_auc_score(valid_df['label'].values, predictions)
-gauc = compute_gauc(valid_df['label'].values, predictions, valid_df['user_id'].values)
-logloss = log_loss(valid_df['label'].values, predictions)
-
-print(f"\nValid AUC: {auc:.6f}")
-print(f"Valid GAUC: {gauc:.6f}")
-print(f"Valid LogLoss: {logloss:.6f}")
-
-print("\n" + "=" * 60)
+print(" ")
 print("DIN Example Complete!")
-print("=" * 60)
+print(" ")

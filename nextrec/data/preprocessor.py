@@ -12,6 +12,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+import tqdm
 from pathlib import Path
 from typing import Dict, Union, Optional, Literal, Any
 from sklearn.preprocessing import (
@@ -665,7 +666,7 @@ class DataProcessor(FeatureSpecMixin):
         output_root = base_output_dir / "transformed_data"
         output_root.mkdir(parents=True, exist_ok=True)
         saved_paths = []
-        for file_path in file_paths:
+        for file_path in tqdm.tqdm(file_paths, desc="Transforming files", unit="file"):
             df = read_table(file_path, file_type)
             transformed_df = self._transform_in_memory(
                 df,

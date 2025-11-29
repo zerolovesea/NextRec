@@ -1,8 +1,10 @@
 """
 Listwise loss functions for ranking and contrastive training.
-"""
 
-from typing import Optional
+Date: create on 27/10/2025
+Checkpoint: edit on 29/11/2025
+Author: Yang Zhou, zyaztec@gmail.com
+"""
 
 import torch
 import torch.nn as nn
@@ -112,7 +114,7 @@ class ApproxNDCGLoss(nn.Module):
         self.temperature = temperature
         self.reduction = reduction
 
-    def _ideal_dcg(self, labels: torch.Tensor, k: Optional[int]) -> torch.Tensor:
+    def _ideal_dcg(self, labels: torch.Tensor, k: int | None) -> torch.Tensor:
         # labels: [B, L]
         sorted_labels, _ = torch.sort(labels, dim=1, descending=True)
         if k is not None:
@@ -127,7 +129,7 @@ class ApproxNDCGLoss(nn.Module):
         return ideal_dcg
 
     def forward(
-        self, scores: torch.Tensor, labels: torch.Tensor, k: Optional[int] = None
+        self, scores: torch.Tensor, labels: torch.Tensor, k: int | None = None
     ) -> torch.Tensor:
         """
         scores: [B, L]

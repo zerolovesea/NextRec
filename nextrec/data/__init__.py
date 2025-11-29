@@ -20,6 +20,13 @@ from nextrec.data.data_utils import (
 )
 from nextrec.basic.features import FeatureSpecMixin
 from nextrec.data import data_utils
+from nextrec.data.dataloader import (
+    TensorDictDataset,
+    FileDataset,
+    RecDataLoader,
+    build_tensors_from_data,
+)
+from nextrec.data.preprocessor import DataProcessor
 
 __all__ = [
     'collate_fn',
@@ -33,4 +40,9 @@ __all__ = [
     'load_dataframes',
     'FeatureSpecMixin',
     'data_utils',
+    'TensorDictDataset',
+    'FileDataset',
+    'RecDataLoader',
+    'build_tensors_from_data',
+    'DataProcessor',
 ]

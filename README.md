@@ -1,13 +1,15 @@
-# NextRec
+<p align="center">
+<img align="center" src="asserts/logo.png" width="40%">
+<p>
 
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.2.7-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.3.1-orange.svg)
 
-English | [中文版](README_zh.md)
+English | [中文文档](README_zh.md)
 
 **A Unified, Efficient, and Scalable Recommendation System Framework**
 
@@ -15,101 +17,121 @@ English | [中文版](README_zh.md)
 
 ## Introduction
 
-NextRec is a modern recommendation system framework built on PyTorch, providing a unified modeling, training, and evaluation experience for researchers and engineering teams. The framework adopts a modular design with rich built-in model implementations, data-processing tools, and production-ready training components, enabling quick coverage of multiple recommendation scenarios.
+NextRec is a modern recommendation framework built on PyTorch, delivering a unified experience for modeling, training, and evaluation. It follows a modular design with rich model implementations, data-processing utilities, and engineering-ready training components. NextRec focuses on large-scale industrial recall scenarios on Spark clusters, training on massive offline parquet features.
 
-> This project draws on several open-source recommendation libraries, with the general layers referencing the mature implementations in [torch-rechub](https://github.com/datawhalechina/torch-rechub)￼. These part of codes is still in its early stage and is being gradually replaced with our own implementations. If you find any bugs, please submit them in the issue section. Contributions are welcome.
+### Why NextRec
 
-### Key Features
+- **Unified feature engineering & data pipeline**: Dense/Sparse/Sequence feature definitions, persistent DataProcessor, and batch-optimized RecDataLoader, matching offline feature training/inference in industrial big-data settings.
+- **Multi-scenario coverage**: Ranking (CTR/CVR), retrieval, multi-task learning, and more marketing/rec models, with a continuously expanding model zoo.
+- **Developer-friendly experience**: Stream processing/training/inference for csv/parquet/pathlike data, plus GPU/MPS acceleration and visualization support.
+- **Efficient training & evaluation**: Standardized engine with optimizers, LR schedulers, early stopping, checkpoints, and detailed logging out of the box.
 
-- **Multi-scenario Recommendation**: Supports ranking (CTR/CVR), retrieval, multi-task learning, and generative recommendation models such as TIGER and HSTU — with more models continuously added.
-- **Unified Feature Engineering & Data Pipeline**: Provides Dense/Sparse/Sequence feature definitions, persistent DataProcessor, and optimized RecDataLoader, forming a complete “Define → Process → Load” workflow.
-- **Efficient Training & Evaluation**: A standardized training engine with optimizers, LR schedulers, early stopping, checkpoints, and logging — ready out-of-the-box.
-- **Developer-friendly Engineering Experience**: Modular and extensible design, full tutorial support, GPU/MPS acceleration, and visualization tools.
+> The project borrows ideas from excellent open-source rec libraries. Early layers referenced [torch-rechub](https://github.com/datawhalechina/torch-rechub) but have been replaced with in-house implementations. torch-rechub remains mature in architecture and models; the author contributed a bit there—feel free to check it out.
 
 ---
 
 ## Installation
 
-```bash
-# release version
-pip install nextrec
+You can quickly install the latest NextRec via `pip install nextrec`; Python 3.10+ is required.
 
-# pre-release version
-pip install -i https://test.pypi.org/simple/ nextrec
-```
----
+## Tutorials
+
+See `tutorials/` for examples covering ranking, retrieval, multi-task learning, and data processing:
+
+- [movielen_ranking_deepfm.py](/tutorials/movielen_ranking_deepfm.py) — DeepFM training on MovieLens 100k
+- [example_ranking_din.py](/tutorials/example_ranking_din.py) — DIN training on the e-commerce dataset
+- [example_multitask.py](/tutorials/example_multitask.py) — ESMM multi-task training on the e-commerce dataset
+- [movielen_match_dssm.py](/tutorials/example_match_dssm.py) — DSSM retrieval on MovieLens 100k
+
+To dive deeper, Jupyter notebooks are available:
+
+- [Hands on the NextRec framework](/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
+- [Using the data processor for preprocessing](/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
+
+> Current version [0.3.1]: the matching module is not fully polished yet and may have compatibility issues or unexpected errors. Please raise an issue if you run into problems.
 
 ## 5-Minute Quick Start
 
-The following example demonstrates a full DeepFM training & inference pipeline using the MovieLens dataset:
+We provide a detailed quick start and paired datasets to help you learn the framework. In `datasets/` you’ll find an e-commerce sample dataset like this:
+
+| user_id | item_id | dense_0     | dense_1     | dense_2     | dense_3    | dense_4     | dense_5     | dense_6     | dense_7     | sparse_0 | sparse_1 | sparse_2 | sparse_3 | sparse_4 | sparse_5 | sparse_6 | sparse_7 | sparse_8 | sparse_9 | sequence_0                                               | sequence_1                                                | label |
+|--------|---------|-------------|-------------|-------------|------------|-------------|-------------|-------------|-------------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|-----------------------------------------------------------|-----------------------------------------------------------|-------|
+| 1      | 7817    | 0.14704075  | 0.31020382  | 0.77780896  | 0.944897   | 0.62315375  | 0.57124174  | 0.77009535  | 0.3211029   | 315      | 260      | 379      | 146      | 168      | 161      | 138      | 88       | 5        | 312      | [170,175,97,338,105,353,272,546,175,545,463,128,0,0,0]   | [368,414,820,405,548,63,327,0,0,0,0,0,0,0,0]              | 0     |
+| 1      | 3579    | 0.77811223  | 0.80359334  | 0.5185201   | 0.91091245 | 0.043562356 | 0.82142705  | 0.8803686   | 0.33748195 | 149      | 229      | 442      | 6        | 167      | 252      | 25       | 402      | 7        | 168      | [179,48,61,551,284,165,344,151,0,0,0,0,0,0,0]            | [814,0,0,0,0,0,0,0,0,0,0,0,0,0,0]                          | 1     |
+
+Below is a short example showing how to train a DIN model. DIN (Deep Interest Network) won Best Paper at KDD 2018 for CTR prediction. You can also run `python tutorials/example_ranking_din.py` directly.
+
+After training, detailed logs are available under `nextrec_logs/din_tutorial`.
 
 ```python
 import pandas as pd
 
-from nextrec.models.ranking.deepfm import DeepFM
+from nextrec.models.ranking.din import DIN
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
-df = pd.read_csv("dataset/movielens_100k.csv")
+df = pd.read_csv('dataset/ranking_task.csv')
 
-target = 'label'
-dense_features = [DenseFeature('age')]
-sparse_features = [
-    SparseFeature('user_id', vocab_size=df['user_id'].max()+1, embedding_dim=4),
-    SparseFeature('item_id', vocab_size=df['item_id'].max()+1, embedding_dim=4),
-]
+for col in df.columns and 'sequence' in col: # csv loads lists as text; convert them back to objects
+    df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
 
-sparse_features.append(SparseFeature('gender', vocab_size=df['gender'].max()+1, embedding_dim=4))
-sparse_features.append(SparseFeature('occupation', vocab_size=df['occupation'].max()+1, embedding_dim=4))
+# Define feature columns
+dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1) for i in range(8)]
 
-model = DeepFM(
+sparse_features = [SparseFeature(name='user_id', embedding_name='user_emb', vocab_size=int(df['user_id'].max() + 1), embedding_dim=32), SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=int(df['item_id'].max() + 1), embedding_dim=32),]
+
+sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'sparse_{i}_emb', vocab_size=int(df[f'sparse_{i}'].max() + 1), embedding_dim=32) for i in range(10)])
+
+sequence_features = [
+    SequenceFeature(name='sequence_0', vocab_size=int(df['sequence_0'].apply(lambda x: max(x)).max() + 1), embedding_dim=32, padding_idx=0, embedding_name='item_emb'),
+    SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sparse_0_emb'),]
+
+mlp_params = {
+    "dims": [256, 128, 64],
+    "activation": "relu",
+    "dropout": 0.3,
+}
+
+model = DIN(
     dense_features=dense_features,
     sparse_features=sparse_features,
-    mlp_params={"dims": [256, 128], "activation": "relu", "dropout": 0.5},
-    target=target,
-    device='cpu',
-    session_id="deepfm_with_processor",
+    sequence_features=sequence_features,
+    mlp_params=mlp_params,
+    attention_hidden_units=[80, 40],
+    attention_activation='sigmoid',
+    attention_use_softmax=True,
+    target=['label'],                                     # target variable
+    device='mps',                                         
     embedding_l1_reg=1e-6,
-    dense_l1_reg=1e-5,
     embedding_l2_reg=1e-5,
+    dense_l1_reg=1e-5,
     dense_l2_reg=1e-4,
+    session_id="din_tutorial",                            # experiment id for logs
 )
 
-model.compile(optimizer="adam", optimizer_params={"lr": 1e-3, "weight_decay": 1e-5}, loss="bce")
-model.fit(train_data=df, metrics=['auc', 'recall', 'precision'], epochs=10, batch_size=512, shuffle=True, verbose=1)
-preds = model.predict(df)
-print(f'preds: {preds}')
-```
+# Compile model with optimizer and loss
+model.compile(
+            optimizer = "adam",
+            optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5},
+            loss = "focal",
+            loss_params={"gamma": 2.0, "alpha": 0.25},
+        )
 
-### More Tutorials
+model.fit(
+    train_data=df,
+    metrics=['auc', 'gauc', 'logloss'],  # metrics to track
+    epochs=3,
+    batch_size=512,
+    shuffle=True,
+    user_id_column='user_id'             # used for GAUC
+)
 
-The `tutorials/` directory provides examples for ranking, retrieval, multi-task learning, and data processing:
-
-- `movielen_match_dssm.py` — DSSM retrieval on MovieLens 100k  
-- `movielen_ranking_deepfm.py` — DeepFM ranking on MovieLens 100k  
-- `example_ranking_din.py` — DIN (Deep Interest Network) example  
-- `example_match_dssm.py` — DSSM retrieval example  
-- `example_multitask.py` — Multi-task learning example  
-
----
-
-## Data Processing Example
-
-NextRec offers a unified interface for preprocessing sparse and sequence features:
-
-```python
-import pandas as pd
-from nextrec.data.preprocessor import DataProcessor
-
-df = pd.read_csv("dataset/movielens_100k.csv")
-
-processor = DataProcessor()
-processor.add_sparse_feature('movie_title', encode_method='hash', hash_size=1000)
-processor.fit(df)
-
-df = processor.transform(df, return_dict=False)
-
-print("\nSample training data:")
-print(df.head())
+# Evaluate after training
+metrics = model.evaluate(
+    df,
+    metrics=['auc', 'gauc', 'logloss'],
+    batch_size=512,
+    user_id_column='user_id'
+)
 ```
 
 ---
@@ -120,44 +142,47 @@ print(df.head())
 
 | Model | Paper | Year | Status |
 |-------|-------|------|--------|
-| **FM** | Factorization Machines | ICDM 2010 | Supported |
-| **AFM** | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | IJCAI 2017 | Supported |
-| **DeepFM** | DeepFM: A Factorization-Machine based Neural Network for CTR Prediction | IJCAI 2017 | Supported |
-| **Wide&Deep** | Wide & Deep Learning for Recommender Systems | DLRS 2016 | Supported |
-| **xDeepFM** | xDeepFM: Combining Explicit and Implicit Feature Interactions | KDD 2018 | Supported |
-| **FiBiNET** | FiBiNET: Combining Feature Importance and Bilinear Feature Interaction for CTR Prediction | RecSys 2019 | Supported |
-| **PNN** | Product-based Neural Networks for User Response Prediction | ICDM 2016 | Supported |
-| **AutoInt** | AutoInt: Automatic Feature Interaction Learning | CIKM 2019 | Supported |
-| **DCN** | Deep & Cross Network for Ad Click Predictions | ADKDD 2017 | Supported |
-| **DIN** | Deep Interest Network for CTR Prediction | KDD 2018 | Supported |
-| **DIEN** | Deep Interest Evolution Network | AAAI 2019 | Supported |
-| **MaskNet** | MaskNet: Feature-wise Gating Blocks for High-dimensional Sparse Recommendation Data | 2020 | Supported |
+| [FM](nextrec/models/ranking/fm.py) | Factorization Machines | ICDM 2010 | Supported |
+| [AFM](nextrec/models/ranking/afm.py) | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | IJCAI 2017 | Supported |
+| [DeepFM](nextrec/models/ranking/deepfm.py) | DeepFM: A Factorization-Machine based Neural Network for CTR Prediction | IJCAI 2017 | Supported |
+| [Wide&Deep](nextrec/models/ranking/widedeep.py) | Wide & Deep Learning for Recommender Systems | DLRS 2016 | Supported |
+| [xDeepFM](nextrec/models/ranking/xdeepfm.py) | xDeepFM: Combining Explicit and Implicit Feature Interactions | KDD 2018 | Supported |
+| [FiBiNET](nextrec/models/ranking/fibinet.py) | FiBiNET: Combining Feature Importance and Bilinear Feature Interaction for CTR Prediction | RecSys 2019 | Supported |
+| [PNN](nextrec/models/ranking/pnn.py) | Product-based Neural Networks for User Response Prediction | ICDM 2016 | Supported |
+| [AutoInt](nextrec/models/ranking/autoint.py) | AutoInt: Automatic Feature Interaction Learning | CIKM 2019 | Supported |
+| [DCN](nextrec/models/ranking/dcn.py) | Deep & Cross Network for Ad Click Predictions | ADKDD 2017 | Supported |
+| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | KDD 2021 | In Progress |
+| [DIN](nextrec/models/ranking/din.py) | Deep Interest Network for CTR Prediction | KDD 2018 | Supported |
+| [DIEN](nextrec/models/ranking/dien.py) | Deep Interest Evolution Network | AAAI 2019 | Supported |
+| [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Feature-wise Gating Blocks for High-dimensional Sparse Recommendation Data | 2020 | Supported |
 
 ### Retrieval Models
 
 | Model | Paper | Year | Status |
 |-------|-------|------|--------|
-| **DSSM** | Learning Deep Structured Semantic Models | CIKM 2013 | Supported |
-| **DSSM v2** | DSSM with pairwise BPR-style optimization | - | Supported |
-| **YouTube DNN** | Deep Neural Networks for YouTube Recommendations | RecSys 2016 | Supported |
-| **MIND** | Multi-Interest Network with Dynamic Routing | CIKM 2019 | Supported |
-| **SDM** | Sequential Deep Matching Model | - | Supported |
+| [DSSM](nextrec/models/match/dssm.py) | Learning Deep Structured Semantic Models | CIKM 2013 | Supported |
+| [DSSM v2](nextrec/models/match/dssm_v2.py) | DSSM with pairwise BPR-style optimization | - | Supported |
+| [YouTube DNN](nextrec/models/match/youtube_dnn.py) | Deep Neural Networks for YouTube Recommendations | RecSys 2016 | Supported |
+| [MIND](nextrec/models/match/mind.py) | Multi-Interest Network with Dynamic Routing | CIKM 2019 | Supported |
+| [SDM](nextrec/models/match/sdm.py) | Sequential Deep Matching Model | - | Supported |
 
 ### Multi-task Models
 
 | Model | Paper | Year | Status |
 |-------|-------|------|--------|
-| **MMOE** | Modeling Task Relationships in Multi-task Learning | KDD 2018 | Supported |
-| **PLE** | Progressive Layered Extraction | RecSys 2020 | Supported |
-| **ESMM** | Entire Space Multi-task Model | SIGIR 2018 | Supported |
-| **ShareBottom** | Multitask Learning | - | Supported |
+| [MMOE](nextrec/models/multi_task/mmoe.py) | Modeling Task Relationships in Multi-task Learning | KDD 2018 | Supported |
+| [PLE](nextrec/models/multi_task/ple.py) | Progressive Layered Extraction | RecSys 2020 | Supported |
+| [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-task Model | SIGIR 2018 | Supported |
+| [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | - | Supported |
+| [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold-start Modules for Large-scale Recommender Systems | 2021 | Supported |
+| [POSO-IFLYTEK](nextrec/models/multi_task/poso_iflytek.py) | POSO with PLE-style gating for sequential marketing tasks | - | Supported |
 
 ### Generative Models
 
 | Model | Paper | Year | Status |
 |-------|-------|------|--------|
-| **TIGER** | Recommender Systems with Generative Retrieval | NeurIPS 2023 | In Progress |
-| **HSTU** | Hierarchical Sequential Transduction Units | - | In Progress |
+| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | NeurIPS 2023 | In Progress |
+| [HSTU](nextrec/models/generative/hstu.py) | Hierarchical Sequential Transduction Units | - | In Progress |
 
 ---
 
@@ -201,7 +226,7 @@ This project is licensed under the [Apache 2.0 License](./LICENSE).
 
 ## Contact
 
-- **GitHub Issues**: Submit issues on GitHub  
+- **GitHub Issues**: [Submit an issue](https://github.com/zerolovesea/NextRec/issues)  
 - **Email**: zyaztec@gmail.com  
 
 ---
@@ -210,9 +235,9 @@ This project is licensed under the [Apache 2.0 License](./LICENSE).
 
 NextRec is inspired by the following great open-source projects:
 
-- **torch-rechub** - A Lighting Pytorch Framework for Recommendation Models, Easy-to-use and Easy-to-extend.
-- **FuxiCTR** — Configurable and reproducible CTR prediction library  
-- **RecBole** — Unified and efficient recommendation library  
+- [torch-rechub](https://github.com/datawhalechina/torch-rechub) — Flexible, easy-to-extend recommendation framework  
+- [FuxiCTR](https://github.com/reczoo/FuxiCTR) — Configurable, tunable, and reproducible CTR library  
+- [RecBole](https://github.com/RUCAIBox/RecBole) — Unified, comprehensive, and efficient recommendation library  
 
 Special thanks to all open-source contributors!
 

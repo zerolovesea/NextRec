@@ -2,6 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
+Checkpoint: edit on 29/11/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -21,15 +22,17 @@ from torch.utils.data import DataLoader
 
 from nextrec.basic.callback import EarlyStopper
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSpecMixin
+from nextrec.data.dataloader import TensorDictDataset, RecDataLoader
+
+from nextrec.basic.loggers import setup_logger, colorize
+from nextrec.basic.session import resolve_save_path, create_session
 from nextrec.basic.metrics import configure_metrics, evaluate_metrics
 
-from nextrec.loss import get_loss_fn, get_loss_kwargs
 from nextrec.data import get_column_data, collate_fn
-from nextrec.data.dataloader import TensorDictDataset, build_tensors_from_data
-from nextrec.basic.loggers import setup_logger, colorize
+from nextrec.data.dataloader import build_tensors_from_data
+
+from nextrec.loss import get_loss_fn, get_loss_kwargs
 from nextrec.utils import get_optimizer, get_scheduler
-from nextrec.basic.session import resolve_save_path, create_session
-from nextrec.basic.metrics import CLASSIFICATION_METRICS, REGRESSION_METRICS
 from nextrec import __version__
 
 class BaseModel(FeatureSpecMixin, nn.Module):
@@ -57,11 +60,10 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                  session_id: str | None = None,): 
         
         super(BaseModel, self).__init__()
-
         try:
             self.device = torch.device(device)
         except Exception as e:
-            logging.warning("Invalid device , defaulting to CPU.")
+            logging.warning("[BaseModel Warning] Invalid device , defaulting to CPU.")
             self.device = torch.device('cpu')
 
         self.session_id = session_id
@@ -83,6 +85,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         self._dense_l2_reg = dense_l2_reg
         self._regularization_weights = [] 
         self._embedding_params = []
+        self._loss_weights: float | list[float] | None = None
         self._early_stop_patience = early_stop_patience
         self._max_gradient_norm = 1.0   
         self._logger_initialized = False
@@ -138,7 +141,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         X_input = {}
         for feature in self.all_features:
             if feature.name not in feature_source:
-                raise KeyError(f"Feature '{feature.name}' not found in input data.")
+                raise KeyError(f"[BaseModel-input Error] Feature '{feature.name}' not found in input data.")
             feature_data = get_column_data(feature_source, feature.name)
             dtype = torch.float32 if isinstance(feature, DenseFeature) else torch.long
             X_input[feature.name] = self._to_tensor(feature_data, dtype=dtype)
@@ -148,12 +151,12 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             for target_name in self.target:
                 if label_source is None or target_name not in label_source:
                     if require_labels:
-                        raise KeyError(f"Target column '{target_name}' not found in input data.")
+                        raise KeyError(f"[BaseModel-input Error] Target column '{target_name}' not found in input data.")
                     continue
                 target_data = get_column_data(label_source, target_name)
                 if target_data is None:
                     if require_labels:
-                        raise ValueError(f"Target column '{target_name}' contains no data.")
+                        raise ValueError(f"[BaseModel-input Error] Target column '{target_name}' contains no data.")
                     continue
                 target_tensor = self._to_tensor(target_data, dtype=torch.float32)
                 target_tensor = target_tensor.view(target_tensor.size(0), -1)
@@ -163,7 +166,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                 if y.shape[1] == 1:
                     y = y.view(-1)
             elif require_labels:
-                raise ValueError("Labels are required but none were found in the input batch.")
+                raise ValueError("[BaseModel-input Error] Labels are required but none were found in the input batch.")
         return X_input, y
 
     def _set_metrics(self, metrics: list[str] | dict[str, list[str]] | None = None):
@@ -172,9 +175,9 @@ class BaseModel(FeatureSpecMixin, nn.Module):
 
     def _handle_validation_split(self, train_data: dict | pd.DataFrame, validation_split: float, batch_size: int, shuffle: bool,) -> tuple[DataLoader, dict | pd.DataFrame]:
         if not (0 < validation_split < 1):
-            raise ValueError(f"validation_split must be between 0 and 1, got {validation_split}")
+            raise ValueError(f"[BaseModel-validation Error] validation_split must be between 0 and 1, got {validation_split}")
         if not isinstance(train_data, (pd.DataFrame, dict)):
-            raise TypeError(f"train_data must be a pandas DataFrame or a dict, got {type(train_data)}")
+            raise TypeError(f"[BaseModel-validation Error] train_data must be a pandas DataFrame or a dict, got {type(train_data)}")
         if isinstance(train_data, pd.DataFrame):
             total_length = len(train_data)
         else:
@@ -182,7 +185,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             total_length = len(train_data[sample_key])
             for k, v in train_data.items():
                 if len(v) != total_length:
-                    raise ValueError(f"Length of field '{k}' ({len(v)}) != length of field '{sample_key}' ({total_length})")
+                    raise ValueError(f"[BaseModel-validation Error] Length of field '{k}' ({len(v)}) != length of field '{sample_key}' ({total_length})")
         rng = np.random.default_rng(42)
         indices = rng.permutation(total_length)
         split_idx = int(total_length * (1 - validation_split))
@@ -215,7 +218,8 @@ class BaseModel(FeatureSpecMixin, nn.Module):
     def compile(
         self, optimizer="adam", optimizer_params: dict | None = None,
         scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None, scheduler_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce", loss_params: dict | list[dict] | None = None,):
+        loss: str | nn.Module | list[str | nn.Module] | None = "bce", loss_params: dict | list[dict] | None = None,
+        loss_weights: int | float | list[int | float] | None = None,):
         optimizer_params = optimizer_params or {}
         self._optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
         self._optimizer_params = optimizer_params
@@ -227,7 +231,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         elif scheduler is None:
             self._scheduler_name = None
         else:
-            self._scheduler_name = getattr(scheduler, "__name__", scheduler.__class__.__name__)
+            self._scheduler_name = getattr(scheduler, "__name__", scheduler.__class__.__name__) # type: ignore
         self._scheduler_params = scheduler_params
         self.scheduler_fn = (get_scheduler(scheduler, self.optimizer_fn, **scheduler_params) if scheduler else None)
 
@@ -244,32 +248,57 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             else:
                 loss_kwargs = self._loss_params if isinstance(self._loss_params, dict) else (self._loss_params[i] if i < len(self._loss_params) else {})
             self.loss_fn.append(get_loss_fn(loss=loss_value, **loss_kwargs,))
+        # Normalize loss weights for single-task and multi-task setups
+        if loss_weights is None:
+            self._loss_weights = None
+        elif self.nums_task == 1:
+            if isinstance(loss_weights, (list, tuple)):
+                if len(loss_weights) != 1:
+                    raise ValueError("[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup.")
+                weight_value = loss_weights[0]
+            else:
+                weight_value = loss_weights
+            self._loss_weights = float(weight_value)
+        else:
+            if isinstance(loss_weights, (int, float)):
+                weights = [float(loss_weights)] * self.nums_task
+            elif isinstance(loss_weights, (list, tuple)):
+                weights = [float(w) for w in loss_weights]
+                if len(weights) != self.nums_task:
+                    raise ValueError(f"[BaseModel-compile Error] Number of loss_weights ({len(weights)}) must match number of tasks ({self.nums_task}).")
+            else:
+                raise TypeError(f"[BaseModel-compile Error] loss_weights must be int, float, list or tuple, got {type(loss_weights)}")
+            self._loss_weights = weights
 
     def compute_loss(self, y_pred, y_true):
         if y_true is None:
-            raise ValueError("Ground truth labels (y_true) are required to compute loss.")
+            raise ValueError("[BaseModel-compute_loss Error] Ground truth labels (y_true) are required to compute loss.")
         if self.nums_task == 1:
             loss = self.loss_fn[0](y_pred, y_true)
+            if self._loss_weights is not None:
+                loss = loss * self._loss_weights
             return loss
         else:
             task_losses = []
             for i in range(self.nums_task):
                 task_loss = self.loss_fn[i](y_pred[:, i], y_true[:, i])
+                if isinstance(self._loss_weights, (list, tuple)):
+                    task_loss = task_loss * self._loss_weights[i]
                 task_losses.append(task_loss)
-            return torch.stack(task_losses)
+            return torch.stack(task_losses).sum()
 
     def _prepare_data_loader(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 32, shuffle: bool = True,):
         if isinstance(data, DataLoader):
             return data
         tensors = build_tensors_from_data(data=data, raw_data=data, features=self.all_features, target_columns=self.target, id_columns=self.id_columns,)
         if tensors is None:
-            raise ValueError("No data available to create DataLoader.")
+            raise ValueError("[BaseModel-prepare_data_loader Error] No data available to create DataLoader.")
         dataset = TensorDictDataset(tensors)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
 
     def _batch_to_dict(self, batch_data: Any, include_ids: bool = True) -> dict:
         if not (isinstance(batch_data, dict) and "features" in batch_data):
-            raise TypeError("Batch data must be a dict with 'features' produced by the current DataLoader.")
+            raise TypeError("[BaseModel-batch_to_dict Error] Batch data must be a dict with 'features' produced by the current DataLoader.")
         return {
             "features": batch_data.get("features", {}),
             "labels": batch_data.get("labels"),
@@ -354,10 +383,8 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                         task_labels.append(self.target[i])
                     else:
                         task_labels.append(f"task_{i}")
-                
                 total_loss_val = np.sum(train_loss) if isinstance(train_loss, np.ndarray) else train_loss  # type: ignore
                 log_str = f"Epoch {epoch + 1}/{epochs} - Train: loss={total_loss_val:.4f}"
-                
                 if train_metrics:
                     # Group metrics by task
                     task_metrics = {}
@@ -369,7 +396,6 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                                 metric_name = metric_key.rsplit(f"_{target_name}", 1)[0]
                                 task_metrics[target_name][metric_name] = metric_value
                                 break
-                    
                     if task_metrics:
                         task_metric_strs = []
                         for target_name in self.target:
@@ -378,7 +404,6 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                                 task_metric_strs.append(f"{target_name}[{metrics_str}]")
                         log_str += ", " + ", ".join(task_metric_strs)
                 logging.info(colorize(log_str, color="white"))
-        
             if valid_loader is not None:
                 # Pass user_ids only if needed for GAUC metric
                 val_metrics = self.evaluate(valid_loader, user_ids=valid_user_ids if needs_user_ids else None) # {'auc': 0.75, 'logloss': 0.45} or {'auc_target1': 0.75, 'logloss_target1': 0.45, 'mse_target2': 3.2}
@@ -408,7 +433,6 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                     self._best_checkpoint_path = self.checkpoint_path
                     logging.info(colorize(f"Warning: No validation metrics computed. Skipping validation for this epoch.", color="yellow"))
                     continue
-                
                 if self.nums_task == 1:
                     primary_metric_key = self.metrics[0]
                 else:
@@ -451,12 +475,10 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                     if valid_loader is not None:
                         self.scheduler_fn.step(primary_metric)
                 else:
-                    self.scheduler_fn.step()
-                    
+                    self.scheduler_fn.step()                   
         logging.info("\n")
         logging.info(colorize("Training finished.", color="bright_green", bold=True))
         logging.info("\n")
-
         if valid_loader is not None:
             logging.info(colorize(f"Load best model from: {self._best_checkpoint_path}", color="bright_blue"))
             self.load_model(self._best_checkpoint_path, map_location=self.device, verbose=False)
@@ -466,7 +488,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         if self.nums_task == 1:
             accumulated_loss = 0.0
         else:
-            accumulated_loss = np.zeros(self.nums_task, dtype=np.float64)
+            accumulated_loss = 0.0
         self.train()
         num_batches = 0
         y_true_list = []
@@ -480,17 +502,13 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                 batch_iter = enumerate(tqdm.tqdm(train_loader, desc="Batches")) # Streaming mode: show batch/file progress without epoch in desc
             else:
                 batch_iter = enumerate(tqdm.tqdm(train_loader, desc=f"Epoch {self._epoch_index + 1}"))
-
         for batch_index, batch_data in batch_iter:
             batch_dict = self._batch_to_dict(batch_data)
             X_input, y_true = self.get_input(batch_dict, require_labels=True)
             y_pred = self.forward(X_input)
             loss = self.compute_loss(y_pred, y_true)
             reg_loss = self.add_reg_loss()
-            if self.nums_task == 1:
-                total_loss = loss + reg_loss
-            else:
-                total_loss = loss.sum() + reg_loss
+            total_loss = loss + reg_loss
             self.optimizer_fn.zero_grad()
             total_loss.backward()
             nn.utils.clip_grad_norm_(self.parameters(), self._max_gradient_norm)
@@ -498,7 +516,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             if self.nums_task == 1:
                 accumulated_loss += loss.item()
             else:
-                accumulated_loss += loss.detach().cpu().numpy()
+                accumulated_loss += loss.item()
             if y_true is not None:
                 y_true_list.append(y_true.detach().cpu().numpy()) # Collect predictions and labels for metrics if requested
             if needs_user_ids and user_ids_list is not None and batch_dict.get("ids"):
@@ -516,10 +534,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             if y_pred is not None and isinstance(y_pred, torch.Tensor): # For pairwise/listwise mode, y_pred is a tuple of embeddings, skip metric collection during training
                 y_pred_list.append(y_pred.detach().cpu().numpy())
             num_batches += 1
-        if self.nums_task == 1:
-            avg_loss = accumulated_loss / num_batches
-        else:
-            avg_loss = accumulated_loss / num_batches
+        avg_loss = accumulated_loss / num_batches
         if len(y_true_list) > 0 and len(y_pred_list) > 0: # Compute metrics if requested
             y_true_all = np.concatenate(y_true_list, axis=0)
             y_pred_all = np.concatenate(y_pred_list, axis=0)
@@ -564,14 +579,11 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                  user_ids: np.ndarray | None = None,
                  user_id_column: str = 'user_id') -> dict:
         self.eval()
-        
-        # Use provided metrics or fall back to configured metrics
         eval_metrics = metrics if metrics is not None else self.metrics
         if eval_metrics is None:
-            raise ValueError("No metrics specified for evaluation. Please provide metrics parameter or call fit() first.")
+            raise ValueError("[BaseModel-evaluate Error] No metrics specified for evaluation. Please provide metrics parameter or call fit() first.")
         needs_user_ids = self._needs_user_ids_for_metrics(eval_metrics)
         
-        # Prepare DataLoader if needed
         if isinstance(data, DataLoader):
             data_loader = data
         else:
@@ -581,13 +593,10 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                     user_ids = np.asarray(data[user_id_column].values)
                 elif isinstance(data, dict) and user_id_column in data:
                     user_ids = np.asarray(data[user_id_column])
-            
             data_loader = self._prepare_data_loader(data, batch_size=batch_size, shuffle=False)
-        
         y_true_list = []
         y_pred_list = []
-        collected_user_ids: list[np.ndarray] = []
-        
+        collected_user_ids = []
         batch_count = 0
         with torch.no_grad():
             for batch_data in data_loader:
@@ -595,7 +604,6 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                 batch_dict = self._batch_to_dict(batch_data)
                 X_input, y_true = self.get_input(batch_dict, require_labels=True)
                 y_pred = self.forward(X_input)
-                
                 if y_true is not None:
                     y_true_list.append(y_true.cpu().numpy())
                 # Skip if y_pred is not a tensor (e.g., tuple in pairwise mode, though this shouldn't happen in eval mode)
@@ -613,9 +621,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                     if batch_user_id is not None:
                         ids_np = batch_user_id.detach().cpu().numpy() if isinstance(batch_user_id, torch.Tensor) else np.asarray(batch_user_id)
                         collected_user_ids.append(ids_np.reshape(ids_np.shape[0]))
-
         logging.info(colorize(f"  Evaluation batches processed: {batch_count}", color="cyan"))
-        
         if len(y_true_list) > 0:
             y_true_all = np.concatenate(y_true_list, axis=0)
             logging.info(colorize(f"  Evaluation samples: {y_true_all.shape[0]}", color="cyan"))
@@ -639,16 +645,12 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                         unique_metrics.append(m)
             metrics_to_use = unique_metrics
         else:
-            metrics_to_use = eval_metrics
-        
+            metrics_to_use = eval_metrics 
         final_user_ids = user_ids
         if final_user_ids is None and collected_user_ids:
             final_user_ids = np.concatenate(collected_user_ids, axis=0)
-
         metrics_dict = self.evaluate_metrics(y_true_all, y_pred_all, metrics_to_use, final_user_ids)
-        
         return metrics_dict
-
 
     def evaluate_metrics(self, y_true: np.ndarray|None, y_pred: np.ndarray|None, metrics: list[str], user_ids: np.ndarray|None = None) -> dict:
         """Evaluate metrics using the metrics module."""
@@ -664,15 +666,15 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             user_ids=user_ids
         )
 
-
     def predict(
         self,
         data: str | dict | pd.DataFrame | DataLoader,
         batch_size: int = 32,
         save_path: str | os.PathLike | None = None,
-        save_format: Literal["npy", "csv"] = "npy",
+        save_format: Literal["csv", "parquet"] = "csv",
         include_ids: bool | None = None,
-        return_dataframe: bool | None = None,
+        return_dataframe: bool = True,
+        streaming_chunk_size: int = 10000,
     ) -> pd.DataFrame | np.ndarray:
         """
         Run inference and optionally return ID-aligned predictions.
@@ -680,35 +682,36 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         When ``id_columns`` are configured and ``include_ids`` is True (default),
         the returned object will include those IDs to keep a one-to-one mapping
         between each prediction and its source row.
+        If ``save_path`` is provided and ``return_dataframe`` is False, predictions
+        stream to disk batch-by-batch to avoid holding all outputs in memory.
         """
         self.eval()
         if include_ids is None:
             include_ids = bool(self.id_columns)
         include_ids = include_ids and bool(self.id_columns)
-        if return_dataframe is None:
-            return_dataframe = include_ids
 
-        # todo: handle file path input later
+        # if saving to disk without returning dataframe, use streaming prediction
+        if save_path is not None and not return_dataframe:
+            return self._predict_streaming(data=data, batch_size=batch_size, save_path=save_path, save_format=save_format, include_ids=include_ids, streaming_chunk_size=streaming_chunk_size, return_dataframe=return_dataframe)
         if isinstance(data, (str, os.PathLike)):
-            pass
-
-        if not isinstance(data, DataLoader):
+            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target, id_columns=self.id_columns,)
+            data_loader = rec_loader.create_dataloader(data=data, batch_size=batch_size, shuffle=False, load_full=False, chunk_size=streaming_chunk_size,)
+        elif not isinstance(data, DataLoader):
             data_loader = self._prepare_data_loader(data, batch_size=batch_size, shuffle=False,)
         else:
             data_loader = data
         
         y_pred_list: list[np.ndarray] = []
         id_buffers: dict[str, list[np.ndarray]] = {name: [] for name in (self.id_columns or [])} if include_ids else {}
+        id_arrays: dict[str, np.ndarray] | None = None
         
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Predicting"):
                 batch_dict = self._batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 y_pred = self.forward(X_input)
-
                 if y_pred is not None and isinstance(y_pred, torch.Tensor):
                     y_pred_list.append(y_pred.detach().cpu().numpy())
-
                 if include_ids and self.id_columns and batch_dict.get("ids"):
                     for id_name in self.id_columns:
                         if id_name not in batch_dict["ids"]:
@@ -719,7 +722,6 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                         else:
                             id_np = np.asarray(id_tensor)
                         id_buffers[id_name].append(id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np)
-
         if len(y_pred_list) > 0:
             y_pred_all = np.concatenate(y_pred_list, axis=0)
         else:
@@ -731,70 +733,143 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             num_outputs = len(self.target) if self.target else 1
             y_pred_all = y_pred_all.reshape(0, num_outputs)
         num_outputs = y_pred_all.shape[1]
-
         pred_columns: list[str] = []
         if self.target:
             for name in self.target[:num_outputs]:
                 pred_columns.append(f"{name}_pred")
         while len(pred_columns) < num_outputs:
             pred_columns.append(f"pred_{len(pred_columns)}")
-
-        output: pd.DataFrame | np.ndarray
-
         if include_ids and self.id_columns:
-            id_arrays: dict[str, np.ndarray] = {}
+            id_arrays = {}
             for id_name, pieces in id_buffers.items():
                 if pieces:
                     concatenated = np.concatenate([p.reshape(p.shape[0], -1) for p in pieces], axis=0)
                     id_arrays[id_name] = concatenated.reshape(concatenated.shape[0])
                 else:
                     id_arrays[id_name] = np.array([], dtype=np.int64)
-
             if return_dataframe:
                 id_df = pd.DataFrame(id_arrays)
                 pred_df = pd.DataFrame(y_pred_all, columns=pred_columns)
                 if len(id_df) and len(pred_df) and len(id_df) != len(pred_df):
-                    raise ValueError(f"Mismatch between id rows ({len(id_df)}) and prediction rows ({len(pred_df)}).")
+                    raise ValueError(f"[BaseModel-predict Error] Mismatch between id rows ({len(id_df)}) and prediction rows ({len(pred_df)}).")
                 output = pd.concat([id_df, pred_df], axis=1)
             else:
                 output = y_pred_all
         else:
             output = pd.DataFrame(y_pred_all, columns=pred_columns) if return_dataframe else y_pred_all
-
         if save_path is not None:
-            suffix = ".npy" if save_format == "npy" else ".csv"
-            target_path = resolve_save_path(
-                path=save_path,
-                default_dir=self.session.predictions_dir,
-                default_name="predictions",
-                suffix=suffix,
-                add_timestamp=True if save_path is None else False,
-            )
-
-            if save_format == "npy":
-                if isinstance(output, pd.DataFrame):
-                    np.save(target_path, output.to_records(index=False))
-                else:
-                    np.save(target_path, output)
+            if save_format not in ("csv", "parquet"):
+                raise ValueError(f"[BaseModel-predict Error] Unsupported save_format '{save_format}'. Choose from 'csv' or 'parquet'.")
+            suffix = ".csv" if save_format == "csv" else ".parquet"
+            target_path = resolve_save_path(path=save_path, default_dir=self.session.predictions_dir, default_name="predictions", suffix=suffix, add_timestamp=True if save_path is None else False)
+            if isinstance(output, pd.DataFrame):
+                df_to_save = output
             else:
-                if isinstance(output, pd.DataFrame):
-                    output.to_csv(target_path, index=False)
-                else:
-                    pd.DataFrame(output, columns=pred_columns).to_csv(target_path, index=False)
-
+                df_to_save = pd.DataFrame(y_pred_all, columns=pred_columns)
+                if include_ids and self.id_columns and id_arrays is not None:
+                    id_df = pd.DataFrame(id_arrays)
+                    if len(id_df) and len(df_to_save) and len(id_df) != len(df_to_save):
+                        raise ValueError(f"[BaseModel-predict Error] Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_to_save)}).")
+                    df_to_save = pd.concat([id_df, df_to_save], axis=1)
+            if save_format == "csv":
+                df_to_save.to_csv(target_path, index=False)
+            else:
+                df_to_save.to_parquet(target_path, index=False)
             logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
-
         return output
+
+    def _predict_streaming(
+        self,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int,
+        save_path: str | os.PathLike,
+        save_format: Literal["csv", "parquet"],
+        include_ids: bool,
+        streaming_chunk_size: int,
+        return_dataframe: bool,
+    ) -> pd.DataFrame:
+        if isinstance(data, (str, os.PathLike)):
+            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target, id_columns=self.id_columns)
+            data_loader = rec_loader.create_dataloader(data=data, batch_size=batch_size, shuffle=False, load_full=False, chunk_size=streaming_chunk_size,)
+        elif not isinstance(data, DataLoader):
+            data_loader = self._prepare_data_loader(data, batch_size=batch_size, shuffle=False,)
+        else:
+            data_loader = data
+
+        suffix = ".csv" if save_format == "csv" else ".parquet"
+        target_path = resolve_save_path(path=save_path, default_dir=self.session.predictions_dir, default_name="predictions", suffix=suffix, add_timestamp=True if save_path is None else False,)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        header_written = target_path.exists() and target_path.stat().st_size > 0
+        parquet_writer = None
+
+        pred_columns: list[str] | None = None
+        collected_frames: list[pd.DataFrame] = []
+
+        with torch.no_grad():
+            for batch_data in tqdm.tqdm(data_loader, desc="Predicting"):
+                batch_dict = self._batch_to_dict(batch_data, include_ids=include_ids)
+                X_input, _ = self.get_input(batch_dict, require_labels=False)
+                y_pred = self.forward(X_input)
+                if y_pred is None or not isinstance(y_pred, torch.Tensor):
+                    continue
+
+                y_pred_np = y_pred.detach().cpu().numpy()
+                if y_pred_np.ndim == 1:
+                    y_pred_np = y_pred_np.reshape(-1, 1)
+
+                if pred_columns is None:
+                    num_outputs = y_pred_np.shape[1]
+                    pred_columns = []
+                    if self.target:
+                        for name in self.target[:num_outputs]:
+                            pred_columns.append(f"{name}_pred")
+                    while len(pred_columns) < num_outputs:
+                        pred_columns.append(f"pred_{len(pred_columns)}")
+
+                id_arrays_batch: dict[str, np.ndarray] = {}
+                if include_ids and self.id_columns and batch_dict.get("ids"):
+                    for id_name in self.id_columns:
+                        if id_name not in batch_dict["ids"]:
+                            continue
+                        id_tensor = batch_dict["ids"][id_name]
+                        if isinstance(id_tensor, torch.Tensor):
+                            id_np = id_tensor.detach().cpu().numpy()
+                        else:
+                            id_np = np.asarray(id_tensor)
+                        id_arrays_batch[id_name] = id_np.reshape(id_np.shape[0])
+
+                df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
+                if id_arrays_batch:
+                    id_df = pd.DataFrame(id_arrays_batch)
+                    if len(id_df) and len(df_batch) and len(id_df) != len(df_batch):
+                        raise ValueError(f"Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_batch)}).")
+                    df_batch = pd.concat([id_df, df_batch], axis=1)
+
+                if save_format == "csv":
+                    df_batch.to_csv(target_path, mode="a", header=not header_written, index=False)
+                    header_written = True
+                else:
+                    try:
+                        import pyarrow as pa
+                        import pyarrow.parquet as pq
+                    except ImportError as exc:  # pragma: no cover
+                        raise ImportError("[BaseModel-predict-streaming Error] Parquet streaming save requires pyarrow to be installed.") from exc
+                    table = pa.Table.from_pandas(df_batch, preserve_index=False)
+                    if parquet_writer is None:
+                        parquet_writer = pq.ParquetWriter(target_path, table.schema)
+                    parquet_writer.write_table(table)
+                if return_dataframe:
+                    collected_frames.append(df_batch)
+        if parquet_writer is not None:
+            parquet_writer.close()
+        logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
+        if return_dataframe:
+            return pd.concat(collected_frames, ignore_index=True) if collected_frames else pd.DataFrame(columns=pred_columns or [])
+        return pd.DataFrame(columns=pred_columns or [])
 
     def save_model(self, save_path: str | Path | None = None, add_timestamp: bool | None = None, verbose: bool = True):
         add_timestamp = False if add_timestamp is None else add_timestamp
-        target_path = resolve_save_path(
-            path=save_path,
-            default_dir=self.session_path,
-            default_name=self.model_name,
-            suffix=".model",
-            add_timestamp=add_timestamp,
-        )
+        target_path = resolve_save_path(path=save_path, default_dir=self.session_path, default_name=self.model_name, suffix=".model", add_timestamp=add_timestamp)
         model_path = Path(target_path)
         torch.save(self.state_dict(), model_path)
 
@@ -817,21 +892,21 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         if base_path.is_dir():
             model_files = sorted(base_path.glob("*.model"))
             if not model_files:
-                raise FileNotFoundError(f"No *.model file found in directory: {base_path}")
+                raise FileNotFoundError(f"[BaseModel-load-model Error] No *.model file found in directory: {base_path}")
             model_path = model_files[-1]
             config_dir = base_path
         else:
             model_path = base_path.with_suffix(".model") if base_path.suffix == "" else base_path
             config_dir = model_path.parent
         if not model_path.exists():
-            raise FileNotFoundError(f"Model file does not exist: {model_path}")
+            raise FileNotFoundError(f"[BaseModel-load-model Error] Model file does not exist: {model_path}")
 
         state_dict = torch.load(model_path, map_location=map_location)
         self.load_state_dict(state_dict)
 
         features_config_path = config_dir / "features_config.pkl"
         if not features_config_path.exists():
-            raise FileNotFoundError(f"features_config.pkl not found in: {config_dir}")
+            raise FileNotFoundError(f"[BaseModel-load-model Error] features_config.pkl not found in: {config_dir}")
         with open(features_config_path, "rb") as f:
             features_config = pickle.load(f)
 
@@ -841,18 +916,62 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         dense_features = [f for f in all_features if isinstance(f, DenseFeature)]
         sparse_features = [f for f in all_features if isinstance(f, SparseFeature)]
         sequence_features = [f for f in all_features if isinstance(f, SequenceFeature)]
-        self._set_feature_config(
-            dense_features=dense_features,
-            sparse_features=sparse_features,
-            sequence_features=sequence_features,
-            target=target,
-            id_columns=id_columns,
-        )
+        self._set_feature_config(dense_features=dense_features, sparse_features=sparse_features, sequence_features=sequence_features, target=target, id_columns=id_columns)
         self.target = self.target_columns
         self.target_index = {name: idx for idx, name in enumerate(self.target)}
         cfg_version = features_config.get("version")
         if verbose:
             logging.info(colorize(f"Model weights loaded from: {model_path}, features config loaded from: {features_config_path}, NextRec version: {cfg_version}",color="green",))
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        checkpoint_path: str | Path,
+        map_location: str | torch.device | None = "cpu",
+        device: str | torch.device = "cpu",
+        session_id: str | None = None,
+        **kwargs: Any,
+    ) -> "BaseModel":
+        """
+        Factory that reconstructs a model instance (including feature specs)
+        from a saved checkpoint directory or *.model file.
+        """
+        base_path = Path(checkpoint_path)
+        verbose = kwargs.pop("verbose", True)
+        if base_path.is_dir():
+            model_candidates = sorted(base_path.glob("*.model"))
+            if not model_candidates:
+                raise FileNotFoundError(f"[BaseModel-from-checkpoint Error] No *.model file found under: {base_path}")
+            model_file = model_candidates[-1]
+            config_dir = base_path
+        else:
+            model_file = base_path.with_suffix(".model") if base_path.suffix == "" else base_path
+            config_dir = model_file.parent
+        features_config_path = config_dir / "features_config.pkl"
+        if not features_config_path.exists():
+            raise FileNotFoundError(f"[BaseModel-from-checkpoint Error] features_config.pkl not found next to checkpoint: {features_config_path}")
+        with open(features_config_path, "rb") as f:
+            features_config = pickle.load(f)
+        all_features = features_config.get("all_features", [])
+        target = features_config.get("target", [])
+        id_columns = features_config.get("id_columns", [])
+
+        dense_features = [f for f in all_features if isinstance(f, DenseFeature)]
+        sparse_features = [f for f in all_features if isinstance(f, SparseFeature)]
+        sequence_features = [f for f in all_features if isinstance(f, SequenceFeature)]
+
+        model = cls(
+            dense_features=dense_features,
+            sparse_features=sparse_features,
+            sequence_features=sequence_features,
+            target=target,
+            id_columns=id_columns,
+            device=str(device),
+            session_id=session_id,
+            **kwargs,
+        )
+        model.load_model(model_file, map_location=map_location, verbose=verbose)
+        return model
 
     def summary(self):
         logger = logging.getLogger()
@@ -872,7 +991,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                 logger.info(f"  {i}. {feat.name:20s}")
         
         if self.sparse_features:
-            logger.info(f"Sparse Features ({len(self.sparse_features)}):")
+            logger.info(f"\nSparse Features ({len(self.sparse_features)}):")
 
             max_name_len = max(len(feat.name) for feat in self.sparse_features)
             max_embed_name_len = max(len(feat.embedding_name) for feat in self.sparse_features)
@@ -887,7 +1006,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                 logger.info(f"  {i:<4} {feat.name:<{name_width}} {str(vocab_size):>12} {feat.embedding_name:>{embed_name_width}} {str(embed_dim):>10}")
         
         if self.sequence_features:
-            logger.info(f"Sequence Features ({len(self.sequence_features)}):")
+            logger.info(f"\nSequence Features ({len(self.sequence_features)}):")
 
             max_name_len = max(len(feat.name) for feat in self.sequence_features)
             max_embed_name_len = max(len(feat.embedding_name) for feat in self.sequence_features)
@@ -949,6 +1068,8 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         
         if hasattr(self, '_loss_config'):
             logger.info(f"Loss Function:           {self._loss_config}")
+        if hasattr(self, '_loss_weights'):
+            logger.info(f"Loss Weights:            {self._loss_weights}")
         
         logger.info("Regularization:")
         logger.info(f"  Embedding L1:          {self._embedding_l1_reg}")
@@ -1054,12 +1175,8 @@ class BaseMatchModel(BaseModel):
         self.temperature = temperature
         self.similarity_metric = similarity_metric
 
-        self.user_feature_names = [f.name for f in (
-            self.user_dense_features + self.user_sparse_features + self.user_sequence_features
-        )]
-        self.item_feature_names = [f.name for f in (
-            self.item_dense_features + self.item_sparse_features + self.item_sequence_features
-        )]
+        self.user_feature_names = [f.name for f in (self.user_dense_features + self.user_sparse_features + self.user_sequence_features)]
+        self.item_feature_names = [f.name for f in (self.item_dense_features + self.item_sparse_features + self.item_sequence_features)]
 
     def get_user_features(self, X_input: dict) -> dict:
         return {
@@ -1087,11 +1204,7 @@ class BaseMatchModel(BaseModel):
         Mirrors BaseModel.compile while adding training_mode validation for match tasks.
         """
         if self.training_mode not in self.support_training_modes:
-            raise ValueError(
-                f"{self.model_name} does not support training_mode='{self.training_mode}'. "
-                f"Supported modes: {self.support_training_modes}"
-            )
-
+            raise ValueError(f"{self.model_name} does not support training_mode='{self.training_mode}'. Supported modes: {self.support_training_modes}")
         # Call parent compile with match-specific logic
         optimizer_params = optimizer_params or {}
         
@@ -1107,14 +1220,8 @@ class BaseMatchModel(BaseModel):
         self._scheduler_params = scheduler_params or {}
         self._loss_config = loss
         self._loss_params = loss_params or {}
-        
-        # set optimizer
-        self.optimizer_fn = get_optimizer(
-            optimizer=optimizer, 
-            params=self.parameters(), 
-            **optimizer_params
-        )
-        
+
+        self.optimizer_fn = get_optimizer(optimizer=optimizer, params=self.parameters(), **optimizer_params)
         # Set loss function based on training mode
         default_losses = {
             'pointwise': 'bce',
@@ -1132,13 +1239,8 @@ class BaseMatchModel(BaseModel):
         # Pairwise/listwise modes do not support BCE, fall back to sensible defaults
         if self.training_mode in {"pairwise", "listwise"} and loss_value in {"bce", "binary_crossentropy"}:
             loss_value = default_losses.get(self.training_mode, loss_value)
-
         loss_kwargs = get_loss_kwargs(self._loss_params, 0)
-        self.loss_fn = [get_loss_fn(
-            loss=loss_value,
-            **loss_kwargs
-        )]
-        
+        self.loss_fn = [get_loss_fn(loss=loss_value, **loss_kwargs)]
         # set scheduler
         self.scheduler_fn = get_scheduler(scheduler, self.optimizer_fn, **(scheduler_params or {})) if scheduler else None
 
@@ -1175,9 +1277,7 @@ class BaseMatchModel(BaseModel):
         
         else:
             raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
-        
         similarity = similarity / self.temperature
-        
         return similarity
     
     def user_tower(self, user_input: dict) -> torch.Tensor:
@@ -1212,23 +1312,15 @@ class BaseMatchModel(BaseModel):
         # pairwise / listwise using inbatch neg
         elif self.training_mode in ['pairwise', 'listwise']:
             if not isinstance(y_pred, (tuple, list)) or len(y_pred) != 2:
-                raise ValueError(
-                    "For pairwise/listwise training, forward should return (user_emb, item_emb). "
-                    "Please check BaseMatchModel.forward implementation."
-                )
-            
-            user_emb, item_emb = y_pred  # [B, D], [B, D]
-            
+                raise ValueError("For pairwise/listwise training, forward should return (user_emb, item_emb). Please check BaseMatchModel.forward implementation.")
+            user_emb, item_emb = y_pred  # [B, D], [B, D]           
             logits = torch.matmul(user_emb, item_emb.t())  # [B, B]
-            logits = logits / self.temperature            
-            
+            logits = logits / self.temperature                        
             batch_size = logits.size(0)
-            targets = torch.arange(batch_size, device=logits.device)  # [0, 1, 2, ..., B-1]
-            
+            targets = torch.arange(batch_size, device=logits.device)  # [0, 1, 2, ..., B-1]            
             # Cross-Entropy = InfoNCE
             loss = F.cross_entropy(logits, targets)
-            return loss
-        
+            return loss        
         else:
             raise ValueError(f"Unknown training mode: {self.training_mode}")
     
@@ -1237,8 +1329,7 @@ class BaseMatchModel(BaseModel):
         super()._set_metrics(metrics)
     
     def encode_user(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 512) -> np.ndarray:
-        self.eval()
-        
+        self.eval()        
         if not isinstance(data, DataLoader):
             user_data = {}
             all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
@@ -1249,30 +1340,21 @@ class BaseMatchModel(BaseModel):
                 elif isinstance(data, pd.DataFrame):
                     if feature.name in data.columns:
                         user_data[feature.name] = data[feature.name].values
-            
-            data_loader = self._prepare_data_loader(
-                user_data,
-                batch_size=batch_size,
-                shuffle=False,
-            )
+            data_loader = self._prepare_data_loader(user_data, batch_size=batch_size, shuffle=False)
         else:
             data_loader = data
-        
         embeddings_list = []
-        
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Encoding users"):
                 batch_dict = self._batch_to_dict(batch_data, include_ids=False)
                 user_input = self.get_user_features(batch_dict["features"])
                 user_emb = self.user_tower(user_input)
                 embeddings_list.append(user_emb.cpu().numpy())
-        
         embeddings = np.concatenate(embeddings_list, axis=0)
         return embeddings
     
     def encode_item(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 512) -> np.ndarray:
         self.eval()
-        
         if not isinstance(data, DataLoader):
             item_data = {}
             all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
@@ -1283,23 +1365,15 @@ class BaseMatchModel(BaseModel):
                 elif isinstance(data, pd.DataFrame):
                     if feature.name in data.columns:
                         item_data[feature.name] = data[feature.name].values
-
-            data_loader = self._prepare_data_loader(
-                item_data,
-                batch_size=batch_size,
-                shuffle=False,
-            )
+            data_loader = self._prepare_data_loader(item_data, batch_size=batch_size, shuffle=False)
         else:
             data_loader = data
-        
         embeddings_list = []
-        
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Encoding items"):
                 batch_dict = self._batch_to_dict(batch_data, include_ids=False)
                 item_input = self.get_item_features(batch_dict["features"])
                 item_emb = self.item_tower(item_input)
                 embeddings_list.append(item_emb.cpu().numpy())
-        
         embeddings = np.concatenate(embeddings_list, axis=0)
         return embeddings

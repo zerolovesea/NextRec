@@ -2,10 +2,10 @@
 Feature definitions
 
 Date: create on 27/10/2025
-Author: Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 29/11/2025
+Author: Yang Zhou, zyaztec@gmail.com
 """
-from __future__ import annotations
-from typing import List, Sequence, Optional    
+import torch
 from nextrec.utils.embedding import get_auto_embedding_dim
 
 class BaseFeature(object):
@@ -34,7 +34,6 @@ class SequenceFeature(BaseFeature):
         l2_reg: float = 1e-5,
         trainable: bool = True,
     ):
-
         self.name = name
         self.vocab_size = vocab_size
         self.max_len = max_len
@@ -60,8 +59,10 @@ class SparseFeature(BaseFeature):
                  init_params: dict|None = None,
                  l1_reg: float = 0.0,                 
                  l2_reg: float = 1e-5,
-                 trainable: bool = True):
-        
+                 trainable: bool = True,
+                 pretrained_weight: torch.Tensor | None = None,  
+                 freeze_pretrained: bool = False,                
+                 ):
         self.name = name
         self.vocab_size = vocab_size
         self.embedding_name = embedding_name or name
@@ -73,32 +74,40 @@ class SparseFeature(BaseFeature):
         self.l1_reg = l1_reg
         self.l2_reg = l2_reg
         self.trainable = trainable
+        self.pretrained_weight = pretrained_weight
+        self.freeze_pretrained = freeze_pretrained
 
 class DenseFeature(BaseFeature):
-    def __init__(self, 
-                 name: str, 
-                 embedding_dim: int = 1):
-
+    def __init__(
+        self,
+        name: str,
+        embedding_dim: int | None = 1,
+        input_dim: int  = 1,
+        use_embedding: bool = False,
+    ):
         self.name = name
-        self.embedding_dim = embedding_dim
-
+        self.input_dim = max(int(input_dim or 1), 1)
+        self.embedding_dim = embedding_dim or self.input_dim
+        if embedding_dim is not None and embedding_dim > 1:
+            self.use_embedding = True
+        else:
+            self.use_embedding = use_embedding  # user decides for dim <= 1
 
 class FeatureSpecMixin:
     """
     Mixin that normalizes dense/sparse/sequence feature lists and target/id columns.
     """
-
     def _set_feature_config(
         self,
-        dense_features: Sequence[DenseFeature] | None = None,
-        sparse_features: Sequence[SparseFeature] | None = None,
-        sequence_features: Sequence[SequenceFeature] | None = None,
-        target: str | Sequence[str] | None = None,
-        id_columns: str | Sequence[str] | None = None,
+        dense_features: list[DenseFeature] | None = None,
+        sparse_features: list[SparseFeature] | None = None,
+        sequence_features: list[SequenceFeature] | None = None,
+        target: str | list[str] | None = None,
+        id_columns: str | list[str] | None = None,
     ) -> None:
-        self.dense_features: List[DenseFeature] = list(dense_features) if dense_features else []
-        self.sparse_features: List[SparseFeature] = list(sparse_features) if sparse_features else []
-        self.sequence_features: List[SequenceFeature] = list(sequence_features) if sequence_features else []
+        self.dense_features = list(dense_features) if dense_features else []
+        self.sparse_features = list(sparse_features) if sparse_features else []
+        self.sequence_features = list(sequence_features) if sequence_features else []
 
         self.all_features = self.dense_features + self.sparse_features + self.sequence_features
         self.feature_names = [feat.name for feat in self.all_features]
@@ -107,17 +116,16 @@ class FeatureSpecMixin:
 
     def _set_target_id_config(
         self,
-        target: str | Sequence[str] | None = None,
-        id_columns: str | Sequence[str] | None = None,
+        target: str | list[str] | None = None,
+        id_columns: str | list[str] | None = None,
     ) -> None:
         self.target_columns = self._normalize_to_list(target)
         self.id_columns = self._normalize_to_list(id_columns)
 
     @staticmethod
-    def _normalize_to_list(value: str | Sequence[str] | None) -> list[str]:
+    def _normalize_to_list(value: str | list[str] | None) -> list[str]:
         if value is None:
             return []
         if isinstance(value, str):
             return [value]
         return list(value)
-

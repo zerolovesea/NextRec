@@ -2,7 +2,7 @@
 Dataloader definitions
 
 Date: create on 27/10/2025
-Update: 25/11/2025
+Checkpoint: edit on 29/11/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 import os
@@ -14,7 +14,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from pathlib import Path
-from typing import Iterator, Literal, Union, Optional
+from typing import cast
 
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from nextrec.data.preprocessor import DataProcessor
@@ -35,15 +35,14 @@ class TensorDictDataset(Dataset):
         self.labels = tensors.get("labels")
         self.ids = tensors.get("ids")
         if not self.features:
-            raise ValueError("Dataset requires at least one feature tensor.")
+            raise ValueError("[TensorDictDataset Error] Dataset requires at least one feature tensor.")
         lengths = [tensor.shape[0] for tensor in self.features.values()]
         if not lengths:
-            raise ValueError("Feature tensors are empty.")
+            raise ValueError("[TensorDictDataset Error] Feature tensors are empty.")
         self.length = lengths[0]
         for length in lengths[1:]:
             if length != self.length:
-                raise ValueError("All feature tensors must have the same length.")
-
+                raise ValueError("[TensorDictDataset Error] All feature tensors must have the same length.")
     def __len__(self) -> int:
         return self.length
 
@@ -52,7 +51,6 @@ class TensorDictDataset(Dataset):
         sample_labels = {name: tensor[idx] for name, tensor in self.labels.items()} if self.labels else None
         sample_ids = {name: tensor[idx] for name, tensor in self.ids.items()} if self.ids else None
         return {"features": sample_features, "labels": sample_labels, "ids": sample_ids}
-
 
 class FileDataset(FeatureSpecMixin, IterableDataset):
     def __init__(self, 
@@ -109,18 +107,14 @@ class FileDataset(FeatureSpecMixin, IterableDataset):
     def _dataframe_to_tensors(self, df: pd.DataFrame) -> dict | None:
         if self.processor is not None:
             if not self.processor.is_fitted:
-                raise ValueError("DataProcessor must be fitted before using in streaming mode")
+                raise ValueError("[DataLoader Error] DataProcessor must be fitted before using in streaming mode")
             transformed_data = self.processor.transform(df, return_dict=True)
         else:
             transformed_data = df
-
-        batch = build_tensors_from_data(
-            data=transformed_data,
-            raw_data=df,
-            features=self.all_features,
-            target_columns=self.target_columns,
-            id_columns=self.id_columns,
-        )
+        if isinstance(transformed_data, list):
+            raise TypeError("[DataLoader Error] DataProcessor.transform returned file paths; use return_dict=True with in-memory data for streaming.")
+        safe_data = cast(dict | pd.DataFrame, transformed_data)
+        batch = build_tensors_from_data(data=safe_data, raw_data=df, features=self.all_features, target_columns=self.target_columns, id_columns=self.id_columns)
         if batch is not None:
             batch["_already_batched"] = True
         return batch
@@ -133,12 +127,12 @@ class RecDataLoader(FeatureSpecMixin):
                  sequence_features: list[SequenceFeature] | None = None,
                  target: list[str] | None | str = None,
                  id_columns: str | list[str] | None = None,
-                 processor: Optional['DataProcessor'] = None):
+                 processor: DataProcessor | None = None):
         self.processor = processor
         self._set_feature_config(dense_features, sparse_features, sequence_features, target, id_columns)
 
     def create_dataloader(self,
-                         data: Union[dict, pd.DataFrame, str, DataLoader],
+                         data: dict | pd.DataFrame | str | DataLoader,
                          batch_size: int = 32,
                          shuffle: bool = True,
                          load_full: bool = True,
@@ -150,21 +144,21 @@ class RecDataLoader(FeatureSpecMixin):
         elif isinstance(data, (dict, pd.DataFrame)):
             return self._create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle)
         else:
-            raise ValueError(f"Unsupported data type: {type(data)}")
+            raise ValueError(f"[RecDataLoader Error] Unsupported data type: {type(data)}")
     
     def _create_from_memory(self, 
-                           data: Union[dict, pd.DataFrame],
+                           data: dict | pd.DataFrame,
                            batch_size: int,
                            shuffle: bool) -> DataLoader:
         raw_data = data
 
         if self.processor is not None:
             if not self.processor.is_fitted:
-                raise ValueError("DataProcessor must be fitted before transforming data in memory")
-            data = self.processor.transform(data, return_dict=True)
+                raise ValueError("[RecDataLoader Error] DataProcessor must be fitted before transforming data in memory")
+            data = self.processor.transform(data, return_dict=True) # type: ignore
         tensors = build_tensors_from_data(data=data,raw_data=raw_data, features=self.all_features, target_columns=self.target_columns, id_columns=self.id_columns,)
         if tensors is None:
-            raise ValueError("No valid tensors could be built from the provided data.")
+            raise ValueError("[RecDataLoader Error] No valid tensors could be built from the provided data.")
         dataset = TensorDictDataset(tensors)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
     
@@ -188,11 +182,11 @@ class RecDataLoader(FeatureSpecMixin):
                     df = read_table(file_path, file_type)
                     dfs.append(df)
                 except MemoryError as exc:
-                    raise MemoryError(f"Out of memory while reading {file_path}. Consider using load_full=False with streaming.") from exc
+                    raise MemoryError(f"[RecDataLoader Error] Out of memory while reading {file_path}. Consider using load_full=False with streaming.") from exc
             try:
                 combined_df = pd.concat(dfs, ignore_index=True)
             except MemoryError as exc:
-                raise MemoryError(f"Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use load_full=False to stream or reduce chunk_size.") from exc
+                raise MemoryError(f"[RecDataLoader Error] Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use load_full=False to stream or reduce chunk_size.") from exc
             return self._create_from_memory(combined_df, batch_size, shuffle,)
         else:
             return self._load_files_streaming(file_paths, file_type, batch_size, chunk_size, shuffle)
@@ -204,9 +198,9 @@ class RecDataLoader(FeatureSpecMixin):
                              chunk_size: int,
                              shuffle: bool) -> DataLoader:
         if shuffle:
-            logging.warning("Shuffle is ignored in streaming mode (IterableDataset).")
+            logging.warning("[RecDataLoader Warning] Shuffle is ignored in streaming mode (IterableDataset).")
         if batch_size != 1:
-            logging.warning("Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput.")
+            logging.warning("[RecDataLoader Warning] Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput.")
         dataset = FileDataset(
             file_paths=file_paths,
             dense_features=self.dense_features,
@@ -230,22 +224,20 @@ def _normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
     if column.ndim == 0:
         column = column.reshape(1)
     if column.dtype == object and any(isinstance(v, str) for v in column.ravel()):
-        raise TypeError(f"Sequence feature '{feature.name}' expects numeric sequences; found string values.")
+        raise TypeError(f"[RecDataLoader Error] Sequence feature '{feature.name}' expects numeric sequences; found string values.")
     if column.dtype == object and len(column) > 0 and isinstance(column[0], (list, tuple, np.ndarray)):
         sequences = []
         for seq in column:
             if isinstance(seq, str):
-                raise TypeError(f"Sequence feature '{feature.name}' expects numeric sequences; found string values.")
+                raise TypeError(f"[RecDataLoader Error] Sequence feature '{feature.name}' expects numeric sequences; found string values.")
             if isinstance(seq, (list, tuple, np.ndarray)):
                 arr = np.asarray(seq, dtype=np.int64)
             else:
                 arr = np.asarray([seq], dtype=np.int64)
             sequences.append(arr)
-
         max_len = getattr(feature, "max_len", 0)
         if max_len <= 0:
             max_len = max((len(seq) for seq in sequences), default=1)
-
         pad_value = getattr(feature, "padding_idx", 0)
         padded = []
         for seq in sequences:
@@ -270,7 +262,7 @@ def build_tensors_from_data(  # noqa: C901
     for feature in features:
         column = get_column_data(data, feature.name)
         if column is None:
-            raise ValueError(f"Feature column '{feature.name}' not found in data")
+            raise ValueError(f"[RecDataLoader Error] Feature column '{feature.name}' not found in data")
         if isinstance(feature, SequenceFeature):
             tensor = torch.from_numpy(_normalize_sequence_column(column, feature))
         elif isinstance(feature, DenseFeature):
@@ -301,11 +293,11 @@ def build_tensors_from_data(  # noqa: C901
             if column is None:
                 column = get_column_data(data, id_col)
             if column is None:
-                raise KeyError(f"ID column '{id_col}' not found in provided data.")
+                raise KeyError(f"[RecDataLoader Error] ID column '{id_col}' not found in provided data.")
             try:
                 id_arr = np.asarray(column, dtype=np.int64)
             except Exception as exc:
-                raise TypeError( f"ID column '{id_col}' must contain numeric values. Received dtype={np.asarray(column).dtype}, error: {exc}") from exc
+                raise TypeError( f"[RecDataLoader Error] ID column '{id_col}' must contain numeric values. Received dtype={np.asarray(column).dtype}, error: {exc}") from exc
             id_tensors[id_col] = torch.from_numpy(id_arr)
     if not feature_tensors:
         return None

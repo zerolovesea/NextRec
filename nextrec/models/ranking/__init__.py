@@ -7,6 +7,7 @@ from .autoint import AutoInt
 from .widedeep import WideDeep
 from .xdeepfm import xDeepFM
 from .dcn import DCN
+from .fibinet import FiBiNET
 from .din import DIN
 from .dien import DIEN
 
@@ -22,4 +23,5 @@ __all__ = [
     'AFM',
     'MaskNet',
     'PNN',
+    'FiBiNET',
 ]

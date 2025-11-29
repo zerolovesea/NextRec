@@ -2,7 +2,8 @@
 Activation function definitions
 
 Date: create on 27/10/2025
-Author: Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 29/11/2025
+Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import torch
@@ -31,25 +32,20 @@ class Dice(nn.Module):
             # For 3D input (batch_size, seq_len, emb_size), reshape to 2D
             batch_size, seq_len, emb_size = x.shape
             x = x.view(-1, emb_size)
-        
         x_norm = self.bn(x)
         p = torch.sigmoid(x_norm)
         output = p * x + (1 - p) * self.alpha * x
-        
         if len(original_shape) == 3:
             output = output.view(original_shape)
-        
         return output
 
 
 def activation_layer(activation: str, emb_size: int | None = None):
     """Create an activation layer based on the given activation name."""
-    
     activation = activation.lower()
-    
     if activation == "dice":
         if emb_size is None:
-            raise ValueError("emb_size is required for Dice activation")
+            raise ValueError("[ActivationLayer Error]: emb_size is required for Dice activation")
         return Dice(emb_size)
     elif activation == "relu":
         return nn.ReLU()
@@ -88,4 +84,4 @@ def activation_layer(activation: str, emb_size: int | None = None):
     elif activation in ["none", "linear", "identity"]:
         return nn.Identity()
     else:
-        raise ValueError(f"Unsupported activation function: {activation}")  
+        raise ValueError(f"[ActivationLayer Error]: Unsupported activation function: {activation}")  

@@ -1,7 +1,42 @@
 """
 Date: create on 09/11/2025
+Checkpoint: edit on 24/11/2025
 Author: Yang Zhou,zyaztec@gmail.com
-Reference: [1] Caruana R. Multitask learning[J]. Machine learning, 1997, 28: 41-75.
+Reference:
+[1] Caruana R. Multitask learning[J]. Machine Learning, 1997, 28: 41-75.
+(https://link.springer.com/article/10.1023/A:1007379606734)
+
+Shared-Bottom is the classic hard-parameter-sharing baseline for multi-task learning.
+All tasks share a common bottom network to learn general representations, and each
+task has its own tower head for task-specific refinement and prediction. This
+architecture is simple, parameter-efficient, and helps regularize related tasks.
+
+Workflow:
+  (1) Unified embeddings convert dense/sparse/sequence features
+  (2) A shared bottom MLP learns common representations
+  (3) Task-specific towers further transform the shared features
+  (4) Separate prediction heads output each task’s logits/probabilities
+
+Key Advantages:
+- Strong inductive bias via hard parameter sharing, reducing overfitting
+- Parameter-efficient compared to duplicating full models per task
+- Easy to extend to many tasks with small incremental cost
+- Serves as a stable baseline for evaluating advanced MTL architectures
+
+Share-Bottom（硬共享底层）是多任务学习的经典基线：所有任务共享一个底层网络，
+各任务拥有独立塔头进行细化与预测，简单高效且能通过共享正则化相关任务。
+
+流程：
+  (1) 统一 embedding 处理稠密、稀疏与序列特征
+  (2) 共享底层 MLP 学习通用表示
+  (3) 任务塔在共享表示上做任务特定变换
+  (4) 各任务预测头输出对应结果
+
+主要优点：
+- 硬参数共享提供强正则，减少过拟合
+- 相比单独模型更节省参数与计算
+- 易于扩展到多任务，增量开销小
+- 是评估更复杂 MTL 结构的稳健基线
 """
 
 import torch
@@ -59,22 +94,17 @@ class ShareBottom(BaseModel):
         self.loss = loss
         if self.loss is None:
             self.loss = "bce"
-        
         # Number of tasks
         self.num_tasks = len(target)
         if len(tower_params_list) != self.num_tasks:
             raise ValueError(f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})")
-            
-        # All features
-        self.all_features = dense_features + sparse_features + sequence_features
-
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
-
         # Calculate input dimension
-        emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
-        dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
-        input_dim = emb_dim_total + dense_input_dim
+        input_dim = self.embedding.input_dim
+        # emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
+        # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
+        # input_dim = emb_dim_total + dense_input_dim
         
         # Shared bottom network
         self.bottom = MLP(input_dim=input_dim, output_layer=False, **bottom_params)
@@ -90,23 +120,10 @@ class ShareBottom(BaseModel):
         for tower_params in tower_params_list:
             tower = MLP(input_dim=bottom_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
-        self.prediction_layer = PredictionLayer(
-            task_type=self.task_type,
-            task_dims=[1] * self.num_tasks
-        )
-
+        self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1] * self.num_tasks)
         # Register regularization weights
-        self._register_regularization_weights(
-            embedding_attr='embedding',
-            include_modules=['bottom', 'towers']
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
-        )
+        self._register_regularization_weights(embedding_attr='embedding', include_modules=['bottom', 'towers'])
+        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x):
         # Get all embeddings and flatten

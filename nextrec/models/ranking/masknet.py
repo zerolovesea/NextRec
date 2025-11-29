@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 24/11/2025
+Checkpoint: edit on 29/11/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Wang Z, She Q, Zhang J. MaskNet: Introducing Feature-Wise
@@ -144,7 +144,8 @@ class MaskNet(BaseModel):
 
     @property
     def task_type(self):
-        return "binary_classification"
+        # Align with PredictionLayer supported task types
+        return "binary"
 
     def __init__(
         self,
@@ -198,26 +199,19 @@ class MaskNet(BaseModel):
         self.dense_features = dense_features
         self.sparse_features = sparse_features
         self.sequence_features = sequence_features
-        self.mask_features = self.sparse_features + self.sequence_features + self.dense_features
+        self.mask_features = self.all_features  # use all features for masking
         assert len(self.mask_features) > 0, "MaskNet requires at least one feature for masking."
-
         self.embedding = EmbeddingLayer(features=self.mask_features)
-
         self.num_fields = len(self.mask_features)
-
         self.embedding_dim = getattr(self.mask_features[0], "embedding_dim", None)
         assert self.embedding_dim is not None, "MaskNet requires mask_features to have 'embedding_dim' defined."
 
         for f in self.mask_features:
             edim = getattr(f, "embedding_dim", None)
             if edim is None or edim != self.embedding_dim:
-                raise ValueError(
-                    f"MaskNet expects identical embedding_dim across all mask_features, "
-                    f"but got {edim} for feature {getattr(f, 'name', type(f))}."
-                )
+                raise ValueError(f"MaskNet expects identical embedding_dim across all mask_features, but got {edim} for feature {getattr(f, 'name', type(f))}.")
 
         self.v_emb_dim = self.num_fields * self.embedding_dim
-
         self.model_type = model_type.lower()
         assert self.model_type in ("serial", "parallel"), "model_type must be either 'serial' or 'parallel'."
 
@@ -226,68 +220,25 @@ class MaskNet(BaseModel):
         self.block_dropout = nn.Dropout(block_dropout) if block_dropout > 0 else nn.Identity()
 
         if self.model_type == "serial":
-            self.first_block = MaskBlockOnEmbedding(
-                num_fields=self.num_fields,
-                embedding_dim=self.embedding_dim,
-                mask_hidden_dim=mask_hidden_dim,
-                hidden_dim=block_hidden_dim,
-            )
-
+            self.first_block = MaskBlockOnEmbedding(num_fields=self.num_fields, embedding_dim=self.embedding_dim, mask_hidden_dim=mask_hidden_dim, hidden_dim=block_hidden_dim,)
             self.hidden_blocks = nn.ModuleList(
-                [
-                    MaskBlockOnHidden(
-                        num_fields=self.num_fields,
-                        embedding_dim=self.embedding_dim,
-                        mask_hidden_dim=mask_hidden_dim,
-                        hidden_dim=block_hidden_dim,
-                    )
-                    for _ in range(self.num_blocks - 1)
-                ]
-            )
-
+                [MaskBlockOnHidden(num_fields=self.num_fields, embedding_dim=self.embedding_dim, mask_hidden_dim=mask_hidden_dim, hidden_dim=block_hidden_dim) for _ in range(self.num_blocks - 1)])
             self.mask_blocks = nn.ModuleList([self.first_block, *self.hidden_blocks])
             self.output_layer = nn.Linear(block_hidden_dim, 1)
             self.final_mlp = None
 
         else:  # parallel
-            self.mask_blocks = nn.ModuleList(
-                [
-                    MaskBlockOnEmbedding(
-                        num_fields=self.num_fields,
-                        embedding_dim=self.embedding_dim,
-                        mask_hidden_dim=mask_hidden_dim,
-                        hidden_dim=block_hidden_dim,
-                    )
-                    for _ in range(self.num_blocks)
-                ]
-            )
-
-            self.final_mlp = MLP(
-                input_dim=self.num_blocks * block_hidden_dim,
-                **mlp_params,
-            )
+            self.mask_blocks = nn.ModuleList([MaskBlockOnEmbedding(num_fields=self.num_fields, embedding_dim=self.embedding_dim, mask_hidden_dim=mask_hidden_dim, hidden_dim=block_hidden_dim) for _ in range(self.num_blocks)])
+            self.final_mlp = MLP(input_dim=self.num_blocks * block_hidden_dim, **mlp_params)
             self.output_layer = None
-
         self.prediction_layer = PredictionLayer(task_type=self.task_type)
 
         if self.model_type == "serial":
-            self._register_regularization_weights(
-                embedding_attr="embedding",
-                include_modules=["mask_blocks", "output_layer"],
-            )
+            self._register_regularization_weights(embedding_attr="embedding", include_modules=["mask_blocks", "output_layer"],)
         # serial
         else:
-            self._register_regularization_weights(
-                embedding_attr="embedding",
-                include_modules=["mask_blocks", "final_mlp"],
-            )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
-        )
+            self._register_regularization_weights(embedding_attr="embedding", include_modules=["mask_blocks", "final_mlp"])
+        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         field_emb = self.embedding(x=x, features=self.mask_features, squeeze_dim=False)
@@ -300,20 +251,15 @@ class MaskNet(BaseModel):
                 h = block(field_emb, v_emb_flat)  # [B, block_hidden_dim]
                 h = self.block_dropout(h)
                 block_outputs.append(h)
-
             concat_hidden = torch.cat(block_outputs, dim=-1)
             logit = self.final_mlp(concat_hidden)  # [B, 1]
-
         # serial
         else: 
             hidden = self.first_block(field_emb, v_emb_flat)
             hidden = self.block_dropout(hidden)
-
             for block in self.hidden_blocks:
                 hidden = block(hidden, v_emb_flat)
                 hidden = self.block_dropout(hidden)
-
             logit = self.output_layer(hidden)  # [B, 1]
-
         y = self.prediction_layer(logit)
         return y

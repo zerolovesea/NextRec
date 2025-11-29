@@ -1,5 +1,9 @@
 """
 Pointwise loss functions, including imbalance-aware variants.
+
+Date: create on 27/10/2025
+Checkpoint: edit on 29/11/2025
+Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from typing import Optional, Sequence
@@ -55,10 +59,7 @@ class WeightedBCELoss(nn.Module):
         self.auto_balance = auto_balance
 
         if pos_weight is not None:
-            self.register_buffer(
-                "pos_weight",
-                torch.as_tensor(pos_weight, dtype=torch.float32),
-            )
+            self.register_buffer("pos_weight", torch.as_tensor(pos_weight, dtype=torch.float32),)
         else:
             self.pos_weight = None
 
@@ -128,9 +129,7 @@ class FocalLoss(nn.Module):
         else:
             targets = targets.float()
             if self.logits:
-                ce_loss = F.binary_cross_entropy_with_logits(
-                    inputs, targets, reduction="none"
-                )
+                ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
                 probs = torch.sigmoid(inputs)
             else:
                 ce_loss = F.binary_cross_entropy(inputs, targets, reduction="none")
@@ -140,7 +139,6 @@ class FocalLoss(nn.Module):
             alpha_factor = self._get_binary_alpha(targets, inputs.device)
             focal_weight = (1.0 - p_t) ** self.gamma
             loss = alpha_factor * focal_weight * ce_loss
-
         if self.reduction == "mean":
             return loss.mean()
         if self.reduction == "sum":
@@ -163,13 +161,11 @@ class FocalLoss(nn.Module):
         alpha_tensor = torch.tensor(self.alpha, device=device, dtype=targets.dtype)
         return torch.where(targets == 1, alpha_tensor, 1 - alpha_tensor)
 
-
 class ClassBalancedFocalLoss(nn.Module):
     """
     Focal loss weighted by effective number of samples per class.
     Reference: "Class-Balanced Loss Based on Effective Number of Samples"
     """
-
     def __init__(
         self,
         class_counts: Sequence[int] | torch.Tensor,
@@ -187,9 +183,7 @@ class ClassBalancedFocalLoss(nn.Module):
         self.register_buffer("class_weights", weights)
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        focal = FocalLoss(
-            gamma=self.gamma, alpha=self.class_weights, reduction="none", logits=True
-        )
+        focal = FocalLoss(gamma=self.gamma, alpha=self.class_weights, reduction="none", logits=True)
         loss = focal(inputs, targets)
         if self.reduction == "mean":
             return loss.mean()

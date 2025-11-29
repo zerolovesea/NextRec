@@ -10,10 +10,134 @@ Reference:
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import EmbeddingLayer, MLP, AttentionPoolingLayer, DynamicGRU, AUGRU, PredictionLayer
+from nextrec.basic.layers import EmbeddingLayer, MLP, AttentionPoolingLayer, PredictionLayer
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+
+class AUGRU(nn.Module):
+    """Attention-aware GRU update gate used in DIEN (Zhou et al., 2019)."""
+    """
+    Attention-based GRU for DIEN
+    Uses attention scores to weight the update of hidden states
+    """
+    
+    def __init__(self, input_size, hidden_size, bias=True):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        
+        self.weight_ih = nn.Parameter(torch.randn(3 * hidden_size, input_size))
+        self.weight_hh = nn.Parameter(torch.randn(3 * hidden_size, hidden_size))
+        if bias:
+            self.bias_ih = nn.Parameter(torch.randn(3 * hidden_size))
+            self.bias_hh = nn.Parameter(torch.randn(3 * hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        
+        self.reset_parameters()
+    
+    def reset_parameters(self):
+        std = 1.0 / (self.hidden_size) ** 0.5
+        for weight in self.parameters():
+            weight.data.uniform_(-std, std)
+    
+    def forward(self, x, att_scores):
+        """
+        Args:
+            x: [batch_size, seq_len, input_size]
+            att_scores: [batch_size, seq_len, 1] - attention scores
+        Returns:
+            output: [batch_size, seq_len, hidden_size]
+            hidden: [batch_size, hidden_size] - final hidden state
+        """
+        batch_size, seq_len, _ = x.shape
+        h = torch.zeros(batch_size, self.hidden_size, device=x.device)
+        outputs = []
+        for t in range(seq_len):
+            x_t = x[:, t, :]  # [batch_size, input_size]
+            att_t = att_scores[:, t, :]  # [batch_size, 1]
+            
+            gi = F.linear(x_t, self.weight_ih, self.bias_ih)
+            gh = F.linear(h, self.weight_hh, self.bias_hh)
+            i_r, i_i, i_n = gi.chunk(3, 1)
+            h_r, h_i, h_n = gh.chunk(3, 1)
+            
+            resetgate = torch.sigmoid(i_r + h_r)
+            inputgate = torch.sigmoid(i_i + h_i)
+            newgate = torch.tanh(i_n + resetgate * h_n)
+            # Use attention score to control update
+            h = (1 - att_t) * h + att_t * newgate
+            outputs.append(h.unsqueeze(1))
+        output = torch.cat(outputs, dim=1)
+        
+        return output, h        
+
+
+class DynamicGRU(nn.Module):
+    """Dynamic GRU unit with auxiliary loss path from DIEN (Zhou et al., 2019)."""
+    """
+    GRU with dynamic routing for DIEN
+    """
+    
+    def __init__(self, input_size, hidden_size, bias=True):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        
+        # GRU parameters
+        self.weight_ih = nn.Parameter(torch.randn(3 * hidden_size, input_size))
+        self.weight_hh = nn.Parameter(torch.randn(3 * hidden_size, hidden_size))
+        if bias:
+            self.bias_ih = nn.Parameter(torch.randn(3 * hidden_size))
+            self.bias_hh = nn.Parameter(torch.randn(3 * hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        
+        self.reset_parameters()
+    
+    def reset_parameters(self):
+        std = 1.0 / (self.hidden_size) ** 0.5
+        for weight in self.parameters():
+            weight.data.uniform_(-std, std)
+    
+    def forward(self, x, att_scores=None):
+        """
+        Args:
+            x: [batch_size, seq_len, input_size]
+            att_scores: [batch_size, seq_len] - attention scores for auxiliary loss
+        Returns:
+            output: [batch_size, seq_len, hidden_size]
+            hidden: [batch_size, hidden_size] - final hidden state
+        """
+        batch_size, seq_len, _ = x.shape
+        
+        # Initialize hidden state
+        h = torch.zeros(batch_size, self.hidden_size, device=x.device)
+        
+        outputs = []
+        for t in range(seq_len):
+            x_t = x[:, t, :]  # [batch_size, input_size]
+            
+            # GRU computation
+            gi = F.linear(x_t, self.weight_ih, self.bias_ih)
+            gh = F.linear(h, self.weight_hh, self.bias_hh)
+            i_r, i_i, i_n = gi.chunk(3, 1)
+            h_r, h_i, h_n = gh.chunk(3, 1)
+            
+            resetgate = torch.sigmoid(i_r + h_r)
+            inputgate = torch.sigmoid(i_i + h_i)
+            newgate = torch.tanh(i_n + resetgate * h_n)
+            h = newgate + inputgate * (h - newgate)
+            
+            outputs.append(h.unsqueeze(1))
+        
+        output = torch.cat(outputs, dim=1)  # [batch_size, seq_len, hidden_size]
+        
+        return output, h
 
 
 class DIEN(BaseModel):
@@ -76,9 +200,6 @@ class DIEN(BaseModel):
         
         self.other_sparse_features = sparse_features[:-1] if self.candidate_feature else sparse_features
         self.dense_features_list = dense_features
-        
-        # All features for embedding
-        self.all_features = dense_features + sparse_features + sequence_features
 
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
@@ -103,10 +224,7 @@ class DIEN(BaseModel):
         )
         
         # Interest Evolution Layer (AUGRU)
-        self.interest_evolution = AUGRU(
-            input_size=gru_hidden_size,
-            hidden_size=gru_hidden_size
-        )
+        self.interest_evolution = AUGRU(input_size=gru_hidden_size, hidden_size=gru_hidden_size)
         
         # Calculate MLP input dimension
         mlp_input_dim = 0
@@ -115,38 +233,23 @@ class DIEN(BaseModel):
         mlp_input_dim += gru_hidden_size  # final interest state
         mlp_input_dim += sum([f.embedding_dim for f in self.other_sparse_features])
         mlp_input_dim += sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
-        
         # MLP for final prediction
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
         self.prediction_layer = PredictionLayer(task_type=self.task_type)
-
         # Register regularization weights
-        self._register_regularization_weights(
-            embedding_attr='embedding',
-            include_modules=['interest_extractor', 'interest_evolution', 'attention_layer', 'mlp', 'candidate_proj']
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
-        )
+        self._register_regularization_weights(embedding_attr='embedding', include_modules=['interest_extractor', 'interest_evolution', 'attention_layer', 'mlp', 'candidate_proj'])
+        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x):
         # Get candidate item embedding
         if self.candidate_feature:
-            candidate_emb = self.embedding.embed_dict[self.candidate_feature.embedding_name](
-                x[self.candidate_feature.name].long()
-            )  # [B, emb_dim]
+            candidate_emb = self.embedding.embed_dict[self.candidate_feature.embedding_name](x[self.candidate_feature.name].long())  # [B, emb_dim]
         else:
             raise ValueError("DIEN requires a candidate item feature")
         
         # Get behavior sequence embedding
         behavior_seq = x[self.behavior_feature.name].long()  # [B, seq_len]
-        behavior_emb = self.embedding.embed_dict[self.behavior_feature.embedding_name](
-            behavior_seq
-        )  # [B, seq_len, emb_dim]
+        behavior_emb = self.embedding.embed_dict[self.behavior_feature.embedding_name](behavior_seq)  # [B, seq_len, emb_dim]
         
         # Create mask for padding
         if self.behavior_feature.padding_idx is not None:

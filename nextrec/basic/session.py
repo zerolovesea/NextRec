@@ -13,8 +13,6 @@ Date: create on 23/11/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
-from __future__ import annotations
-
 import os
 import tempfile
 from dataclasses import dataclass
@@ -95,7 +93,7 @@ def create_session(experiment_id: str | Path | None = None) -> Session:
     return Session(experiment_id=exp_id, root=root)
 
 def resolve_save_path(
-    path: str | Path | None,
+    path: str | os.PathLike | Path | None,
     default_dir: str | Path,
     default_name: str,
     suffix: str,
@@ -146,5 +144,3 @@ def resolve_save_path(
         file_stem = f"{file_stem}_{timestamp}"
 
     return (base_dir / f"{file_stem}{normalized_suffix}").resolve()
-
-
