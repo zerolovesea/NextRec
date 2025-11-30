@@ -19,12 +19,18 @@ English | [中文文档](README_zh.md)
 
 NextRec is a modern recommendation framework built on PyTorch, delivering a unified experience for modeling, training, and evaluation. It follows a modular design with rich model implementations, data-processing utilities, and engineering-ready training components. NextRec focuses on large-scale industrial recall scenarios on Spark clusters, training on massive offline parquet features.
 
-### Why NextRec
+## Why NextRec
 
 - **Unified feature engineering & data pipeline**: Dense/Sparse/Sequence feature definitions, persistent DataProcessor, and batch-optimized RecDataLoader, matching offline feature training/inference in industrial big-data settings.
 - **Multi-scenario coverage**: Ranking (CTR/CVR), retrieval, multi-task learning, and more marketing/rec models, with a continuously expanding model zoo.
 - **Developer-friendly experience**: Stream processing/training/inference for csv/parquet/pathlike data, plus GPU/MPS acceleration and visualization support.
 - **Efficient training & evaluation**: Standardized engine with optimizers, LR schedulers, early stopping, checkpoints, and detailed logging out of the box.
+
+## Architecture
+
+NextRec adopts a modular and low-coupling engineering design, enabling full-pipeline reusability and scalability across data processing → model construction → training & evaluation → inference & deployment. Its core components include: a Feature-Spec-driven Embedding architecture, the BaseModel abstraction, a set of independent reusable Layers, a unified DataLoader for both training and inference, and a ready-to-use Model Zoo.
+
+![NextRec Architecture](asserts/nextrec_diagram_en.png)
 
 > The project borrows ideas from excellent open-source rec libraries. Early layers referenced [torch-rechub](https://github.com/datawhalechina/torch-rechub) but have been replaced with in-house implementations. torch-rechub remains mature in architecture and models; the author contributed a bit there—feel free to check it out.
 
