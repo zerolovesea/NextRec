@@ -10,7 +10,7 @@ from typing import Iterable
 
 
 def get_optimizer(
-    optimizer: str = "adam",
+    optimizer: str | torch.optim.Optimizer = "adam",
     params: Iterable[torch.nn.Parameter] | None = None,
     **optimizer_params
 ):
@@ -51,7 +51,11 @@ def get_optimizer(
     return optimizer_fn
 
 
-def get_scheduler(scheduler, optimizer, **scheduler_params):
+def get_scheduler(
+    scheduler: str | torch.optim.lr_scheduler._LRScheduler | torch.optim.lr_scheduler.LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | type[torch.optim.lr_scheduler.LRScheduler] | None,
+    optimizer,
+    **scheduler_params
+):
     """
     Get learning rate scheduler function.
     
@@ -66,7 +70,7 @@ def get_scheduler(scheduler, optimizer, **scheduler_params):
             scheduler_fn = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **scheduler_params)
         else:
             raise NotImplementedError(f"Unsupported scheduler: {scheduler}")
-    elif isinstance(scheduler, torch.optim.lr_scheduler._LRScheduler):
+    elif isinstance(scheduler, (torch.optim.lr_scheduler._LRScheduler, torch.optim.lr_scheduler.LRScheduler)):
         scheduler_fn = scheduler
     else:
         raise TypeError(f"Invalid scheduler type: {type(scheduler)}")

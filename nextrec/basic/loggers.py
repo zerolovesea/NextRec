@@ -106,7 +106,7 @@ def setup_logger(session_id: str | os.PathLike | None = None):
 
     console_format = '%(message)s'
     file_format = '%(asctime)s - %(levelname)s - %(message)s'
-    date_format = '%H:%M:%S'
+    date_format = '%Y-%m-%d %H:%M:%S'
     
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)

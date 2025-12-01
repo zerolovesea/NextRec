@@ -80,11 +80,13 @@ model = DIN(
 )
 
 model.compile(
-            optimizer = "adam",
-            optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5},
-            loss = "focal",
-            loss_params={"gamma": 2.0, "alpha": 0.25},
-        )
+    optimizer="adam",
+    optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
+    scheduler="step",
+    scheduler_params={"step_size": 3, "gamma": 0.5},
+    loss="focal",
+    loss_params={"gamma": 2.0, "alpha": 0.25},
+)
 
 print(f"\nModel: {model.model_name}")
 print(f"Attention: compute relevance between history and candidate item")
@@ -114,7 +116,7 @@ print("Model Prediction")
 print(" ")
 
 
-pred_df = model.predict(valid_df, batch_size=512)
+pred_df: pd.DataFrame = model.predict(valid_df, batch_size=512, return_dataframe=True)
 preview = pred_df.head(5)
 print(f"\nPrediction sample (first 5 rows):\n{preview}")
 

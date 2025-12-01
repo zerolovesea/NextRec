@@ -216,10 +216,15 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         return train_loader, valid_split
 
     def compile(
-        self, optimizer="adam", optimizer_params: dict | None = None,
-        scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None, scheduler_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce", loss_params: dict | list[dict] | None = None,
-        loss_weights: int | float | list[int | float] | None = None,):
+        self,
+        optimizer: str | torch.optim.Optimizer = "adam",
+        optimizer_params: dict | None = None,
+        scheduler: str | torch.optim.lr_scheduler._LRScheduler | torch.optim.lr_scheduler.LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | type[torch.optim.lr_scheduler.LRScheduler] | None = None,
+        scheduler_params: dict | None = None,
+        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+        loss_params: dict | list[dict] | None = None,
+        loss_weights: int | float | list[int | float] | None = None,
+    ):
         optimizer_params = optimizer_params or {}
         self._optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
         self._optimizer_params = optimizer_params
@@ -1081,6 +1086,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         logger.info(f"  Early Stop Patience:   {self._early_stop_patience}")
         logger.info(f"  Max Gradient Norm:     {self._max_gradient_norm}")
         logger.info(f"  Session ID:            {self.session_id}")
+        logger.info(f"  Features Config Path:  {self.features_config_path}")
         logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")
         
         logger.info("")
@@ -1195,7 +1201,7 @@ class BaseMatchModel(BaseModel):
     def compile(self, 
                 optimizer: str | torch.optim.Optimizer = "adam",
                 optimizer_params: dict | None = None,
-                scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None,
+                scheduler: str | torch.optim.lr_scheduler._LRScheduler | torch.optim.lr_scheduler.LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | type[torch.optim.lr_scheduler.LRScheduler] | None = None,
                 scheduler_params: dict | None = None,
                 loss: str | nn.Module | list[str | nn.Module] | None = "bce",
                 loss_params: dict | list[dict] | None = None):
