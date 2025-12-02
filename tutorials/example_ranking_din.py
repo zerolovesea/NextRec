@@ -1,14 +1,9 @@
-"""
-DIN (Deep Interest Network) Ranking Model Example with GAUC metric
-Uses ranking_task.csv generated data
-"""
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
 from nextrec.models.ranking.din import DIN
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
-# Load generated data
 df = pd.read_csv('dataset/ranking_task.csv')
 
 # Parse sequence features from string to list
@@ -16,41 +11,16 @@ for col in df.columns:
     if 'sequence' in col:
         df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
 
-print(f"Dataset loaded: {len(df)} samples")
-print(f"Users: {df['user_id'].nunique()}")
-print(f"Items: {df['item_id'].nunique()}")
-print(f"Positive ratio: {df['label'].mean():.4f}")
 
-print(f"\nData sample:")
-print(df.head(2))
-
-# Check sequence features
-print(f"\nSequence samples:")
-print(f"sequence_0[0]: {df['sequence_0'].iloc[0]}")
-print(f"  actual length: {len([x for x in df['sequence_0'].iloc[0] if x != 0])}")
-print(f"sequence_1[0]: {df['sequence_1'].iloc[0]}")
-print(f"  actual length: {len([x for x in df['sequence_1'].iloc[0] if x != 0])}")
-
-# Train/valid split
 train_df, valid_df = train_test_split(df, test_size=0.2, random_state=2024)
 
-# Dense features
 dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1) for i in range(8)]
-
-# Sparse features (including user_id and item_id)
 sparse_features = [SparseFeature(name='user_id', embedding_name='user_emb', vocab_size=int(df['user_id'].max() + 1), embedding_dim=32), SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=int(df['item_id'].max() + 1), embedding_dim=32),]
-
-# Add other sparse features
 sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'sparse_{i}_emb', vocab_size=int(df[f'sparse_{i}'].max() + 1), embedding_dim=32) for i in range(10)])
-
-# Sequence features
 sequence_features = [
     SequenceFeature(name='sequence_0', vocab_size=int(df['sequence_0'].apply(lambda x: max(x)).max() + 1), embedding_dim=32, padding_idx=0, embedding_name='item_emb'),
     SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sparse_0_emb'),]
 
-print(f"\nDense features: {len(dense_features)}")
-print(f"Sparse features: {len(sparse_features)} (including user_id and item_id)")
-print(f"Sequence features: {len(sequence_features)}")
 
 mlp_params = {
     "dims": [256, 128, 64],
@@ -84,17 +54,6 @@ model.compile(
     loss_params={"gamma": 2.0, "alpha": 0.25},
 )
 
-print(f"\nModel: {model.model_name}")
-print(f"Attention: compute relevance between history and candidate item")
-print(f"MLP: {mlp_params['dims']}")
-
-print("\n" + "=" * 60)
-print("Start Training with GAUC metric")
-print("=" * 60)
-
-print(f"Train size: {len(train_df)}")
-print(f"Valid size: {len(valid_df)}")
-
 model.fit(
     train_data=train_df,
     valid_data=valid_df,
@@ -116,7 +75,6 @@ pred_df: pd.DataFrame = model.predict(valid_df, batch_size=512, return_dataframe
 preview = pred_df.head(5)
 print(f"\nPrediction sample (first 5 rows):\n{preview}")
 
-# Evaluate
 metrics = model.evaluate(
     valid_df,
     metrics=['auc', 'gauc', 'logloss'],

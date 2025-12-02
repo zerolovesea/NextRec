@@ -17,60 +17,23 @@ for col in df.columns:
     if 'sequence' in col:
         df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
 
-print(f"Dataset loaded: {len(df)} samples")
-print(f"Users: {df['user_id'].nunique()}")
-print(f"Items: {df['item_id'].nunique()}")
-
-print(f"\nData sample:")
-print(df.head(2))
-
-# Check task label distribution
 task_labels = ['click', 'conversion']
-print(f"\nTask label distribution:")
-for label in task_labels:
-    print(f"  {label}: {df[label].mean():.4f}")
 
-print(f"\nSequence sample:")
-print(f"sequence_0[0]: {df['sequence_0'].iloc[0]}")
-
-# Train/valid split
 train_df, valid_df = train_test_split(df, test_size=0.2, random_state=2024)
 
-# Dense features
 num_dense = len([col for col in df.columns if col.startswith('dense_')])
-dense_features = [
-    DenseFeature(f'dense_{i}')
-    for i in range(num_dense)
-]
+dense_features = [DenseFeature(f'dense_{i}') for i in range(num_dense)]
 
-# Sparse features (including user_id and item_id)
 sparse_features = [
     SparseFeature('user_id', vocab_size=int(df['user_id'].max() + 1), embedding_dim=32),
     SparseFeature('item_id', vocab_size=int(df['item_id'].max() + 1), embedding_dim=32),
 ]
 
-# Add other sparse features
 num_sparse = len([col for col in df.columns if col.startswith('sparse_')])
-sparse_features.extend([
-    SparseFeature(
-        f'sparse_{i}',
-        vocab_size=int(df[f'sparse_{i}'].max() + 1),
-        embedding_dim=16
-    )
-    for i in range(num_sparse)
-])
+sparse_features.extend([SparseFeature(f'sparse_{i}', vocab_size=int(df[f'sparse_{i}'].max() + 1), embedding_dim=16) for i in range(num_sparse)])
 
-# Sequence features
 sequence_cols = [col for col in df.columns if col.startswith('sequence_')]
-sequence_features = [
-    SequenceFeature(
-        col,
-        vocab_size=int(df[col].apply(lambda x: max(x) if len(x) > 0 else 0).max() + 1),
-        embedding_dim=32,
-        padding_idx=0
-    )
-    for col in sequence_cols
-]
+sequence_features = [SequenceFeature(col, vocab_size=int(df[col].apply(lambda x: max(x) if len(x) > 0 else 0).max() + 1), embedding_dim=32, padding_idx=0) for col in sequence_cols]
 
 print(f"Dense features: {len(dense_features)}")
 print(f"Sparse features: {len(sparse_features)} (including user_id and item_id)")
@@ -108,14 +71,6 @@ model = ESMM(
     session_id="esmm_tutorial",
 )
 
-print(f"\nModel: {model.model_name}")
-print(f"Tasks: {len(task_labels)}")
-
-print("\n" + "=" * 60)
-print("Start Training with GAUC metric")
-print("=" * 60)
-print(f"Train size: {len(train_df)}")
-print(f"Valid size: {len(valid_df)}")
 
 model.compile(
     optimizer = "adam",
@@ -136,20 +91,10 @@ model.fit(
 )
 
 
-# Predict
-print(" ")
-print("Model Prediction")
-print(" ")
-
 pred_df = model.predict(valid_df, batch_size=512)
 preview = pred_df.head(5)
-print(f"\nPrediction sample (first 5 rows):\n{preview}")
 
 # Evaluation
-print(" ")
-print("Evaluation with GAUC")
-print(" ")
-
 metrics = model.evaluate(
     valid_df,
     metrics=['auc', 'gauc', 'logloss'],
