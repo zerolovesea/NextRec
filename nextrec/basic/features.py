@@ -2,19 +2,16 @@
 Feature definitions
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 02/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 import torch
 from nextrec.utils.embedding import get_auto_embedding_dim
+from nextrec.utils.common import normalize_to_list
 
 class BaseFeature(object):
     def __repr__(self):
-        params = {
-            k: v
-            for k, v in self.__dict__.items()
-            if not k.startswith("_") 
-        }
+        params = {k: v for k, v in self.__dict__.items() if not k.startswith("_") }
         param_str = ", ".join(f"{k}={v!r}" for k, v in params.items())
         return f"{self.__class__.__name__}({param_str})"
 
@@ -93,11 +90,8 @@ class DenseFeature(BaseFeature):
         else:
             self.use_embedding = use_embedding  # user decides for dim <= 1
 
-class FeatureSpecMixin:
-    """
-    Mixin that normalizes dense/sparse/sequence feature lists and target/id columns.
-    """
-    def _set_feature_config(
+class FeatureSet:
+    def set_all_features(
         self,
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
@@ -111,21 +105,14 @@ class FeatureSpecMixin:
 
         self.all_features = self.dense_features + self.sparse_features + self.sequence_features
         self.feature_names = [feat.name for feat in self.all_features]
-        self.target_columns = self._normalize_to_list(target)
-        self.id_columns = self._normalize_to_list(id_columns)
+        self.target_columns = normalize_to_list(target)
+        self.id_columns = normalize_to_list(id_columns)
 
-    def _set_target_id_config(
+    def set_target_id(
         self,
         target: str | list[str] | None = None,
         id_columns: str | list[str] | None = None,
     ) -> None:
-        self.target_columns = self._normalize_to_list(target)
-        self.id_columns = self._normalize_to_list(id_columns)
+        self.target_columns = normalize_to_list(target)
+        self.id_columns = normalize_to_list(id_columns)
 
-    @staticmethod
-    def _normalize_to_list(value: str | list[str] | None) -> list[str]:
-        if value is None:
-            return []
-        if isinstance(value, str):
-            return [value]
-        return list(value)

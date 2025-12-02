@@ -5,8 +5,9 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from pathlib import Path
+from typing import Any, Mapping, Sequence
 
-def _stack_section(batch: list[dict], section: str):
+def stack_section(batch: list[dict], section: str):
     """Stack one section of the batch (features/labels/ids)."""
     entries = [item.get(section) for item in batch if item.get(section) is not None]
     if not entries:
@@ -39,9 +40,9 @@ def collate_fn(batch):
                 "ids": first.get("ids"),
             }
         return {
-            "features": _stack_section(batch, "features") or {},
-            "labels": _stack_section(batch, "labels"),
-            "ids": _stack_section(batch, "ids"),
+            "features": stack_section(batch, "features") or {},
+            "labels": stack_section(batch, "labels"),
+            "ids": stack_section(batch, "ids"),
         }
 
     # Fallback: stack tuples/lists of tensors
@@ -190,3 +191,78 @@ def build_eval_candidates(
     eval_df = eval_df.merge(user_features, on=user_col, how='left')
     eval_df = eval_df.merge(item_features, on=item_col, how='left')
     return eval_df
+
+def batch_to_dict(batch_data: Any, include_ids: bool = True) -> dict:
+    """Standardize a dataloader batch into a dict of features, labels, and ids."""
+    if not (isinstance(batch_data, Mapping) and "features" in batch_data):
+        raise TypeError(
+            "[BaseModel-batch_to_dict Error] Batch data must be a dict with 'features' produced by the current DataLoader."
+        )
+    return {
+        "features": batch_data.get("features", {}),
+        "labels": batch_data.get("labels"),
+        "ids": batch_data.get("ids") if include_ids else None,
+    }
+
+
+# def get_user_ids(
+#     data: dict | pd.DataFrame | None, user_id_column: str = "user_id"
+# ) -> np.ndarray | None:
+#     """Extract user IDs from a dataset dict or DataFrame."""
+#     if data is None:
+#         return None
+#     if isinstance(data, pd.DataFrame) and user_id_column in data.columns:
+#         return np.asarray(data[user_id_column].values)
+#     if isinstance(data, dict) and user_id_column in data:
+#         return np.asarray(data[user_id_column])
+#     return None
+
+
+# def get_user_ids_from_batch(
+#     batch_dict: Mapping[str, Any], id_columns: Sequence[str] | None = None
+# ) -> np.ndarray | None:
+#     """Extract the prioritized user id column from a batch dict."""
+#     ids_container = batch_dict.get("ids") if isinstance(batch_dict, Mapping) else None
+#     if not ids_container:
+#         return None
+
+#     batch_user_id = None
+#     if id_columns:
+#         for id_name in id_columns:
+#             if id_name in ids_container:
+#                 batch_user_id = ids_container[id_name]
+#                 break
+#     if batch_user_id is None:
+#         batch_user_id = next(iter(ids_container.values()), None)
+#     if batch_user_id is None:
+#         return None
+
+#     if isinstance(batch_user_id, torch.Tensor):
+#         ids_np = batch_user_id.detach().cpu().numpy()
+#     else:
+#         ids_np = np.asarray(batch_user_id)
+#     if ids_np.ndim == 0:
+#         ids_np = ids_np.reshape(1)
+#     return ids_np.reshape(ids_np.shape[0])
+
+
+def get_user_ids(data, id_columns: list[str] | str | None = None) -> np.ndarray | None:
+    id_columns = id_columns if isinstance(id_columns, list) else [id_columns] if isinstance(id_columns, str) else []
+    if not id_columns:
+        return None
+
+    main_id = id_columns[0]  
+    if isinstance(data, pd.DataFrame) and main_id in data.columns:
+        arr = np.asarray(data[main_id].values)
+        return arr.reshape(arr.shape[0])
+    if isinstance(data, dict):
+        ids_container = data.get("ids")
+        if isinstance(ids_container, dict) and main_id in ids_container:
+            val = ids_container[main_id]
+            val = val.detach().cpu().numpy() if isinstance(val, torch.Tensor) else np.asarray(val)
+            return val.reshape(val.shape[0])
+        if main_id in data:
+            arr = np.asarray(data[main_id])
+            return arr.reshape(arr.shape[0])
+
+    return None

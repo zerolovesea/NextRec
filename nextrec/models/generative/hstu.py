@@ -344,7 +344,7 @@ class HSTU(BaseModel):
         loss_params.setdefault("ignore_index", self.ignore_index)
 
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, scheduler=scheduler, scheduler_params=scheduler_params, loss="crossentropy", loss_params=loss_params)
-        self._register_regularization_weights(embedding_attr="token_embedding", include_modules=["layers", "lm_head"])
+        self.register_regularization_weights(embedding_attr="token_embedding", include_modules=["layers", "lm_head"])
 
     def _build_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         """

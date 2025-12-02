@@ -2,10 +2,12 @@
 Metrics computation and configuration for model evaluation.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 02/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 import logging
+from typing import Any
+
 import numpy as np
 from sklearn.metrics import (
     roc_auc_score, log_loss, mean_squared_error, mean_absolute_error,
@@ -20,6 +22,32 @@ TASK_DEFAULT_METRICS = {
     'multilabel': ['auc', 'hamming_loss', 'subset_accuracy', 'micro_f1', 'macro_f1'],
     'matching': ['auc', 'gauc', 'precision@10', 'hitrate@10', 'map@10','cosine']+ [f'recall@{k}' for k in (5,10,20)] + [f'ndcg@{k}' for k in (5,10,20)] + [f'mrr@{k}' for k in (5,10,20)]
 }
+
+
+def check_user_id(*metric_sources: Any) -> bool:
+    """Return True when GAUC or ranking@K metrics appear in the provided sources."""
+    metric_names: set[str] = set()
+    stack: list[Any] = list(metric_sources)
+    while stack:
+        item = stack.pop()
+        if not item:
+            continue
+        if isinstance(item, dict):
+            stack.extend(item.values())
+            continue
+        if isinstance(item, str):
+            metric_names.add(item.lower())
+            continue
+        try:
+            stack.extend(item)
+        except TypeError:
+            continue
+    for name in metric_names:
+        if name == "gauc":
+            return True
+        if name.startswith(("recall@", "precision@", "hitrate@", "hr@", "mrr@", "ndcg@", "map@")):
+            return True
+    return False
 
 def compute_ks(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Compute Kolmogorov-Smirnov statistic."""
@@ -80,7 +108,7 @@ def compute_gauc(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray | 
     gauc = float(np.sum(user_aucs * user_weights) / np.sum(user_weights))
     return gauc
 
-def _group_indices_by_user(user_ids: np.ndarray, n_samples: int) -> list[np.ndarray]:
+def group_indices_by_user(user_ids: np.ndarray, n_samples: int) -> list[np.ndarray]:
     """Group sample indices by user_id. If user_ids is None, treat all as one group."""
     if user_ids is None:
         return [np.arange(n_samples)]
@@ -92,13 +120,13 @@ def _group_indices_by_user(user_ids: np.ndarray, n_samples: int) -> list[np.ndar
     groups = [np.where(user_ids == u)[0] for u in unique_users]
     return groups
 
-def _compute_precision_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_precision_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute Precision@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: Precision@K] user_ids must be provided for Precision@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = _group_indices_by_user(user_ids, n)
+    groups = group_indices_by_user(user_ids, n)
     precisions = []
     for idx in groups:
         if idx.size == 0:
@@ -112,13 +140,13 @@ def _compute_precision_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np
         precisions.append(hits / float(k_user))
     return float(np.mean(precisions)) if precisions else 0.0
 
-def _compute_recall_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_recall_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute Recall@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: Recall@K] user_ids must be provided for Recall@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = _group_indices_by_user(user_ids, n)
+    groups = group_indices_by_user(user_ids, n)
     recalls = []
     for idx in groups:
         if idx.size == 0:
@@ -135,13 +163,13 @@ def _compute_recall_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.nd
         recalls.append(hits / float(num_pos))
     return float(np.mean(recalls)) if recalls else 0.0
 
-def _compute_hitrate_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_hitrate_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute HitRate@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: HitRate@K] user_ids must be provided for HitRate@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = _group_indices_by_user(user_ids, n)
+    groups = group_indices_by_user(user_ids, n)
     hits_per_user = []
     for idx in groups:
         if idx.size == 0:
@@ -157,13 +185,13 @@ def _compute_hitrate_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.n
         hits_per_user.append(1.0 if hits > 0 else 0.0)
     return float(np.mean(hits_per_user)) if hits_per_user else 0.0
 
-def _compute_mrr_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_mrr_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute MRR@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: MRR@K] user_ids must be provided for MRR@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = _group_indices_by_user(user_ids, n)
+    groups = group_indices_by_user(user_ids, n)
     mrrs = []
     for idx in groups:
         if idx.size == 0:
@@ -184,7 +212,7 @@ def _compute_mrr_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarr
         mrrs.append(rr)
     return float(np.mean(mrrs)) if mrrs else 0.0
 
-def _compute_dcg_at_k(labels: np.ndarray, k: int) -> float:
+def compute_dcg_at_k(labels: np.ndarray, k: int) -> float:
     k_user = min(k, labels.size)
     if k_user == 0:
         return 0.0
@@ -192,13 +220,13 @@ def _compute_dcg_at_k(labels: np.ndarray, k: int) -> float:
     discounts = np.log2(np.arange(2, k_user + 2))
     return float(np.sum(gains / discounts))
 
-def _compute_ndcg_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_ndcg_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute NDCG@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: NDCG@K] user_ids must be provided for NDCG@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = _group_indices_by_user(user_ids, n)
+    groups = group_indices_by_user(user_ids, n)
     ndcgs = []
     for idx in groups:
         if idx.size == 0:
@@ -209,23 +237,23 @@ def _compute_ndcg_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndar
         scores = y_pred[idx]
         order = np.argsort(scores)[::-1]
         ranked_labels = labels[order]
-        dcg = _compute_dcg_at_k(ranked_labels, k)
+        dcg = compute_dcg_at_k(ranked_labels, k)
         # ideal DCG
         ideal_labels = np.sort(labels)[::-1]
-        idcg = _compute_dcg_at_k(ideal_labels, k)
+        idcg = compute_dcg_at_k(ideal_labels, k)
         if idcg == 0.0:
             continue
         ndcgs.append(dcg / idcg)
     return float(np.mean(ndcgs)) if ndcgs else 0.0
 
 
-def _compute_map_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_map_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Mean Average Precision@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: MAP@K] user_ids must be provided for MAP@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = _group_indices_by_user(user_ids, n)
+    groups = group_indices_by_user(user_ids, n)
     aps = []
     for idx in groups:
         if idx.size == 0:
@@ -250,7 +278,7 @@ def _compute_map_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarr
     return float(np.mean(aps)) if aps else 0.0
 
 
-def _compute_cosine_separation(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def compute_cosine_separation(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Compute Cosine Separation."""
     y_true = (y_true > 0).astype(int)
     pos_mask = y_true == 1
@@ -310,10 +338,10 @@ def configure_metrics(
         if primary_task not in TASK_DEFAULT_METRICS:
             raise ValueError(f"Unsupported task type: {primary_task}")
         metrics_list = TASK_DEFAULT_METRICS[primary_task]
-    best_metrics_mode = get_best_metric_mode(metrics_list[0], primary_task)
+    best_metrics_mode = getbest_metric_mode(metrics_list[0], primary_task)
     return metrics_list, task_specific_metrics, best_metrics_mode
 
-def get_best_metric_mode(first_metric: str, primary_task: str) -> str:
+def getbest_metric_mode(first_metric: str, primary_task: str) -> str:
     """Determine if metric should be maximized or minimized."""
     first_metric_lower = first_metric.lower()
     # Metrics that should be maximized
@@ -350,34 +378,28 @@ def compute_single_metric(
     y_p_binary = (y_pred > 0.5).astype(int)
     try:
         metric_lower = metric.lower()
-        # recall@K
         if metric_lower.startswith('recall@'):
             k = int(metric_lower.split('@')[1])
-            return _compute_recall_at_k(y_true, y_pred, user_ids, k) # type: ignore
-        # precision@K
+            return compute_recall_at_k(y_true, y_pred, user_ids, k) # type: ignore
         if metric_lower.startswith('precision@'):
             k = int(metric_lower.split('@')[1])
-            return _compute_precision_at_k(y_true, y_pred, user_ids, k) # type: ignore
-        # hitrate@K / hr@K
+            return compute_precision_at_k(y_true, y_pred, user_ids, k) # type: ignore
         if metric_lower.startswith('hitrate@') or metric_lower.startswith('hr@'):
             k_str = metric_lower.split('@')[1]
             k = int(k_str)
-            return _compute_hitrate_at_k(y_true, y_pred, user_ids, k) # type: ignore
-        # mrr@K
+            return compute_hitrate_at_k(y_true, y_pred, user_ids, k) # type: ignore
         if metric_lower.startswith('mrr@'):
             k = int(metric_lower.split('@')[1])
-            return _compute_mrr_at_k(y_true, y_pred, user_ids, k) # type: ignore
-        # ndcg@K
+            return compute_mrr_at_k(y_true, y_pred, user_ids, k) # type: ignore
         if metric_lower.startswith('ndcg@'):
             k = int(metric_lower.split('@')[1])
-            return _compute_ndcg_at_k(y_true, y_pred, user_ids, k) # type: ignore
-        # map@K
+            return compute_ndcg_at_k(y_true, y_pred, user_ids, k) # type: ignore
         if metric_lower.startswith('map@'):
             k = int(metric_lower.split('@')[1])
-            return _compute_map_at_k(y_true, y_pred, user_ids, k) # type: ignore
+            return compute_map_at_k(y_true, y_pred, user_ids, k) # type: ignore
         # cosine for matching task
         if metric_lower == 'cosine':
-            return _compute_cosine_separation(y_true, y_pred)
+            return compute_cosine_separation(y_true, y_pred)
         if metric == 'auc':
             value = float(roc_auc_score(y_true, y_pred, average='macro' if task_type == 'multilabel' else None))
         elif metric == 'gauc':

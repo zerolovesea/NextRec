@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 02/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -21,21 +21,22 @@ from typing import Union, Literal, Any
 from torch.utils.data import DataLoader
 
 from nextrec.basic.callback import EarlyStopper
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSpecMixin
+from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSet
 from nextrec.data.dataloader import TensorDictDataset, RecDataLoader
 
 from nextrec.basic.loggers import setup_logger, colorize
 from nextrec.basic.session import resolve_save_path, create_session
-from nextrec.basic.metrics import configure_metrics, evaluate_metrics
+from nextrec.basic.metrics import configure_metrics, evaluate_metrics, check_user_id
 
-from nextrec.data import get_column_data, collate_fn
 from nextrec.data.dataloader import build_tensors_from_data
+from nextrec.data.data_utils import get_column_data, collate_fn, batch_to_dict, get_user_ids
 
 from nextrec.loss import get_loss_fn, get_loss_kwargs
-from nextrec.utils import get_optimizer, get_scheduler
+from nextrec.utils import get_optimizer, get_scheduler, to_tensor
+
 from nextrec import __version__
 
-class BaseModel(FeatureSpecMixin, nn.Module):
+class BaseModel(FeatureSet, nn.Module):
     @property
     def model_name(self) -> str:
         raise NotImplementedError
@@ -69,71 +70,52 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         self.session_id = session_id
         self.session = create_session(session_id)
         self.session_path = self.session.root # pwd/session_id, path for this session
-        self.checkpoint_path = os.path.join(self.session_path, self.model_name+"_checkpoint"+".model")
-        self.best_path = os.path.join(self.session_path, self.model_name+ "_best.model")
+        self.checkpoint_path = os.path.join(self.session_path, self.model_name+"_checkpoint.model") # example: pwd/session_id/DeepFM_checkpoint.model
+        self.best_path = os.path.join(self.session_path, self.model_name+"_best.model")
         self.features_config_path = os.path.join(self.session_path, "features_config.pkl")
-        self._set_feature_config(dense_features, sparse_features, sequence_features, target, id_columns)
-        self.target = self.target_columns
-        self.target_index = {target_name: idx for idx, target_name in enumerate(self.target)}
+        self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
         self.task = task
         self.nums_task = len(task) if isinstance(task, list) else 1
 
-        self._embedding_l1_reg = embedding_l1_reg
-        self._dense_l1_reg = dense_l1_reg
-        self._embedding_l2_reg = embedding_l2_reg
-        self._dense_l2_reg = dense_l2_reg
-        self._regularization_weights = [] 
-        self._embedding_params = []
-        self._loss_weights: float | list[float] | None = None
-        self._early_stop_patience = early_stop_patience
-        self._max_gradient_norm = 1.0   
-        self._logger_initialized = False
+        self.embedding_l1_reg = embedding_l1_reg
+        self.dense_l1_reg = dense_l1_reg
+        self.embedding_l2_reg = embedding_l2_reg
+        self.dense_l2_reg = dense_l2_reg
+        self.regularization_weights = [] 
+        self.embedding_params = []
+        self.loss_weight = None
+        self.early_stop_patience = early_stop_patience
+        self.max_gradient_norm = 1.0   
+        self.logger_initialized = False
 
-    def _register_regularization_weights(self, embedding_attr: str = "embedding", exclude_modules: list[str] | None = None, include_modules: list[str] | None = None) -> None:
+    def register_regularization_weights(self, embedding_attr: str = "embedding", exclude_modules: list[str] | None = None, include_modules: list[str] | None = None) -> None:
         exclude_modules = exclude_modules or []
         include_modules = include_modules or []
-        if hasattr(self, embedding_attr):
-            embedding_layer = getattr(self, embedding_attr)
-            if hasattr(embedding_layer, "embed_dict"):
-                for embed in embedding_layer.embed_dict.values():
-                    self._embedding_params.append(embed.weight)
+        embedding_layer = getattr(self, embedding_attr, None)
+        embed_dict = getattr(embedding_layer, "embed_dict", None)
+        if embed_dict is not None:
+            self.embedding_params.extend(embed.weight for embed in embed_dict.values())
+        skip_types = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,nn.Dropout, nn.Dropout2d, nn.Dropout3d,)
         for name, module in self.named_modules():
-            if module is self:
-                continue
-            if embedding_attr in name:
-                continue
-            if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Dropout, nn.Dropout2d, nn.Dropout3d),):
-                continue
-            if include_modules:
-                if not any(inc_name in name for inc_name in include_modules):
-                    continue
-            if any(exc_name in name for exc_name in exclude_modules):
+            if (module is self or embedding_attr in name or isinstance(module, skip_types) or (include_modules and not any(inc in name for inc in include_modules)) or any(exc in name for exc in exclude_modules)):
                 continue
             if isinstance(module, nn.Linear):
-                self._regularization_weights.append(module.weight)
+                self.regularization_weights.append(module.weight)
 
     def add_reg_loss(self) -> torch.Tensor:
         reg_loss = torch.tensor(0.0, device=self.device)
-        if self._embedding_params:
-            if self._embedding_l1_reg > 0:
-                reg_loss += self._embedding_l1_reg * sum(param.abs().sum() for param in self._embedding_params)
-            if self._embedding_l2_reg > 0:
-                reg_loss += self._embedding_l2_reg * sum((param ** 2).sum() for param in self._embedding_params)
-        if self._regularization_weights:
-            if self._dense_l1_reg > 0:
-                reg_loss += self._dense_l1_reg * sum(param.abs().sum() for param in self._regularization_weights)
-            if self._dense_l2_reg > 0:
-                reg_loss += self._dense_l2_reg * sum((param ** 2).sum() for param in self._regularization_weights)
+        if self.embedding_params:
+            if self.embedding_l1_reg > 0:
+                reg_loss += self.embedding_l1_reg * sum(param.abs().sum() for param in self.embedding_params)
+            if self.embedding_l2_reg > 0:
+                reg_loss += self.embedding_l2_reg * sum((param ** 2).sum() for param in self.embedding_params)
+        if self.regularization_weights:
+            if self.dense_l1_reg > 0:
+                reg_loss += self.dense_l1_reg * sum(param.abs().sum() for param in self.regularization_weights)
+            if self.dense_l2_reg > 0:
+                reg_loss += self.dense_l2_reg * sum((param ** 2).sum() for param in self.regularization_weights)
         return reg_loss
-
-    def _to_tensor(self, value, dtype: torch.dtype) -> torch.Tensor:        
-        tensor = value if isinstance(value, torch.Tensor) else torch.as_tensor(value)
-        if tensor.dtype != dtype:
-            tensor = tensor.to(dtype=dtype)
-        if tensor.device != self.device:
-            tensor = tensor.to(self.device)
-        return tensor
 
     def get_input(self, input_data: dict, require_labels: bool = True):
         feature_source = input_data.get("features", {})
@@ -143,12 +125,11 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             if feature.name not in feature_source:
                 raise KeyError(f"[BaseModel-input Error] Feature '{feature.name}' not found in input data.")
             feature_data = get_column_data(feature_source, feature.name)
-            dtype = torch.float32 if isinstance(feature, DenseFeature) else torch.long
-            X_input[feature.name] = self._to_tensor(feature_data, dtype=dtype)
+            X_input[feature.name] = to_tensor(feature_data, dtype=torch.float32 if isinstance(feature, DenseFeature) else torch.long, device=self.device)
         y = None
-        if (len(self.target) > 0 and (require_labels or (label_source and any(name in label_source for name in self.target)))): # need labels: training or eval with labels
+        if (len(self.target_columns) > 0 and (require_labels or (label_source and any(name in label_source for name in self.target_columns)))): # need labels: training or eval with labels
             target_tensors = []
-            for target_name in self.target:
+            for target_name in self.target_columns:
                 if label_source is None or target_name not in label_source:
                     if require_labels:
                         raise KeyError(f"[BaseModel-input Error] Target column '{target_name}' not found in input data.")
@@ -158,7 +139,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                     if require_labels:
                         raise ValueError(f"[BaseModel-input Error] Target column '{target_name}' contains no data.")
                     continue
-                target_tensor = self._to_tensor(target_data, dtype=torch.float32)
+                target_tensor = to_tensor(target_data, dtype=torch.float32, device=self.device)
                 target_tensor = target_tensor.view(target_tensor.size(0), -1)
                 target_tensors.append(target_tensor)
             if target_tensors:
@@ -169,11 +150,8 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                 raise ValueError("[BaseModel-input Error] Labels are required but none were found in the input batch.")
         return X_input, y
 
-    def _set_metrics(self, metrics: list[str] | dict[str, list[str]] | None = None):
-        self.metrics, self.task_specific_metrics, self.best_metrics_mode = configure_metrics(task=self.task, metrics=metrics, target_names=self.target) # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
-        self.early_stopper = EarlyStopper(patience=self._early_stop_patience, mode=self.best_metrics_mode)
-
-    def _handle_validation_split(self, train_data: dict | pd.DataFrame, validation_split: float, batch_size: int, shuffle: bool,) -> tuple[DataLoader, dict | pd.DataFrame]:
+    def handle_validation_split(self, train_data: dict | pd.DataFrame, validation_split: float, batch_size: int, shuffle: bool,) -> tuple[DataLoader, dict | pd.DataFrame]:
+        """This function will split training data into training and validation sets when: 1. valid_data is None; 2. validation_split is provided."""
         if not (0 < validation_split < 1):
             raise ValueError(f"[BaseModel-validation Error] validation_split must be between 0 and 1, got {validation_split}")
         if not isinstance(train_data, (pd.DataFrame, dict)):
@@ -181,8 +159,8 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         if isinstance(train_data, pd.DataFrame):
             total_length = len(train_data)
         else:
-            sample_key = next(iter(train_data))
-            total_length = len(train_data[sample_key])
+            sample_key = next(iter(train_data)) # pick the first key to check length, for example: 'user_id': [1,2,3,4,5]
+            total_length = len(train_data[sample_key]) # len(train_data['user_id'])
             for k, v in train_data.items():
                 if len(v) != total_length:
                     raise ValueError(f"[BaseModel-validation Error] Length of field '{k}' ({len(v)}) != length of field '{sample_key}' ({total_length})")
@@ -198,20 +176,10 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             train_split = {}
             valid_split = {}
             for key, value in train_data.items():
-                if isinstance(value, np.ndarray):
-                    train_split[key] = value[train_indices]
-                    valid_split[key] = value[valid_indices]
-                elif isinstance(value, (list, tuple)):
-                    arr = np.asarray(value)
-                    train_split[key] = arr[train_indices].tolist()
-                    valid_split[key] = arr[valid_indices].tolist()
-                elif isinstance(value, pd.Series):
-                    train_split[key] = value.iloc[train_indices].values
-                    valid_split[key] = value.iloc[valid_indices].values
-                else:
-                    train_split[key] = [value[i] for i in train_indices]
-                    valid_split[key] = [value[i] for i in valid_indices]
-        train_loader = self._prepare_data_loader(train_split, batch_size=batch_size, shuffle=shuffle)
+                arr = np.asarray(value)      
+                train_split[key] = arr[train_indices]
+                valid_split[key] = arr[valid_indices]
+        train_loader = self.prepare_data_loader(train_split, batch_size=batch_size, shuffle=shuffle)
         logging.info(f"Split data: {len(train_indices)} training samples, {len(valid_indices)} validation samples")
         return train_loader, valid_split
 
@@ -226,44 +194,44 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         loss_weights: int | float | list[int | float] | None = None,
     ):
         optimizer_params = optimizer_params or {}
-        self._optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
-        self._optimizer_params = optimizer_params
+        self.optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
+        self.optimizer_params = optimizer_params
         self.optimizer_fn = get_optimizer(optimizer=optimizer, params=self.parameters(), **optimizer_params,)
 
         scheduler_params = scheduler_params or {}
         if isinstance(scheduler, str):
-            self._scheduler_name = scheduler
+            self.scheduler_name = scheduler
         elif scheduler is None:
-            self._scheduler_name = None
-        else:
-            self._scheduler_name = getattr(scheduler, "__name__", scheduler.__class__.__name__) # type: ignore
-        self._scheduler_params = scheduler_params
+            self.scheduler_name = None
+        else: # for custom scheduler instance, need to provide class name for logging
+            self.scheduler_name = getattr(scheduler, "__name__", scheduler.__class__.__name__) # type: ignore
+        self.scheduler_params = scheduler_params
         self.scheduler_fn = (get_scheduler(scheduler, self.optimizer_fn, **scheduler_params) if scheduler else None)
 
-        self._loss_config = loss
-        self._loss_params = loss_params or {}
+        self.loss_config = loss
+        self.loss_params = loss_params or {}
         self.loss_fn = []
-        for i in range(self.nums_task):
-            if isinstance(loss, list):
-                loss_value = loss[i] if i < len(loss) else None
-            else:
-                loss_value = loss
-            if self.nums_task == 1: # single task
-                loss_kwargs = self._loss_params if isinstance(self._loss_params, dict) else self._loss_params[0]
-            else:
-                loss_kwargs = self._loss_params if isinstance(self._loss_params, dict) else (self._loss_params[i] if i < len(self._loss_params) else {})
-            self.loss_fn.append(get_loss_fn(loss=loss_value, **loss_kwargs,))
-        # Normalize loss weights for single-task and multi-task setups
+        if isinstance(loss, list): # for example: ['bce', 'mse'] -> ['bce', 'mse']
+            loss_list = [loss[i] if i < len(loss) else None for i in range(self.nums_task)]
+        else: # for example: 'bce' -> ['bce', 'bce']
+            loss_list = [loss] * self.nums_task
+
+        if isinstance(self.loss_params, dict):
+            params_list = [self.loss_params] * self.nums_task
+        else:  # list[dict]
+            params_list = [self.loss_params[i] if i < len(self.loss_params) else {} for i in range(self.nums_task)]
+        self.loss_fn = [get_loss_fn(loss=loss_list[i], **params_list[i]) for i in range(self.nums_task)]
+
         if loss_weights is None:
-            self._loss_weights = None
+            self.loss_weights = None
         elif self.nums_task == 1:
             if isinstance(loss_weights, (list, tuple)):
-                if len(loss_weights) != 1:
+                if len(loss_weights) != 1 and isinstance(loss_weights, (list, tuple)):
                     raise ValueError("[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup.")
                 weight_value = loss_weights[0]
             else:
                 weight_value = loss_weights
-            self._loss_weights = float(weight_value)
+            self.loss_weights = float(weight_value)
         else:
             if isinstance(loss_weights, (int, float)):
                 weights = [float(loss_weights)] * self.nums_task
@@ -273,87 +241,68 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                     raise ValueError(f"[BaseModel-compile Error] Number of loss_weights ({len(weights)}) must match number of tasks ({self.nums_task}).")
             else:
                 raise TypeError(f"[BaseModel-compile Error] loss_weights must be int, float, list or tuple, got {type(loss_weights)}")
-            self._loss_weights = weights
+            self.loss_weights = weights
 
     def compute_loss(self, y_pred, y_true):
         if y_true is None:
             raise ValueError("[BaseModel-compute_loss Error] Ground truth labels (y_true) are required to compute loss.")
         if self.nums_task == 1:
             loss = self.loss_fn[0](y_pred, y_true)
-            if self._loss_weights is not None:
-                loss = loss * self._loss_weights
+            if self.loss_weights is not None:
+                loss = loss * self.loss_weights
             return loss
         else:
             task_losses = []
             for i in range(self.nums_task):
                 task_loss = self.loss_fn[i](y_pred[:, i], y_true[:, i])
-                if isinstance(self._loss_weights, (list, tuple)):
-                    task_loss = task_loss * self._loss_weights[i]
+                if isinstance(self.loss_weights, (list, tuple)):
+                    task_loss = task_loss * self.loss_weights[i]
                 task_losses.append(task_loss)
             return torch.stack(task_losses).sum()
 
-    def _prepare_data_loader(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 32, shuffle: bool = True,):
+    def prepare_data_loader(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 32, shuffle: bool = True,):
         if isinstance(data, DataLoader):
             return data
-        tensors = build_tensors_from_data(data=data, raw_data=data, features=self.all_features, target_columns=self.target, id_columns=self.id_columns,)
+        tensors = build_tensors_from_data(data=data, raw_data=data, features=self.all_features, target_columns=self.target_columns, id_columns=self.id_columns,)
         if tensors is None:
             raise ValueError("[BaseModel-prepare_data_loader Error] No data available to create DataLoader.")
         dataset = TensorDictDataset(tensors)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
 
-    def _batch_to_dict(self, batch_data: Any, include_ids: bool = True) -> dict:
-        if not (isinstance(batch_data, dict) and "features" in batch_data):
-            raise TypeError("[BaseModel-batch_to_dict Error] Batch data must be a dict with 'features' produced by the current DataLoader.")
-        return {
-            "features": batch_data.get("features", {}),
-            "labels": batch_data.get("labels"),
-            "ids": batch_data.get("ids") if include_ids else None,
-        }
-
     def fit(self, 
-            train_data: dict|pd.DataFrame|DataLoader, 
-            valid_data: dict|pd.DataFrame|DataLoader|None=None, 
-            metrics: list[str]|dict[str, list[str]]|None = None, # ['auc', 'logloss'] or {'target1': ['auc', 'logloss'], 'target2': ['mse']}
+            train_data: dict | pd.DataFrame | DataLoader, 
+            valid_data: dict | pd.DataFrame | DataLoader | None = None, 
+            metrics: list[str] | dict[str, list[str]] | None = None, # ['auc', 'logloss'] or {'target1': ['auc', 'logloss'], 'target2': ['mse']}
             epochs:int=1, shuffle:bool=True, batch_size:int=32,
-            user_id_column: str = 'user_id',
+            user_id_column: str | None = None,
             validation_split: float | None = None):
         self.to(self.device)
-        if not self._logger_initialized:
+        if not self.logger_initialized:
             setup_logger(session_id=self.session_id)
-            self._logger_initialized = True
-        self._set_metrics(metrics) # add self.metrics, self.task_specific_metrics, self.best_metrics_mode, self.early_stopper
-        self.summary()
-        valid_loader = None
-        valid_user_ids: np.ndarray | None = None
-        needs_user_ids: bool = self._needs_user_ids_for_metrics()
+            self.logger_initialized = True
+
+        self.metrics, self.task_specific_metrics, self.best_metrics_mode = configure_metrics(task=self.task, metrics=metrics, target_names=self.target_columns) # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
+        self.early_stopper = EarlyStopper(patience=self.early_stop_patience, mode=self.best_metrics_mode)
+        self.needs_user_ids = check_user_id(self.metrics, self.task_specific_metrics) # check user_id needed for GAUC metrics    
+        self.epoch_index = 0
+        self.stop_training = False
+        self.best_checkpoint_path = self.best_path
+        self.best_metric = float('-inf') if self.best_metrics_mode == 'max' else float('inf')
 
         if validation_split is not None and valid_data is None:
-            train_loader, valid_data = self._handle_validation_split(
-                train_data=train_data, # type: ignore
-                validation_split=validation_split, batch_size=batch_size, shuffle=shuffle,)
+            train_loader, valid_data = self.handle_validation_split(train_data=train_data, validation_split=validation_split, batch_size=batch_size, shuffle=shuffle,) # type: ignore
         else:
-            train_loader = (train_data if isinstance(train_data, DataLoader) else self._prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle))
-        if isinstance(valid_data, DataLoader):
-            valid_loader = valid_data
-        elif valid_data is not None:
-            valid_loader = self._prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False)
-            if needs_user_ids:
-                if isinstance(valid_data, pd.DataFrame) and user_id_column in valid_data.columns:
-                    valid_user_ids = np.asarray(valid_data[user_id_column].values)
-                elif isinstance(valid_data, dict) and user_id_column in valid_data:
-                    valid_user_ids = np.asarray(valid_data[user_id_column])
+            train_loader = (train_data if isinstance(train_data, DataLoader) else self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle))
+        
+        valid_loader, valid_user_ids = self.prepare_validation_data(valid_data=valid_data, batch_size=batch_size, needs_user_ids=self.needs_user_ids, user_id_column=user_id_column)
         try:
-            self._steps_per_epoch = len(train_loader)
+            self.steps_per_epoch = len(train_loader)
             is_streaming = False
-        except TypeError: # len() not supported, e.g., streaming data loader
-            self._steps_per_epoch = None
+        except TypeError: # streaming data loader does not supported len()
+            self.steps_per_epoch = None
             is_streaming = True
 
-        self._epoch_index = 0
-        self._stop_training = False
-        self._best_checkpoint_path = self.best_path
-        self._best_metric = float('-inf') if self.best_metrics_mode == 'max' else float('inf')
-        
+        self.summary()
         logging.info("")
         logging.info(colorize("=" * 80, bold=True))
         if is_streaming:
@@ -365,36 +314,34 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         logging.info(colorize(f"Model device: {self.device}", bold=True))
     
         for epoch in range(epochs):
-            self._epoch_index = epoch
+            self.epoch_index = epoch
             if is_streaming:
                 logging.info("")
                 logging.info(colorize(f"Epoch {epoch + 1}/{epochs}", bold=True)) # streaming mode, print epoch header before progress bar
-            train_result = self.train_epoch(train_loader, is_streaming=is_streaming)
-            if isinstance(train_result, tuple):
+
+            # handle train result
+            train_result = self.train_epoch(train_loader, is_streaming=is_streaming) 
+            if isinstance(train_result, tuple): # [avg_loss, metrics_dict]
                 train_loss, train_metrics = train_result
             else:
                 train_loss = train_result
                 train_metrics = None
+            
+            # handle logging for single-task and multi-task
             if self.nums_task == 1:
                 log_str = f"Epoch {epoch + 1}/{epochs} - Train: loss={train_loss:.4f}"
                 if train_metrics:
                     metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in train_metrics.items()])
                     log_str += f", {metrics_str}"
-                logging.info(colorize(log_str, color="white"))
+                logging.info(colorize(log_str))
             else:
-                task_labels = []
-                for i in range(self.nums_task):
-                    if i < len(self.target):
-                        task_labels.append(self.target[i])
-                    else:
-                        task_labels.append(f"task_{i}")
                 total_loss_val = np.sum(train_loss) if isinstance(train_loss, np.ndarray) else train_loss  # type: ignore
                 log_str = f"Epoch {epoch + 1}/{epochs} - Train: loss={total_loss_val:.4f}"
                 if train_metrics:
-                    # Group metrics by task
+                    # group metrics by task
                     task_metrics = {}
                     for metric_key, metric_value in train_metrics.items():
-                        for target_name in self.target:
+                        for target_name in self.target_columns:
                             if metric_key.endswith(f"_{target_name}"):
                                 if target_name not in task_metrics:
                                     task_metrics[target_name] = {}
@@ -403,15 +350,15 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                                 break
                     if task_metrics:
                         task_metric_strs = []
-                        for target_name in self.target:
+                        for target_name in self.target_columns:
                             if target_name in task_metrics:
                                 metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in task_metrics[target_name].items()])
                                 task_metric_strs.append(f"{target_name}[{metrics_str}]")
                         log_str += ", " + ", ".join(task_metric_strs)
-                logging.info(colorize(log_str, color="white"))
+                logging.info(colorize(log_str))
             if valid_loader is not None:
-                # Pass user_ids only if needed for GAUC metric
-                val_metrics = self.evaluate(valid_loader, user_ids=valid_user_ids if needs_user_ids else None) # {'auc': 0.75, 'logloss': 0.45} or {'auc_target1': 0.75, 'logloss_target1': 0.45, 'mse_target2': 3.2}
+                # pass user_ids only if needed for GAUC metric
+                val_metrics = self.evaluate(valid_loader, user_ids=valid_user_ids if self.needs_user_ids else None) # {'auc': 0.75, 'logloss': 0.45} or {'auc_target1': 0.75, 'logloss_target1': 0.45, 'mse_target2': 3.2}
                 if self.nums_task == 1:
                     metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in val_metrics.items()])
                     logging.info(colorize(f"Epoch {epoch + 1}/{epochs} - Valid: {metrics_str}", color="cyan"))
@@ -419,7 +366,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                     # multi task metrics
                     task_metrics = {}
                     for metric_key, metric_value in val_metrics.items():
-                        for target_name in self.target:
+                        for target_name in self.target_columns:
                             if metric_key.endswith(f"_{target_name}"):
                                 if target_name not in task_metrics:
                                     task_metrics[target_name] = {}
@@ -427,7 +374,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                                 task_metrics[target_name][metric_name] = metric_value
                                 break
                     task_metric_strs = []
-                    for target_name in self.target:
+                    for target_name in self.target_columns:
                         if target_name in task_metrics:
                             metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in task_metrics[target_name].items()])
                             task_metric_strs.append(f"{target_name}[{metrics_str}]")
@@ -435,45 +382,42 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                 # Handle empty validation metrics
                 if not val_metrics:
                     self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
-                    self._best_checkpoint_path = self.checkpoint_path
+                    self.best_checkpoint_path = self.checkpoint_path
                     logging.info(colorize(f"Warning: No validation metrics computed. Skipping validation for this epoch.", color="yellow"))
                     continue
                 if self.nums_task == 1:
                     primary_metric_key = self.metrics[0]
                 else:
-                    primary_metric_key = f"{self.metrics[0]}_{self.target[0]}"
-                
-                primary_metric = val_metrics.get(primary_metric_key, val_metrics[list(val_metrics.keys())[0]])
+                    primary_metric_key = f"{self.metrics[0]}_{self.target_columns[0]}"
+                primary_metric = val_metrics.get(primary_metric_key, val_metrics[list(val_metrics.keys())[0]]) # get primary metric value, default to first metric if not found
                 improved = False
-                
+                # early stopping check
                 if self.best_metrics_mode == 'max':
-                    if primary_metric > self._best_metric:
-                        self._best_metric = primary_metric
-                        self.save_model(self.best_path, add_timestamp=False, verbose=False)
+                    if primary_metric > self.best_metric:
+                        self.best_metric = primary_metric
                         improved = True
                 else:
-                    if primary_metric < self._best_metric:
-                        self._best_metric = primary_metric
+                    if primary_metric < self.best_metric:
+                        self.best_metric = primary_metric
                         improved = True
-                # Always keep the latest weights as a rolling checkpoint
                 self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
                 if improved:
-                    logging.info(colorize(f"Validation {primary_metric_key} improved to {self._best_metric:.4f}"))
+                    logging.info(colorize(f"Validation {primary_metric_key} improved to {self.best_metric:.4f}"))
                     self.save_model(self.best_path, add_timestamp=False, verbose=False)
-                    self._best_checkpoint_path = self.best_path
+                    self.best_checkpoint_path = self.best_path
                     self.early_stopper.trial_counter = 0
                 else:
                     self.early_stopper.trial_counter += 1
                     logging.info(colorize(f"No improvement for {self.early_stopper.trial_counter} epoch(s)"))
                 if self.early_stopper.trial_counter >= self.early_stopper.patience:
-                    self._stop_training = True
+                    self.stop_training = True
                     logging.info(colorize(f"Early stopping triggered after {epoch + 1} epochs", color="bright_red", bold=True))
                     break
             else:
                 self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
                 self.save_model(self.best_path, add_timestamp=False, verbose=False)
-                self._best_checkpoint_path = self.best_path
-            if self._stop_training:
+                self.best_checkpoint_path = self.best_path
+            if self.stop_training:
                 break
             if self.scheduler_fn is not None:
                 if isinstance(self.scheduler_fn, torch.optim.lr_scheduler.ReduceLROnPlateau):
@@ -481,34 +425,29 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                         self.scheduler_fn.step(primary_metric)
                 else:
                     self.scheduler_fn.step()                   
-        logging.info("\n")
-        logging.info(colorize("Training finished.", color="bright_green", bold=True))
-        logging.info("\n")
+        logging.info(" ")
+        logging.info(colorize("Training finished.", bold=True))
+        logging.info(" ")
         if valid_loader is not None:
-            logging.info(colorize(f"Load best model from: {self._best_checkpoint_path}", color="bright_blue"))
-            self.load_model(self._best_checkpoint_path, map_location=self.device, verbose=False)
+            logging.info(colorize(f"Load best model from: {self.best_checkpoint_path}"))
+            self.load_model(self.best_checkpoint_path, map_location=self.device, verbose=False)
         return self
 
     def train_epoch(self, train_loader: DataLoader, is_streaming: bool = False) -> Union[float, np.ndarray, tuple[Union[float, np.ndarray], dict]]:
-        if self.nums_task == 1:
-            accumulated_loss = 0.0
-        else:
-            accumulated_loss = 0.0
+        accumulated_loss = 0.0
         self.train()
         num_batches = 0
         y_true_list = []
         y_pred_list = []
-        needs_user_ids = self._needs_user_ids_for_metrics()
-        user_ids_list = [] if needs_user_ids else None
-        if self._steps_per_epoch is not None:
-            batch_iter = enumerate(tqdm.tqdm(train_loader, desc=f"Epoch {self._epoch_index + 1}", total=self._steps_per_epoch))
+
+        user_ids_list = [] if self.needs_user_ids else None
+        if self.steps_per_epoch is not None:
+            batch_iter = enumerate(tqdm.tqdm(train_loader, desc=f"Epoch {self.epoch_index + 1}", total=self.steps_per_epoch))
         else:
-            if is_streaming:
-                batch_iter = enumerate(tqdm.tqdm(train_loader, desc="Batches")) # Streaming mode: show batch/file progress without epoch in desc
-            else:
-                batch_iter = enumerate(tqdm.tqdm(train_loader, desc=f"Epoch {self._epoch_index + 1}"))
+            desc = "Batches" if is_streaming else f"Epoch {self.epoch_index + 1}"
+            batch_iter = enumerate(tqdm.tqdm(train_loader, desc=desc))
         for batch_index, batch_data in batch_iter:
-            batch_dict = self._batch_to_dict(batch_data)
+            batch_dict = batch_to_dict(batch_data)
             X_input, y_true = self.get_input(batch_dict, require_labels=True)
             y_pred = self.forward(X_input)
             loss = self.compute_loss(y_pred, y_true)
@@ -516,66 +455,41 @@ class BaseModel(FeatureSpecMixin, nn.Module):
             total_loss = loss + reg_loss
             self.optimizer_fn.zero_grad()
             total_loss.backward()
-            nn.utils.clip_grad_norm_(self.parameters(), self._max_gradient_norm)
+            nn.utils.clip_grad_norm_(self.parameters(), self.max_gradient_norm)
             self.optimizer_fn.step()
-            if self.nums_task == 1:
-                accumulated_loss += loss.item()
-            else:
-                accumulated_loss += loss.item()
+            accumulated_loss += loss.item()
             if y_true is not None:
-                y_true_list.append(y_true.detach().cpu().numpy()) # Collect predictions and labels for metrics if requested
-            if needs_user_ids and user_ids_list is not None and batch_dict.get("ids"):
-                batch_user_id = None
-                if self.id_columns:
-                    for id_name in self.id_columns:
-                        if id_name in batch_dict["ids"]:
-                            batch_user_id = batch_dict["ids"][id_name]
-                            break
-                if batch_user_id is None and batch_dict["ids"]:
-                    batch_user_id = next(iter(batch_dict["ids"].values()), None)
+                y_true_list.append(y_true.detach().cpu().numpy())
+            if self.needs_user_ids and user_ids_list is not None:
+                batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
                 if batch_user_id is not None:
-                    ids_np = batch_user_id.detach().cpu().numpy() if isinstance(batch_user_id, torch.Tensor) else np.asarray(batch_user_id)
-                    user_ids_list.append(ids_np.reshape(ids_np.shape[0]))
-            if y_pred is not None and isinstance(y_pred, torch.Tensor): # For pairwise/listwise mode, y_pred is a tuple of embeddings, skip metric collection during training
+                    user_ids_list.append(batch_user_id)
+            if y_pred is not None and isinstance(y_pred, torch.Tensor):
                 y_pred_list.append(y_pred.detach().cpu().numpy())
             num_batches += 1
-        avg_loss = accumulated_loss / num_batches
+        avg_loss = accumulated_loss / max(num_batches, 1)
         if len(y_true_list) > 0 and len(y_pred_list) > 0: # Compute metrics if requested
             y_true_all = np.concatenate(y_true_list, axis=0)
             y_pred_all = np.concatenate(y_pred_list, axis=0)
             combined_user_ids = None
-            if needs_user_ids and user_ids_list:
+            if self.needs_user_ids and user_ids_list:
                 combined_user_ids = np.concatenate(user_ids_list, axis=0)
-            metrics_dict = self.evaluate_metrics(y_true_all, y_pred_all, self.metrics, user_ids=combined_user_ids)
+            metrics_dict = evaluate_metrics(y_true=y_true_all, y_pred=y_pred_all, metrics=self.metrics, task=self.task, target_names=self.target_columns, task_specific_metrics=self.task_specific_metrics, user_ids=combined_user_ids)
             return avg_loss, metrics_dict
         return avg_loss
 
-    def _needs_user_ids_for_metrics(self, metrics: list[str] | dict[str, list[str]] | None = None) -> bool:
-        """Check if any configured metric requires user_ids (e.g., gauc, ranking @K)."""
-        metric_names = set()
-        sources = [metrics if metrics is not None else getattr(self, "metrics", None), getattr(self, "task_specific_metrics", None),]
-        for src in sources:
-            stack = [src]
-            while stack:
-                item = stack.pop()
-                if not item:
-                    continue
-                if isinstance(item, dict):
-                    stack.extend(item.values())
-                elif isinstance(item, str):
-                    metric_names.add(item.lower())
-                else:
-                    try:
-                        for m in item:
-                            metric_names.add(m.lower())
-                    except TypeError:
-                        continue
-        for name in metric_names:
-            if name == "gauc":
-                return True
-            if name.startswith(("recall@", "precision@", "hitrate@", "hr@", "mrr@", "ndcg@", "map@")):
-                return True
-        return False
+    def prepare_validation_data(self, valid_data: dict | pd.DataFrame | DataLoader | None, batch_size: int, needs_user_ids: bool, user_id_column: str | None = 'user_id') -> tuple[DataLoader | None, np.ndarray | None]:
+        if valid_data is None:
+            return None, None
+        if isinstance(valid_data, DataLoader):
+            return valid_data, None
+        valid_loader = self.prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False)
+        valid_user_ids = None
+        if needs_user_ids:
+            if user_id_column is None:
+                raise ValueError("[BaseModel-validation Error] user_id_column must be specified when user IDs are needed for validation metrics.")
+            valid_user_ids = get_user_ids(data=valid_data, id_columns=user_id_column)
+        return valid_loader, valid_user_ids
 
     def evaluate(self, 
                  data: dict | pd.DataFrame | DataLoader, 
@@ -587,18 +501,14 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         eval_metrics = metrics if metrics is not None else self.metrics
         if eval_metrics is None:
             raise ValueError("[BaseModel-evaluate Error] No metrics specified for evaluation. Please provide metrics parameter or call fit() first.")
-        needs_user_ids = self._needs_user_ids_for_metrics(eval_metrics)
+        needs_user_ids = check_user_id(eval_metrics, self.task_specific_metrics)
         
         if isinstance(data, DataLoader):
             data_loader = data
         else:
-            # Extract user_ids if needed and not provided
             if user_ids is None and needs_user_ids:
-                if isinstance(data, pd.DataFrame) and user_id_column in data.columns:
-                    user_ids = np.asarray(data[user_id_column].values)
-                elif isinstance(data, dict) and user_id_column in data:
-                    user_ids = np.asarray(data[user_id_column])
-            data_loader = self._prepare_data_loader(data, batch_size=batch_size, shuffle=False)
+                user_ids = get_user_ids(data=data, id_columns=user_id_column)
+            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False)
         y_true_list = []
         y_pred_list = []
         collected_user_ids = []
@@ -606,26 +516,17 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         with torch.no_grad():
             for batch_data in data_loader:
                 batch_count += 1
-                batch_dict = self._batch_to_dict(batch_data)
+                batch_dict = batch_to_dict(batch_data)
                 X_input, y_true = self.get_input(batch_dict, require_labels=True)
                 y_pred = self.forward(X_input)
                 if y_true is not None:
                     y_true_list.append(y_true.cpu().numpy())
-                # Skip if y_pred is not a tensor (e.g., tuple in pairwise mode, though this shouldn't happen in eval mode)
                 if y_pred is not None and isinstance(y_pred, torch.Tensor):
                     y_pred_list.append(y_pred.cpu().numpy())
-                if needs_user_ids and user_ids is None and batch_dict.get("ids"):
-                    batch_user_id = None
-                    if self.id_columns:
-                        for id_name in self.id_columns:
-                            if id_name in batch_dict["ids"]:
-                                batch_user_id = batch_dict["ids"][id_name]
-                                break
-                    if batch_user_id is None and batch_dict["ids"]:
-                        batch_user_id = next(iter(batch_dict["ids"].values()), None)
+                if needs_user_ids and user_ids is None:
+                    batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
                     if batch_user_id is not None:
-                        ids_np = batch_user_id.detach().cpu().numpy() if isinstance(batch_user_id, torch.Tensor) else np.asarray(batch_user_id)
-                        collected_user_ids.append(ids_np.reshape(ids_np.shape[0]))
+                        collected_user_ids.append(batch_user_id)
         logging.info(colorize(f"  Evaluation batches processed: {batch_count}", color="cyan"))
         if len(y_true_list) > 0:
             y_true_all = np.concatenate(y_true_list, axis=0)
@@ -654,22 +555,8 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         final_user_ids = user_ids
         if final_user_ids is None and collected_user_ids:
             final_user_ids = np.concatenate(collected_user_ids, axis=0)
-        metrics_dict = self.evaluate_metrics(y_true_all, y_pred_all, metrics_to_use, final_user_ids)
+        metrics_dict = evaluate_metrics(y_true=y_true_all, y_pred=y_pred_all, metrics=metrics_to_use, task=self.task, target_names=self.target_columns, task_specific_metrics=self.task_specific_metrics, user_ids=final_user_ids,)
         return metrics_dict
-
-    def evaluate_metrics(self, y_true: np.ndarray|None, y_pred: np.ndarray|None, metrics: list[str], user_ids: np.ndarray|None = None) -> dict:
-        """Evaluate metrics using the metrics module."""
-        task_specific_metrics = getattr(self, 'task_specific_metrics', None)
-        
-        return evaluate_metrics(
-            y_true=y_true,
-            y_pred=y_pred,
-            metrics=metrics,
-            task=self.task,
-            target_names=self.target,
-            task_specific_metrics=task_specific_metrics,
-            user_ids=user_ids
-        )
 
     def predict(
         self,
@@ -681,28 +568,18 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         return_dataframe: bool = True,
         streaming_chunk_size: int = 10000,
     ) -> pd.DataFrame | np.ndarray:
-        """
-        Run inference and optionally return ID-aligned predictions.
-
-        When ``id_columns`` are configured and ``include_ids`` is True (default),
-        the returned object will include those IDs to keep a one-to-one mapping
-        between each prediction and its source row.
-        If ``save_path`` is provided and ``return_dataframe`` is False, predictions
-        stream to disk batch-by-batch to avoid holding all outputs in memory.
-        """
         self.eval()
         if include_ids is None:
             include_ids = bool(self.id_columns)
         include_ids = include_ids and bool(self.id_columns)
 
-        # if saving to disk without returning dataframe, use streaming prediction
         if save_path is not None and not return_dataframe:
             return self._predict_streaming(data=data, batch_size=batch_size, save_path=save_path, save_format=save_format, include_ids=include_ids, streaming_chunk_size=streaming_chunk_size, return_dataframe=return_dataframe)
         if isinstance(data, (str, os.PathLike)):
-            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target, id_columns=self.id_columns,)
+            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target_columns, id_columns=self.id_columns,)
             data_loader = rec_loader.create_dataloader(data=data, batch_size=batch_size, shuffle=False, load_full=False, chunk_size=streaming_chunk_size,)
         elif not isinstance(data, DataLoader):
-            data_loader = self._prepare_data_loader(data, batch_size=batch_size, shuffle=False,)
+            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False,)
         else:
             data_loader = data
         
@@ -712,7 +589,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Predicting"):
-                batch_dict = self._batch_to_dict(batch_data, include_ids=include_ids)
+                batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 y_pred = self.forward(X_input)
                 if y_pred is not None and isinstance(y_pred, torch.Tensor):
@@ -722,10 +599,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
                         if id_name not in batch_dict["ids"]:
                             continue
                         id_tensor = batch_dict["ids"][id_name]
-                        if isinstance(id_tensor, torch.Tensor):
-                            id_np = id_tensor.detach().cpu().numpy()
-                        else:
-                            id_np = np.asarray(id_tensor)
+                        id_np = id_tensor.detach().cpu().numpy() if isinstance(id_tensor, torch.Tensor) else np.asarray(id_tensor)
                         id_buffers[id_name].append(id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np)
         if len(y_pred_list) > 0:
             y_pred_all = np.concatenate(y_pred_list, axis=0)
@@ -735,12 +609,12 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         if y_pred_all.ndim == 1:
             y_pred_all = y_pred_all.reshape(-1, 1)
         if y_pred_all.size == 0:
-            num_outputs = len(self.target) if self.target else 1
+            num_outputs = len(self.target_columns) if self.target_columns else 1
             y_pred_all = y_pred_all.reshape(0, num_outputs)
         num_outputs = y_pred_all.shape[1]
         pred_columns: list[str] = []
-        if self.target:
-            for name in self.target[:num_outputs]:
+        if self.target_columns:
+            for name in self.target_columns[:num_outputs]:
                 pred_columns.append(f"{name}_pred")
         while len(pred_columns) < num_outputs:
             pred_columns.append(f"pred_{len(pred_columns)}")
@@ -794,10 +668,10 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         return_dataframe: bool,
     ) -> pd.DataFrame:
         if isinstance(data, (str, os.PathLike)):
-            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target, id_columns=self.id_columns)
+            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target_columns, id_columns=self.id_columns)
             data_loader = rec_loader.create_dataloader(data=data, batch_size=batch_size, shuffle=False, load_full=False, chunk_size=streaming_chunk_size,)
         elif not isinstance(data, DataLoader):
-            data_loader = self._prepare_data_loader(data, batch_size=batch_size, shuffle=False,)
+            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False,)
         else:
             data_loader = data
 
@@ -812,35 +686,30 @@ class BaseModel(FeatureSpecMixin, nn.Module):
 
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Predicting"):
-                batch_dict = self._batch_to_dict(batch_data, include_ids=include_ids)
+                batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 y_pred = self.forward(X_input)
                 if y_pred is None or not isinstance(y_pred, torch.Tensor):
                     continue
-
                 y_pred_np = y_pred.detach().cpu().numpy()
                 if y_pred_np.ndim == 1:
                     y_pred_np = y_pred_np.reshape(-1, 1)
-
                 if pred_columns is None:
                     num_outputs = y_pred_np.shape[1]
                     pred_columns = []
-                    if self.target:
-                        for name in self.target[:num_outputs]:
+                    if self.target_columns:
+                        for name in self.target_columns[:num_outputs]:
                             pred_columns.append(f"{name}_pred")
                     while len(pred_columns) < num_outputs:
                         pred_columns.append(f"pred_{len(pred_columns)}")
-
+                        
                 id_arrays_batch: dict[str, np.ndarray] = {}
                 if include_ids and self.id_columns and batch_dict.get("ids"):
                     for id_name in self.id_columns:
                         if id_name not in batch_dict["ids"]:
                             continue
                         id_tensor = batch_dict["ids"][id_name]
-                        if isinstance(id_tensor, torch.Tensor):
-                            id_np = id_tensor.detach().cpu().numpy()
-                        else:
-                            id_np = np.asarray(id_tensor)
+                        id_np = id_tensor.detach().cpu().numpy() if isinstance(id_tensor, torch.Tensor) else np.asarray(id_tensor)
                         id_arrays_batch[id_name] = id_np.reshape(id_np.shape[0])
 
                 df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
@@ -881,7 +750,7 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         config_path = self.features_config_path
         features_config = {
             "all_features": self.all_features,
-            "target": self.target,
+            "target": self.target_columns,
             "id_columns": self.id_columns,
             "version": __version__,
         }
@@ -921,9 +790,8 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         dense_features = [f for f in all_features if isinstance(f, DenseFeature)]
         sparse_features = [f for f in all_features if isinstance(f, SparseFeature)]
         sequence_features = [f for f in all_features if isinstance(f, SequenceFeature)]
-        self._set_feature_config(dense_features=dense_features, sparse_features=sparse_features, sequence_features=sequence_features, target=target, id_columns=id_columns)
-        self.target = self.target_columns
-        self.target_index = {name: idx for idx, name in enumerate(self.target)}
+        self.set_all_features(dense_features=dense_features, sparse_features=sparse_features, sequence_features=sequence_features, target=target, id_columns=id_columns)
+
         cfg_version = features_config.get("version")
         if verbose:
             logging.info(colorize(f"Model weights loaded from: {model_path}, features config loaded from: {features_config_path}, NextRec version: {cfg_version}",color="green",))
@@ -1056,35 +924,35 @@ class BaseModel(FeatureSpecMixin, nn.Module):
         logger.info(f"Task Type:               {self.task}")
         logger.info(f"Number of Tasks:         {self.nums_task}")
         logger.info(f"Metrics:                 {self.metrics}")
-        logger.info(f"Target Columns:          {self.target}")
+        logger.info(f"Target Columns:          {self.target_columns}")
         logger.info(f"Device:                  {self.device}")
         
-        if hasattr(self, '_optimizer_name'):
-            logger.info(f"Optimizer:               {self._optimizer_name}")
-            if self._optimizer_params:
-                for key, value in self._optimizer_params.items():
+        if hasattr(self, 'optimizer_name'):
+            logger.info(f"Optimizer:               {self.optimizer_name}")
+            if self.optimizer_params:
+                for key, value in self.optimizer_params.items():
                     logger.info(f"  {key:25s}: {value}")
         
-        if hasattr(self, '_scheduler_name') and self._scheduler_name:
-            logger.info(f"Scheduler:               {self._scheduler_name}")
-            if self._scheduler_params:
-                for key, value in self._scheduler_params.items():
+        if hasattr(self, 'scheduler_name') and self.scheduler_name:
+            logger.info(f"Scheduler:               {self.scheduler_name}")
+            if self.scheduler_params:
+                for key, value in self.scheduler_params.items():
                     logger.info(f"  {key:25s}: {value}")
         
-        if hasattr(self, '_loss_config'):
-            logger.info(f"Loss Function:           {self._loss_config}")
-        if hasattr(self, '_loss_weights'):
-            logger.info(f"Loss Weights:            {self._loss_weights}")
+        if hasattr(self, 'loss_config'):
+            logger.info(f"Loss Function:           {self.loss_config}")
+        if hasattr(self, 'loss_weights'):
+            logger.info(f"Loss Weights:            {self.loss_weights}")
         
         logger.info("Regularization:")
-        logger.info(f"  Embedding L1:          {self._embedding_l1_reg}")
-        logger.info(f"  Embedding L2:          {self._embedding_l2_reg}")
-        logger.info(f"  Dense L1:              {self._dense_l1_reg}")
-        logger.info(f"  Dense L2:              {self._dense_l2_reg}")
+        logger.info(f"  Embedding L1:          {self.embedding_l1_reg}")
+        logger.info(f"  Embedding L2:          {self.embedding_l2_reg}")
+        logger.info(f"  Dense L1:              {self.dense_l1_reg}")
+        logger.info(f"  Dense L2:              {self.dense_l2_reg}")
         
         logger.info("Other Settings:")
-        logger.info(f"  Early Stop Patience:   {self._early_stop_patience}")
-        logger.info(f"  Max Gradient Norm:     {self._max_gradient_norm}")
+        logger.info(f"  Early Stop Patience:   {self.early_stop_patience}")
+        logger.info(f"  Max Gradient Norm:     {self.max_gradient_norm}")
         logger.info(f"  Session ID:            {self.session_id}")
         logger.info(f"  Features Config Path:  {self.features_config_path}")
         logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")
@@ -1214,18 +1082,18 @@ class BaseMatchModel(BaseModel):
         # Call parent compile with match-specific logic
         optimizer_params = optimizer_params or {}
         
-        self._optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
-        self._optimizer_params = optimizer_params
+        self.optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
+        self.optimizer_params = optimizer_params
         if isinstance(scheduler, str):
-            self._scheduler_name = scheduler
+            self.scheduler_name = scheduler
         elif scheduler is not None:
             # Try to get __name__ first (for class types), then __class__.__name__ (for instances)
-            self._scheduler_name = getattr(scheduler, '__name__', getattr(scheduler.__class__, '__name__', str(scheduler)))
+            self.scheduler_name = getattr(scheduler, '__name__', getattr(scheduler.__class__, '__name__', str(scheduler)))
         else:
-            self._scheduler_name = None
-        self._scheduler_params = scheduler_params or {}
-        self._loss_config = loss
-        self._loss_params = loss_params or {}
+            self.scheduler_name = None
+        self.scheduler_params = scheduler_params or {}
+        self.loss_config = loss
+        self.loss_params = loss_params or {}
 
         self.optimizer_fn = get_optimizer(optimizer=optimizer, params=self.parameters(), **optimizer_params)
         # Set loss function based on training mode
@@ -1245,7 +1113,7 @@ class BaseMatchModel(BaseModel):
         # Pairwise/listwise modes do not support BCE, fall back to sensible defaults
         if self.training_mode in {"pairwise", "listwise"} and loss_value in {"bce", "binary_crossentropy"}:
             loss_value = default_losses.get(self.training_mode, loss_value)
-        loss_kwargs = get_loss_kwargs(self._loss_params, 0)
+        loss_kwargs = get_loss_kwargs(self.loss_params, 0)
         self.loss_fn = [get_loss_fn(loss=loss_value, **loss_kwargs)]
         # set scheduler
         self.scheduler_fn = get_scheduler(scheduler, self.optimizer_fn, **(scheduler_params or {})) if scheduler else None
@@ -1329,57 +1197,47 @@ class BaseMatchModel(BaseModel):
             return loss        
         else:
             raise ValueError(f"Unknown training mode: {self.training_mode}")
+
     
-    def _set_metrics(self, metrics: list[str] | dict[str, list[str]] | None = None):
-        """Reuse BaseModel metric configuration (mode + early stopper)."""
-        super()._set_metrics(metrics)
-    
+    def prepare_feature_data(self, data: dict | pd.DataFrame | DataLoader, features: list, batch_size: int) -> DataLoader:
+        """Prepare data loader for specific features."""
+        if isinstance(data, DataLoader):
+            return data
+        
+        feature_data = {}
+        for feature in features:
+            if isinstance(data, dict):
+                if feature.name in data:
+                    feature_data[feature.name] = data[feature.name]
+            elif isinstance(data, pd.DataFrame):
+                if feature.name in data.columns:
+                    feature_data[feature.name] = data[feature.name].values
+        return self.prepare_data_loader(feature_data, batch_size=batch_size, shuffle=False)
+
     def encode_user(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 512) -> np.ndarray:
-        self.eval()        
-        if not isinstance(data, DataLoader):
-            user_data = {}
-            all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
-            for feature in all_user_features:
-                if isinstance(data, dict):
-                    if feature.name in data:
-                        user_data[feature.name] = data[feature.name]
-                elif isinstance(data, pd.DataFrame):
-                    if feature.name in data.columns:
-                        user_data[feature.name] = data[feature.name].values
-            data_loader = self._prepare_data_loader(user_data, batch_size=batch_size, shuffle=False)
-        else:
-            data_loader = data
+        self.eval()
+        all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
+        data_loader = self.prepare_feature_data(data, all_user_features, batch_size)
+        
         embeddings_list = []
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Encoding users"):
-                batch_dict = self._batch_to_dict(batch_data, include_ids=False)
+                batch_dict = batch_to_dict(batch_data, include_ids=False)
                 user_input = self.get_user_features(batch_dict["features"])
                 user_emb = self.user_tower(user_input)
                 embeddings_list.append(user_emb.cpu().numpy())
-        embeddings = np.concatenate(embeddings_list, axis=0)
-        return embeddings
+        return np.concatenate(embeddings_list, axis=0)
     
     def encode_item(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 512) -> np.ndarray:
         self.eval()
-        if not isinstance(data, DataLoader):
-            item_data = {}
-            all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
-            for feature in all_item_features:
-                if isinstance(data, dict):
-                    if feature.name in data:
-                        item_data[feature.name] = data[feature.name]
-                elif isinstance(data, pd.DataFrame):
-                    if feature.name in data.columns:
-                        item_data[feature.name] = data[feature.name].values
-            data_loader = self._prepare_data_loader(item_data, batch_size=batch_size, shuffle=False)
-        else:
-            data_loader = data
+        all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
+        data_loader = self.prepare_feature_data(data, all_item_features, batch_size)
+        
         embeddings_list = []
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Encoding items"):
-                batch_dict = self._batch_to_dict(batch_data, include_ids=False)
+                batch_dict = batch_to_dict(batch_data, include_ids=False)
                 item_input = self.get_item_features(batch_dict["features"])
                 item_emb = self.item_tower(item_input)
                 embeddings_list.append(item_emb.cpu().numpy())
-        embeddings = np.concatenate(embeddings_list, axis=0)
-        return embeddings
+        return np.concatenate(embeddings_list, axis=0)

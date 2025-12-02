@@ -91,7 +91,7 @@ class PNN(BaseModel):
         modules = ['mlp']
         if self.product_type == "outer":
             modules.append('kernel')
-        self._register_regularization_weights(
+        self.register_regularization_weights(
             embedding_attr='embedding',
             include_modules=modules
         )

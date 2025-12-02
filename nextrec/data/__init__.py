@@ -18,7 +18,7 @@ from nextrec.data.data_utils import (
     read_table,
     load_dataframes,
 )
-from nextrec.basic.features import FeatureSpecMixin
+from nextrec.basic.features import FeatureSet
 from nextrec.data import data_utils
 from nextrec.data.dataloader import (
     TensorDictDataset,
@@ -38,7 +38,7 @@ __all__ = [
     'iter_file_chunks',
     'read_table',
     'load_dataframes',
-    'FeatureSpecMixin',
+    'FeatureSet',
     'data_utils',
     'TensorDictDataset',
     'FileDataset',

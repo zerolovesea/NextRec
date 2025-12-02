@@ -146,7 +146,7 @@ class MMOE(BaseModel):
             self.towers.append(tower)
         self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1] * self.num_tasks)
         # Register regularization weights
-        self._register_regularization_weights(embedding_attr='embedding', include_modules=['experts', 'gates', 'towers'])
+        self.register_regularization_weights(embedding_attr='embedding', include_modules=['experts', 'gates', 'towers'])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params,)
 
     def forward(self, x):

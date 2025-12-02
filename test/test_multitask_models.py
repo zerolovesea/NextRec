@@ -456,7 +456,7 @@ class TestESMM:
         
         assert model is not None
         assert model.model_name == "ESMM"
-        assert len(model.target) == 2
+        assert len(model.target_columns) == 2
         logger.info("ESMM initialization successful")
         
         # Count parameters

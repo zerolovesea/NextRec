@@ -389,7 +389,7 @@ class POSO(BaseModel):
             self.tower_heads = None
         self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1] * self.num_tasks,)
         include_modules = ["towers", "tower_heads"] if self.architecture == "mlp" else ["mmoe", "towers"]
-        self._register_regularization_weights(embedding_attr="embedding", include_modules=include_modules)
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=include_modules)
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x):

@@ -107,7 +107,7 @@ class DeepFM(BaseModel):
         self.prediction_layer = PredictionLayer(task_type=self.task_type)
 
         # Register regularization weights
-        self._register_regularization_weights(embedding_attr='embedding', include_modules=['linear', 'mlp'])
+        self.register_regularization_weights(embedding_attr='embedding', include_modules=['linear', 'mlp'])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x):

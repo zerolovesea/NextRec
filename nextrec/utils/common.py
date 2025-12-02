@@ -1,7 +1,6 @@
 import torch
 import platform
 from collections import OrderedDict
-from typing import Sequence, Union, TYPE_CHECKING
 
 
 def resolve_device() -> str:
@@ -19,6 +18,14 @@ def resolve_device() -> str:
     return "cpu"
 
 
+def normalize_to_list(value: str | list[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+    
+
 def merge_features(primary, secondary) -> list:
     """
     Merge two feature lists while preserving order and deduplicating by feature name.
@@ -29,7 +36,6 @@ def merge_features(primary, secondary) -> list:
         merged.setdefault(feat.name, feat)
     return list(merged.values())
 
-
 def get_mlp_output_dim(params: dict, fallback: int) -> int:
     """
     Get the output dimension of an MLP-like config.
@@ -39,3 +45,16 @@ def get_mlp_output_dim(params: dict, fallback: int) -> int:
     if dims:
         return dims[-1]
     return fallback
+
+def to_tensor(value, dtype: torch.dtype, device: torch.device | str | None = None) -> torch.Tensor:
+    """Convert any value to a tensor with the desired dtype/device."""
+    if value is None:
+        raise ValueError("[Tensor Utils Error] Cannot convert None to tensor.")
+    tensor = value if isinstance(value, torch.Tensor) else torch.as_tensor(value)
+    if tensor.dtype != dtype:
+        tensor = tensor.to(dtype=dtype)
+    if device is not None:
+        target_device = device if isinstance(device, torch.device) else torch.device(device)
+        if tensor.device != target_device:
+            tensor = tensor.to(target_device)
+    return tensor

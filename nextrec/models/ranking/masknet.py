@@ -234,10 +234,10 @@ class MaskNet(BaseModel):
         self.prediction_layer = PredictionLayer(task_type=self.task_type)
 
         if self.model_type == "serial":
-            self._register_regularization_weights(embedding_attr="embedding", include_modules=["mask_blocks", "output_layer"],)
+            self.register_regularization_weights(embedding_attr="embedding", include_modules=["mask_blocks", "output_layer"],)
         # serial
         else:
-            self._register_regularization_weights(embedding_attr="embedding", include_modules=["mask_blocks", "final_mlp"])
+            self.register_regularization_weights(embedding_attr="embedding", include_modules=["mask_blocks", "final_mlp"])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:

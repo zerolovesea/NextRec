@@ -118,7 +118,7 @@ class _DummyBinaryModel(BaseModel):  # type: ignore[misc]
         self.dummy = nn.Parameter(torch.zeros(1))
 
 
-def test_compile_accepts_loss_params():
+def test_compile_acceptsloss_params():
     model = _DummyBinaryModel()
     model.compile(loss="focal", loss_params={"gamma": 1.5})
     assert isinstance(model.loss_fn[0], FocalLoss)

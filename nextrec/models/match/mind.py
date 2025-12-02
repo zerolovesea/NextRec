@@ -258,11 +258,11 @@ class MIND(BaseMatchModel):
             else:
                 self.item_dnn = None
         
-        self._register_regularization_weights(
+        self.register_regularization_weights(
             embedding_attr='user_embedding',
             include_modules=['capsule_network']
         )
-        self._register_regularization_weights(
+        self.register_regularization_weights(
             embedding_attr='item_embedding',
             include_modules=['item_dnn'] if self.item_dnn else []
         )

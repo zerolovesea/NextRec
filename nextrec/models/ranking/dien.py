@@ -237,7 +237,7 @@ class DIEN(BaseModel):
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
         self.prediction_layer = PredictionLayer(task_type=self.task_type)
         # Register regularization weights
-        self._register_regularization_weights(embedding_attr='embedding', include_modules=['interest_extractor', 'interest_evolution', 'attention_layer', 'mlp', 'candidate_proj'])
+        self.register_regularization_weights(embedding_attr='embedding', include_modules=['interest_extractor', 'interest_evolution', 'attention_layer', 'mlp', 'candidate_proj'])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x):

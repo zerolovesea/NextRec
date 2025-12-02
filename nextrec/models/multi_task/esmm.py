@@ -128,7 +128,7 @@ class ESMM(BaseModel):
         self.cvr_tower = MLP(input_dim=input_dim, output_layer=True, **cvr_params)
         self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1, 1])
         # Register regularization weights
-        self._register_regularization_weights(embedding_attr='embedding', include_modules=['ctr_tower', 'cvr_tower'])
+        self.register_regularization_weights(embedding_attr='embedding', include_modules=['ctr_tower', 'cvr_tower'])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
 
     def forward(self, x):

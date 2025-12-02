@@ -108,7 +108,7 @@ class DIN(BaseModel):
         self.prediction_layer = PredictionLayer(task_type=self.task_type)
 
         # Register regularization weights
-        self._register_regularization_weights(
+        self.register_regularization_weights(
             embedding_attr='embedding',
             include_modules=['attention', 'mlp', 'candidate_attention_proj']
         )

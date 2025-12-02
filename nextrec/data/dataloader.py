@@ -2,11 +2,10 @@
 Dataloader definitions
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 02/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 import os
-import tqdm
 import torch
 import logging
 import numpy as np
@@ -18,15 +17,11 @@ from typing import cast
 
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from nextrec.data.preprocessor import DataProcessor
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSpecMixin
+from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSet
 
 from nextrec.basic.loggers import colorize
-from nextrec.data import (
-    get_column_data,
-    collate_fn,
-    resolve_file_paths,
-    read_table,
-)
+from nextrec.data import get_column_data, collate_fn, resolve_file_paths, read_table
+from nextrec.utils import to_tensor
 
 class TensorDictDataset(Dataset):
     """Dataset returning sample-level dicts matching the unified batch schema."""
@@ -52,7 +47,7 @@ class TensorDictDataset(Dataset):
         sample_ids = {name: tensor[idx] for name, tensor in self.ids.items()} if self.ids else None
         return {"features": sample_features, "labels": sample_labels, "ids": sample_ids}
 
-class FileDataset(FeatureSpecMixin, IterableDataset):
+class FileDataset(FeatureSet, IterableDataset):
     def __init__(self, 
                  file_paths: list[str],                      # file paths to read, containing CSV or Parquet files
                  dense_features: list[DenseFeature],         # dense feature definitions
@@ -67,44 +62,37 @@ class FileDataset(FeatureSpecMixin, IterableDataset):
         self.chunk_size = chunk_size
         self.file_type = file_type
         self.processor = processor
-        self._set_feature_config(dense_features, sparse_features, sequence_features, target_columns, id_columns)
+        self.set_all_features(dense_features, sparse_features, sequence_features, target_columns, id_columns)
         self.current_file_index = 0
         self.total_files = len(file_paths)
     
     def __iter__(self):
         self.current_file_index = 0
-        self._file_pbar = None
-        if self.total_files > 1:
-            self._file_pbar = tqdm.tqdm(total=self.total_files, desc="Files", unit="file", position=0, leave=True, bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
         for file_path in self.file_paths:
             self.current_file_index += 1
-            if self._file_pbar is not None:
-                self._file_pbar.update(1)
-            elif self.total_files == 1:
+            if self.total_files == 1:
                 file_name = os.path.basename(file_path)
                 logging.info(f"Processing file: {file_name}")
             if self.file_type == 'csv':
-                yield from self._read_csv_chunks(file_path)
+                yield from self.read_csv_chunks(file_path)
             elif self.file_type == 'parquet':
-                yield from self._read_parquet_chunks(file_path)
-        if self._file_pbar is not None:
-            self._file_pbar.close()
+                yield from self.read_parquet_chunks(file_path)
     
-    def _read_csv_chunks(self, file_path: str):
+    def read_csv_chunks(self, file_path: str):
         chunk_iterator = pd.read_csv(file_path, chunksize=self.chunk_size)
         for chunk in chunk_iterator:
-            tensors = self._dataframe_to_tensors(chunk)
+            tensors = self.dataframeto_tensors(chunk)
             yield tensors
     
-    def _read_parquet_chunks(self, file_path: str):
+    def read_parquet_chunks(self, file_path: str):
         parquet_file = pq.ParquetFile(file_path)
         for batch in parquet_file.iter_batches(batch_size=self.chunk_size):
             chunk = batch.to_pandas()            
-            tensors = self._dataframe_to_tensors(chunk)
+            tensors = self.dataframeto_tensors(chunk)
             yield tensors
             del chunk
                 
-    def _dataframe_to_tensors(self, df: pd.DataFrame) -> dict | None:
+    def dataframeto_tensors(self, df: pd.DataFrame) -> dict | None:
         if self.processor is not None:
             if not self.processor.is_fitted:
                 raise ValueError("[DataLoader Error] DataProcessor must be fitted before using in streaming mode")
@@ -120,7 +108,7 @@ class FileDataset(FeatureSpecMixin, IterableDataset):
         return batch
 
 
-class RecDataLoader(FeatureSpecMixin):
+class RecDataLoader(FeatureSet):
     def __init__(self,
                  dense_features: list[DenseFeature] | None = None,
                  sparse_features: list[SparseFeature] | None = None,
@@ -129,7 +117,7 @@ class RecDataLoader(FeatureSpecMixin):
                  id_columns: str | list[str] | None = None,
                  processor: DataProcessor | None = None):
         self.processor = processor
-        self._set_feature_config(dense_features, sparse_features, sequence_features, target, id_columns)
+        self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
     def create_dataloader(self,
                          data: dict | pd.DataFrame | str | DataLoader,
@@ -140,13 +128,13 @@ class RecDataLoader(FeatureSpecMixin):
         if isinstance(data, DataLoader):
             return data
         elif isinstance(data, (str, os.PathLike)):
-            return self._create_from_path(path=data, batch_size=batch_size, shuffle=shuffle, load_full=load_full, chunk_size=chunk_size)
+            return self.create_from_path(path=data, batch_size=batch_size, shuffle=shuffle, load_full=load_full, chunk_size=chunk_size)
         elif isinstance(data, (dict, pd.DataFrame)):
-            return self._create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle)
+            return self.create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle)
         else:
             raise ValueError(f"[RecDataLoader Error] Unsupported data type: {type(data)}")
     
-    def _create_from_memory(self, 
+    def create_from_memory(self, 
                            data: dict | pd.DataFrame,
                            batch_size: int,
                            shuffle: bool) -> DataLoader:
@@ -162,7 +150,7 @@ class RecDataLoader(FeatureSpecMixin):
         dataset = TensorDictDataset(tensors)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
     
-    def _create_from_path(self,
+    def create_from_path(self,
                          path: str,
                          batch_size: int,
                          shuffle: bool,
@@ -179,7 +167,6 @@ class RecDataLoader(FeatureSpecMixin):
                 except OSError:
                     pass
                 try:
-                    df = read_table(file_path, file_type)
                     dfs.append(df)
                 except MemoryError as exc:
                     raise MemoryError(f"[RecDataLoader Error] Out of memory while reading {file_path}. Consider using load_full=False with streaming.") from exc
@@ -187,11 +174,11 @@ class RecDataLoader(FeatureSpecMixin):
                 combined_df = pd.concat(dfs, ignore_index=True)
             except MemoryError as exc:
                 raise MemoryError(f"[RecDataLoader Error] Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use load_full=False to stream or reduce chunk_size.") from exc
-            return self._create_from_memory(combined_df, batch_size, shuffle,)
+            return self.create_from_memory(combined_df, batch_size, shuffle,)
         else:
-            return self._load_files_streaming(file_paths, file_type, batch_size, chunk_size, shuffle)
+            return self.load_files_streaming(file_paths, file_type, batch_size, chunk_size, shuffle)
 
-    def _load_files_streaming(self,
+    def load_files_streaming(self,
                              file_paths: list[str],
                              file_type: str,
                              batch_size: int,
@@ -201,20 +188,10 @@ class RecDataLoader(FeatureSpecMixin):
             logging.warning("[RecDataLoader Warning] Shuffle is ignored in streaming mode (IterableDataset).")
         if batch_size != 1:
             logging.warning("[RecDataLoader Warning] Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput.")
-        dataset = FileDataset(
-            file_paths=file_paths,
-            dense_features=self.dense_features,
-            sparse_features=self.sparse_features,
-            sequence_features=self.sequence_features,
-            target_columns=self.target_columns,
-            id_columns=self.id_columns,
-            chunk_size=chunk_size,
-            file_type=file_type,
-            processor=self.processor
-        )
+        dataset = FileDataset(file_paths=file_paths, dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target_columns=self.target_columns, id_columns=self.id_columns, chunk_size=chunk_size, file_type=file_type, processor=self.processor)
         return DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 
-def _normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
+def normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
     if isinstance(column, pd.Series):
         column = column.tolist()
     if isinstance(column, (list, tuple)):
@@ -250,25 +227,27 @@ def _normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
         column = column.reshape(-1, 1)
     return np.asarray(column, dtype=np.int64)
 
-
-def build_tensors_from_data(  # noqa: C901
+def build_tensors_from_data( 
     data: dict | pd.DataFrame,
     raw_data: dict | pd.DataFrame,
     features: list,
     target_columns: list[str],
     id_columns: list[str]
 ) -> dict | None:
-    feature_tensors: dict[str, torch.Tensor] = {}
+    feature_tensors = {}
     for feature in features:
         column = get_column_data(data, feature.name)
         if column is None:
             raise ValueError(f"[RecDataLoader Error] Feature column '{feature.name}' not found in data")
-        if isinstance(feature, SequenceFeature):
-            tensor = torch.from_numpy(_normalize_sequence_column(column, feature))
+        if isinstance(feature, SequenceFeature): # sequence feature will do padding/truncation again to avoid the case when input data is not preprocessed
+            arr = normalize_sequence_column(column, feature)
+            tensor = to_tensor(arr, dtype=torch.long)
         elif isinstance(feature, DenseFeature):
-            tensor = torch.from_numpy(np.asarray(column, dtype=np.float32))
+            arr = np.asarray(column, dtype=np.float32)
+            tensor = to_tensor(arr, dtype=torch.float32)
         else:
-            tensor = torch.from_numpy(np.asarray(column, dtype=np.int64))
+            arr = np.asarray(column, dtype=np.int64)
+            tensor = to_tensor(arr, dtype=torch.long)
         feature_tensors[feature.name] = tensor
     label_tensors = None
     if target_columns:
@@ -277,7 +256,7 @@ def build_tensors_from_data(  # noqa: C901
             column = get_column_data(data, target_name)
             if column is None:
                 continue
-            label_tensor = torch.from_numpy(np.asarray(column, dtype=np.float32))
+            label_tensor = to_tensor(np.asarray(column, dtype=np.float32), dtype=torch.float32)
             if label_tensor.dim() == 2 and label_tensor.shape[0] == 1 and label_tensor.shape[1] > 1:
                 label_tensor = label_tensor.t()
             if label_tensor.shape[1:] == (1,):
@@ -298,7 +277,7 @@ def build_tensors_from_data(  # noqa: C901
                 id_arr = np.asarray(column, dtype=np.int64)
             except Exception as exc:
                 raise TypeError( f"[RecDataLoader Error] ID column '{id_col}' must contain numeric values. Received dtype={np.asarray(column).dtype}, error: {exc}") from exc
-            id_tensors[id_col] = torch.from_numpy(id_arr)
+            id_tensors[id_col] = to_tensor(id_arr, dtype=torch.long)
     if not feature_tensors:
         return None
     return {"features": feature_tensors, "labels": label_tensors, "ids": id_tensors}

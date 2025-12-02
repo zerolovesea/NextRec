@@ -2,6 +2,7 @@
 DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
 
 Date: create on 13/11/2025
+Checkpoint: edit on 02/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 from __future__ import annotations
@@ -32,11 +33,11 @@ from nextrec.data.data_utils import (
     default_output_dir,
 )
 from nextrec.basic.session import resolve_save_path
-from nextrec.basic.features import FeatureSpecMixin
+from nextrec.basic.features import FeatureSet
 from nextrec.__version__ import __version__
 
 
-class DataProcessor(FeatureSpecMixin):
+class DataProcessor(FeatureSet):
     """DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
     
     Examples:
@@ -70,7 +71,7 @@ class DataProcessor(FeatureSpecMixin):
         self.scalers: Dict[str, Any] = {}
         self.label_encoders: Dict[str, LabelEncoder] = {}
         self.target_encoders: Dict[str, Dict[str, int]] = {}
-        self._set_target_id_config([], [])
+        self.set_target_id([], [])
 
     def add_numeric_feature(
         self, 
@@ -129,7 +130,7 @@ class DataProcessor(FeatureSpecMixin):
             'target_type': target_type,
             'label_map': label_map
         }
-        self._set_target_id_config(list(self.target_features.keys()), [])
+        self.set_target_id(list(self.target_features.keys()), [])
         
     def _hash_string(self, s: str, hash_size: int) -> int:
         return int(hashlib.md5(str(s).encode()).hexdigest(), 16) % hash_size

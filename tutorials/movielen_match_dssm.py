@@ -111,9 +111,10 @@ model.fit(
     train_data=train_df,          
     valid_data=valid_df,          
     metrics=['auc', 'gauc', 'recall@5', 'hitrate@5', 'mrr@5', 'ndcg@5'],
-    epochs=10,
+    epochs=1,
     batch_size=256,
-    shuffle=True
+    shuffle=True,
+    user_id_column='user_id'
 )
 # Evaluate
 predictions = model.predict(valid_df, batch_size=512)

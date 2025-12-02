@@ -134,11 +134,11 @@ class DSSM_v2(BaseMatchModel):
                 activation=dnn_activation
             )
         
-        self._register_regularization_weights(
+        self.register_regularization_weights(
             embedding_attr='user_embedding',
             include_modules=['user_dnn']
         )
-        self._register_regularization_weights(
+        self.register_regularization_weights(
             embedding_attr='item_embedding',
             include_modules=['item_dnn']
         )
