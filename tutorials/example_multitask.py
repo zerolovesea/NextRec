@@ -84,7 +84,7 @@ model.fit(
     train_data=train_df,
     valid_data=valid_df,
     metrics=['auc', 'gauc', 'logloss'],  # Added GAUC metric
-    epochs=10,
+    epochs=1,
     batch_size=512,
     shuffle=True,
     user_id_column='user_id',  # Specify user_id column for GAUC

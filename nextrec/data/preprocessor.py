@@ -16,24 +16,14 @@ import pandas as pd
 import tqdm
 from pathlib import Path
 from typing import Dict, Union, Optional, Literal, Any
-from sklearn.preprocessing import (
-    StandardScaler, 
-    MinMaxScaler, 
-    RobustScaler, 
-    MaxAbsScaler,
-    LabelEncoder
-)
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler, LabelEncoder
 
-from nextrec.basic.loggers import setup_logger, colorize
-from nextrec.data.data_utils import (
-    resolve_file_paths,
-    iter_file_chunks,
-    read_table,
-    load_dataframes,
-    default_output_dir,
-)
-from nextrec.basic.session import resolve_save_path
+
 from nextrec.basic.features import FeatureSet
+from nextrec.basic.loggers import colorize
+from nextrec.basic.session import resolve_save_path
+from nextrec.utils.file import resolve_file_paths, iter_file_chunks, read_table, load_dataframes, default_output_dir
+
 from nextrec.__version__ import __version__
 
 

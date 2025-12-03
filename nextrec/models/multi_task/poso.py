@@ -46,7 +46,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.activation import activation_layer
 from nextrec.basic.model import BaseModel
-from nextrec.utils.common import merge_features
+from nextrec.utils.model import merge_features
 
 
 class POSOGate(nn.Module):

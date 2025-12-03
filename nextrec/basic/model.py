@@ -31,10 +31,12 @@ from nextrec.basic.session import resolve_save_path, create_session
 from nextrec.basic.metrics import configure_metrics, evaluate_metrics, check_user_id
 
 from nextrec.data.dataloader import build_tensors_from_data
-from nextrec.data.data_utils import get_column_data, collate_fn, batch_to_dict, get_user_ids
+from nextrec.data.data_processing import get_column_data, get_user_ids
+from nextrec.data.batch_utils import collate_fn, batch_to_dict
 
 from nextrec.loss import get_loss_fn, get_loss_kwargs
-from nextrec.utils import get_optimizer, get_scheduler, to_tensor
+from nextrec.utils import get_optimizer, get_scheduler
+from nextrec.utils.tensor import to_tensor
 
 from nextrec import __version__
 

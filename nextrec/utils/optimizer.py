@@ -8,25 +8,16 @@ Author: Yang Zhou, zyaztec@gmail.com
 import torch
 from typing import Iterable
 
-
 def get_optimizer(
     optimizer: str | torch.optim.Optimizer = "adam",
     params: Iterable[torch.nn.Parameter] | None = None,
     **optimizer_params
 ):
-    """
-    Get optimizer function based on optimizer name or instance.
-        
-    Examples:
-        >>> optimizer = get_optimizer("adam", model.parameters(), lr=1e-3)
-        >>> optimizer = get_optimizer("sgd", model.parameters(), lr=0.01, momentum=0.9)
-    """
     if params is None:
         raise ValueError("params cannot be None. Please provide model parameters.")
 
     if 'lr' not in optimizer_params:
         optimizer_params['lr'] = 1e-3
-    
     if isinstance(optimizer, str):
         opt_name = optimizer.lower()
         if opt_name == "adam":
@@ -42,27 +33,17 @@ def get_optimizer(
         else:
             raise NotImplementedError(f"Unsupported optimizer: {optimizer}")
         optimizer_fn = opt_class(params=params, **optimizer_params)
-
     elif isinstance(optimizer, torch.optim.Optimizer):
         optimizer_fn = optimizer
     else:
         raise TypeError(f"Invalid optimizer type: {type(optimizer)}")
-    
     return optimizer_fn
-
 
 def get_scheduler(
     scheduler: str | torch.optim.lr_scheduler._LRScheduler | torch.optim.lr_scheduler.LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | type[torch.optim.lr_scheduler.LRScheduler] | None,
     optimizer,
     **scheduler_params
 ):
-    """
-    Get learning rate scheduler function.
-    
-    Examples:
-        >>> scheduler = get_scheduler("step", optimizer, step_size=10, gamma=0.1)
-        >>> scheduler = get_scheduler("cosine", optimizer, T_max=100)
-    """
     if isinstance(scheduler, str):
         if scheduler == "step":
             scheduler_fn = torch.optim.lr_scheduler.StepLR(optimizer, **scheduler_params)
