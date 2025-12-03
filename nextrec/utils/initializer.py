@@ -9,14 +9,6 @@ import torch.nn as nn
 
 
 def get_initializer(init_type='normal', activation='linear', param=None):
-    """
-    Get parameter initialization function.
-        
-    Examples:
-        >>> init_fn = get_initializer('xavier_uniform', 'relu')
-        >>> init_fn(tensor)
-        >>> init_fn = get_initializer('normal', param={'mean': 0.0, 'std': 0.01})
-    """
     param = param or {}
 
     try:

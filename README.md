@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.3.4-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.3.5-orange.svg)
 
 English | [中文文档](README_zh.md)
 
@@ -54,7 +54,7 @@ To dive deeper, Jupyter notebooks are available:
 - [Hands on the NextRec framework](/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
 - [Using the data processor for preprocessing](/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
 
-> Current version [0.3.4]: the matching module is not fully polished yet and may have compatibility issues or unexpected errors. Please raise an issue if you run into problems.
+> Current version [0.3.5]: the matching module is not fully polished yet and may have compatibility issues or unexpected errors. Please raise an issue if you run into problems.
 
 ## 5-Minute Quick Start
 

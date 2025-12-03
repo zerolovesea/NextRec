@@ -20,8 +20,10 @@ from nextrec.data.preprocessor import DataProcessor
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSet
 
 from nextrec.basic.loggers import colorize
-from nextrec.data import get_column_data, collate_fn, resolve_file_paths, read_table
-from nextrec.utils import to_tensor
+from nextrec.data.data_processing import get_column_data
+from nextrec.data.batch_utils import collate_fn
+from nextrec.utils.file import resolve_file_paths, read_table
+from nextrec.utils.tensor import to_tensor
 
 class TensorDictDataset(Dataset):
     """Dataset returning sample-level dicts matching the unified batch schema."""

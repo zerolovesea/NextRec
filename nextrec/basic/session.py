@@ -1,14 +1,5 @@
 """Session and experiment utilities.
 
-This module centralizes session/experiment management so the rest of the
-framework writes all artifacts to a consistent location:: <pwd>/log/<experiment_id>/
-
-Within that folder we keep model parameters, checkpoints, training metrics,
-evaluation metrics, and consolidated log output. When users do not provide an
-``experiment_id`` a timestamp-based identifier is generated once per process to
-avoid scattering files across multiple directories. Test runs are redirected to
-temporary folders so local trees are not polluted.
-
 Date: create on 23/11/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
@@ -16,7 +7,7 @@ Author: Yang Zhou,zyaztec@gmail.com
 import os
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 __all__ = [
@@ -74,6 +65,7 @@ def create_session(experiment_id: str | Path | None = None) -> Session:
     if experiment_id is not None and str(experiment_id).strip():
         exp_id = str(experiment_id).strip()
     else:
+        # Use local time for session naming
         exp_id = "nextrec_session_" + datetime.now().strftime("%Y%m%d")
 
     if (
@@ -111,6 +103,7 @@ def resolve_save_path(
       timestamp.
     - Parent directories are created.
     """
+    # Use local time for file timestamps
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") if add_timestamp else None
 
     normalized_suffix = suffix if suffix.startswith(".") else f".{suffix}"
