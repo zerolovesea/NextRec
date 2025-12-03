@@ -185,9 +185,9 @@ class RecDataLoader(FeatureSet):
                              chunk_size: int,
                              shuffle: bool) -> DataLoader:
         if shuffle:
-            logging.warning("[RecDataLoader Warning] Shuffle is ignored in streaming mode (IterableDataset).")
+            logging.info("[RecDataLoader Info] Shuffle is ignored in streaming mode (IterableDataset).")
         if batch_size != 1:
-            logging.warning("[RecDataLoader Warning] Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput.")
+            logging.info("[RecDataLoader Info] Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput.")
         dataset = FileDataset(file_paths=file_paths, dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target_columns=self.target_columns, id_columns=self.id_columns, chunk_size=chunk_size, file_type=file_type, processor=self.processor)
         return DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
 

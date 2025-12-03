@@ -2,17 +2,19 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 03/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
-
 
 import os
 import re
 import sys
+import json
 import copy
 import logging
-from nextrec.basic.session import create_session
+import numbers
+from typing import Mapping, Any
+from nextrec.basic.session import create_session, Session
 
 ANSI_CODES = {
     'black': '\033[30m',
@@ -77,17 +79,12 @@ def colorize(text: str, color: str | None = None, bold: bool = False) -> str:
     """Apply ANSI color and bold formatting to the given text."""
     if not color and not bold:
         return text
-
     result = ""
-
     if bold:
         result += ANSI_BOLD
-
     if color and color in ANSI_CODES:
         result += ANSI_CODES[color]
-
     result += text + ANSI_RESET
-
     return result
 
 def setup_logger(session_id: str | os.PathLike | None = None):
@@ -126,3 +123,69 @@ def setup_logger(session_id: str | os.PathLike | None = None):
     logger.addHandler(console_handler)
     
     return logger
+
+class TrainingLogger:
+    def __init__(
+        self,
+        session: Session,
+        enable_tensorboard: bool,
+        log_name: str = "training_metrics.jsonl",
+    ) -> None:
+        self.session = session
+        self.enable_tensorboard = enable_tensorboard
+        self.log_path = session.metrics_dir / log_name
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.tb_writer = None
+        self.tb_dir = None
+
+        if self.enable_tensorboard:
+            self._init_tensorboard()
+
+    def _init_tensorboard(self) -> None:
+        try:
+            from torch.utils.tensorboard import SummaryWriter  # type: ignore
+        except ImportError:
+            logging.warning("[TrainingLogger] tensorboard not installed, disable tensorboard logging.")
+            self.enable_tensorboard = False
+            return
+        tb_dir = self.session.logs_dir / "tensorboard"
+        tb_dir.mkdir(parents=True, exist_ok=True)
+        self.tb_dir = tb_dir
+        self.tb_writer = SummaryWriter(log_dir=str(tb_dir))
+
+    @property
+    def tensorboard_logdir(self):
+        return self.tb_dir
+
+    def format_metrics(self, metrics: Mapping[str, Any], split: str) -> dict[str, float]:
+        formatted: dict[str, float] = {}
+        for key, value in metrics.items():
+            if isinstance(value, numbers.Number):
+                formatted[f"{split}/{key}"] = float(value)
+            elif hasattr(value, "item"):
+                try:
+                    formatted[f"{split}/{key}"] = float(value.item())
+                except Exception:
+                    continue
+        return formatted
+
+    def log_metrics(self, metrics: Mapping[str, Any], step: int, split: str = "train") -> None:
+        payload = self.format_metrics(metrics, split)
+        payload["step"] = int(step)
+        with self.log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+        if not self.tb_writer:
+            return
+        step = int(payload.get("step", 0))
+        for key, value in payload.items():
+            if key == "step":
+                continue
+            self.tb_writer.add_scalar(key, value, global_step=step)
+
+    def close(self) -> None:
+        if self.tb_writer:
+            self.tb_writer.flush()
+            self.tb_writer.close()
+            self.tb_writer = None

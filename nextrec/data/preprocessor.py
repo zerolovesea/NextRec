@@ -38,26 +38,6 @@ from nextrec.__version__ import __version__
 
 
 class DataProcessor(FeatureSet):
-    """DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
-    
-    Examples:
-        >>> processor = DataProcessor()
-        >>> processor.add_numeric_feature('age', scaler='standard')
-        >>> processor.add_sparse_feature('user_id', encode_method='hash', hash_size=10000)
-        >>> processor.add_sequence_feature('item_history', encode_method='label', max_len=50, pad_value=0)
-        >>> processor.add_target('label', target_type='binary')
-        >>> 
-        >>> # Fit and transform data
-        >>> processor.fit(train_df)
-        >>> processed_data = processor.transform(test_df)  # Returns dict of numpy arrays
-        >>> 
-        >>> # Save and load processor
-        >>> processor.save('processor.pkl')
-        >>> loaded_processor = DataProcessor.load('processor.pkl')
-        >>> 
-        >>> # Get vocabulary sizes for embedding layers
-        >>> vocab_sizes = processor.get_vocab_sizes()
-    """
     def __init__(self):
         self.numeric_features: Dict[str, Dict[str, Any]] = {}
         self.sparse_features: Dict[str, Dict[str, Any]] = {}
@@ -132,10 +112,10 @@ class DataProcessor(FeatureSet):
         }
         self.set_target_id(list(self.target_features.keys()), [])
         
-    def _hash_string(self, s: str, hash_size: int) -> int:
+    def hash_string(self, s: str, hash_size: int) -> int:
         return int(hashlib.md5(str(s).encode()).hexdigest(), 16) % hash_size
         
-    def _process_numeric_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
+    def process_numeric_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
         name = str(data.name)
         scaler_type = config['scaler']
         fill_na = config['fill_na']
@@ -164,7 +144,7 @@ class DataProcessor(FeatureSet):
             scaler.fit(values)
             self.scalers[name] = scaler
             
-    def _process_numeric_feature_transform(self, data: pd.Series, config: Dict[str, Any]) -> np.ndarray:
+    def process_numeric_feature_transform(self, data: pd.Series, config: Dict[str, Any]) -> np.ndarray:
         logger = logging.getLogger()
         name = str(data.name)
         scaler_type = config['scaler']
@@ -184,7 +164,7 @@ class DataProcessor(FeatureSet):
                 result = scaler.transform(values.reshape(-1, 1)).ravel()
         return result
         
-    def _process_sparse_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
+    def process_sparse_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
         name = str(data.name)
         encode_method = config['encode_method']
         fill_na = config['fill_na'] # <UNK>
@@ -197,7 +177,7 @@ class DataProcessor(FeatureSet):
         elif encode_method == 'hash':
             config['vocab_size'] = config['hash_size']
             
-    def _process_sparse_feature_transform(self, data: pd.Series, config: Dict[str, Any]) -> np.ndarray:
+    def process_sparse_feature_transform(self, data: pd.Series, config: Dict[str, Any]) -> np.ndarray:
         name = str(data.name)
         encode_method = config['encode_method']
         fill_na = config['fill_na']
@@ -215,11 +195,11 @@ class DataProcessor(FeatureSet):
             return encoded.to_numpy()
         if encode_method == 'hash':
             hash_size = config['hash_size']
-            hash_fn = self._hash_string
+            hash_fn = self.hash_string
             return np.fromiter((hash_fn(v, hash_size) for v in sparse_series.to_numpy()), dtype=np.int64, count=sparse_series.size,)
         return np.array([], dtype=np.int64)
             
-    def _process_sequence_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
+    def process_sequence_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
         name = str(data.name)
         encode_method = config['encode_method']
         separator = config['separator']
@@ -252,7 +232,7 @@ class DataProcessor(FeatureSet):
         elif encode_method == 'hash':
             config['vocab_size'] = config['hash_size']
             
-    def _process_sequence_feature_transform(self, data: pd.Series, config: Dict[str, Any]) -> np.ndarray:
+    def process_sequence_feature_transform(self, data: pd.Series, config: Dict[str, Any]) -> np.ndarray:
         """Optimized sequence transform with preallocation and cached vocab map."""
         name = str(data.name)
         encode_method = config['encode_method']
@@ -276,7 +256,7 @@ class DataProcessor(FeatureSet):
                 config['_class_to_idx'] = class_to_idx
         else:
             class_to_idx = None  # type: ignore
-        hash_fn = self._hash_string
+        hash_fn = self.hash_string
         hash_size = config.get('hash_size')
         for i, seq in enumerate(arr):
             # normalize sequence to a list of strings
@@ -301,11 +281,7 @@ class DataProcessor(FeatureSet):
             elif encode_method == 'hash':
                 if hash_size is None:
                     raise ValueError("hash_size must be set for hash encoding")
-                encoded = [
-                    hash_fn(str(token), hash_size)
-                    for token in tokens
-                    if str(token).strip()
-                ]
+                encoded = [hash_fn(str(token), hash_size) for token in tokens if str(token).strip()]
             else:
                 encoded = []
             if not encoded:
@@ -315,7 +291,7 @@ class DataProcessor(FeatureSet):
             output[i, : len(encoded)] = encoded
         return output
         
-    def _process_target_fit(self, data: pd.Series, config: Dict[str, Any]):
+    def process_target_fit(self, data: pd.Series, config: Dict[str, Any]):
         name = str(data.name)
         target_type = config['target_type']
         label_map = config.get('label_map')
@@ -334,7 +310,7 @@ class DataProcessor(FeatureSet):
                 config['label_map'] = label_map    
             self.target_encoders[name] = label_map
             
-    def _process_target_transform(self, data: pd.Series, config: Dict[str, Any]) -> np.ndarray:
+    def process_target_transform(self, data: pd.Series, config: Dict[str, Any]) -> np.ndarray:
         logger = logging.getLogger()
         name = str(data.name)
         target_type = config.get('target_type')
@@ -355,13 +331,13 @@ class DataProcessor(FeatureSet):
                     result.append(0)
             return np.array(result, dtype=np.int64 if target_type == 'multiclass' else np.float32)
     
-    def _load_dataframe_from_path(self, path: str) -> pd.DataFrame:
+    def load_dataframe_from_path(self, path: str) -> pd.DataFrame:
         """Load all data from a file or directory path into a single DataFrame."""
         file_paths, file_type = resolve_file_paths(path)
         frames = load_dataframes(file_paths, file_type)
         return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
 
-    def _extract_sequence_tokens(self, value: Any, separator: str) -> list[str]:
+    def extract_sequence_tokens(self, value: Any, separator: str) -> list[str]:
         """Extract sequence tokens from a single value."""
         if value is None:
             return []
@@ -374,7 +350,7 @@ class DataProcessor(FeatureSet):
             return [str(v) for v in value]
         return [str(value)]
 
-    def _fit_from_path(self, path: str, chunk_size: int) -> 'DataProcessor':
+    def fit_from_path(self, path: str, chunk_size: int) -> 'DataProcessor':
         """Fit processor statistics by streaming files to reduce memory usage."""
         logger = logging.getLogger()
         logger.info(colorize("Fitting DataProcessor (streaming path mode)...", color="cyan", bold=True))
@@ -433,7 +409,7 @@ class DataProcessor(FeatureSet):
                     series = chunk[name]
                     tokens = []
                     for val in series:
-                        tokens.extend(self._extract_sequence_tokens(val, separator))
+                        tokens.extend(self.extract_sequence_tokens(val, separator))
                     seq_vocab[name].update(tokens)
 
                 # target features
@@ -548,7 +524,7 @@ class DataProcessor(FeatureSet):
         logger.info(colorize("DataProcessor fitted successfully (streaming path mode)", color="green", bold=True))
         return self
 
-    def _transform_in_memory(
+    def transform_in_memory(
         self,
         data: Union[pd.DataFrame, Dict[str, Any]],
         return_dict: bool,
@@ -581,7 +557,7 @@ class DataProcessor(FeatureSet):
                 continue
             # Convert to Series for processing
             series_data = pd.Series(data_dict[name], name=name)
-            processed = self._process_numeric_feature_transform(series_data, config)
+            processed = self.process_numeric_feature_transform(series_data, config)
             result_dict[name] = processed
 
         # process sparse features
@@ -590,7 +566,7 @@ class DataProcessor(FeatureSet):
                 logger.warning(f"Sparse feature {name} not found in data")
                 continue
             series_data = pd.Series(data_dict[name], name=name)
-            processed = self._process_sparse_feature_transform(series_data, config)
+            processed = self.process_sparse_feature_transform(series_data, config)
             result_dict[name] = processed
 
         # process sequence features
@@ -599,7 +575,7 @@ class DataProcessor(FeatureSet):
                 logger.warning(f"Sequence feature {name} not found in data")
                 continue
             series_data = pd.Series(data_dict[name], name=name)
-            processed = self._process_sequence_feature_transform(series_data, config)
+            processed = self.process_sequence_feature_transform(series_data, config)
             result_dict[name] = processed
 
         # process target features
@@ -608,10 +584,10 @@ class DataProcessor(FeatureSet):
                 logger.warning(f"Target {name} not found in data")
                 continue
             series_data = pd.Series(data_dict[name], name=name)
-            processed = self._process_target_transform(series_data, config)
+            processed = self.process_target_transform(series_data, config)
             result_dict[name] = processed
 
-        def _dict_to_dataframe(result: Dict[str, np.ndarray]) -> pd.DataFrame:
+        def dict_to_dataframe(result: Dict[str, np.ndarray]) -> pd.DataFrame:
             # Convert all arrays to Series/lists at once to avoid fragmentation
             columns_dict = {}
             for key, value in result.items():
@@ -629,7 +605,7 @@ class DataProcessor(FeatureSet):
             effective_format = save_format or "parquet"
         result_df = None
         if (not return_dict) or persist:
-            result_df = _dict_to_dataframe(result_dict)
+            result_df = dict_to_dataframe(result_dict)
         if persist:
             if output_path is None:
                 raise ValueError("output_path must be provided when persisting transformed data.")
@@ -649,7 +625,7 @@ class DataProcessor(FeatureSet):
         assert result_df is not None, "DataFrame is None after transform"
         return result_df
 
-    def _transform_path(
+    def transform_path(
         self,
         input_path: str,
         output_path: Optional[str],
@@ -669,13 +645,7 @@ class DataProcessor(FeatureSet):
         saved_paths = []
         for file_path in tqdm.tqdm(file_paths, desc="Transforming files", unit="file"):
             df = read_table(file_path, file_type)
-            transformed_df = self._transform_in_memory(
-                df,
-                return_dict=False,
-                persist=False,
-                save_format=None,
-                output_path=None,
-            )
+            transformed_df = self.transform_in_memory(df, return_dict=False, persist=False, save_format=None, output_path=None)
             assert isinstance(transformed_df, pd.DataFrame), "Expected DataFrame when return_dict=False"
             source_path = Path(file_path)
             target_file = output_root / f"{source_path.stem}.{target_format}"
@@ -695,9 +665,9 @@ class DataProcessor(FeatureSet):
             uses_robust = any(cfg.get("scaler") == "robust" for cfg in self.numeric_features.values())
             if uses_robust:
                 logger.warning("Robust scaler requires full data; loading all files into memory. Consider smaller chunk_size or different scaler if memory is limited.")
-                data = self._load_dataframe_from_path(path_str)
+                data = self.load_dataframe_from_path(path_str)
             else:
-                return self._fit_from_path(path_str, chunk_size)
+                return self.fit_from_path(path_str, chunk_size)
         if isinstance(data, dict):
             data = pd.DataFrame(data)
         logger.info(colorize("Fitting DataProcessor...", color="cyan", bold=True))
@@ -705,22 +675,22 @@ class DataProcessor(FeatureSet):
             if name not in data.columns:
                 logger.warning(f"Numeric feature {name} not found in data")
                 continue
-            self._process_numeric_feature_fit(data[name], config)
+            self.process_numeric_feature_fit(data[name], config)
         for name, config in self.sparse_features.items():
             if name not in data.columns:
                 logger.warning(f"Sparse feature {name} not found in data")
                 continue
-            self._process_sparse_feature_fit(data[name], config)
+            self.process_sparse_feature_fit(data[name], config)
         for name, config in self.sequence_features.items():
             if name not in data.columns:
                 logger.warning(f"Sequence feature {name} not found in data")
                 continue
-            self._process_sequence_feature_fit(data[name], config)
+            self.process_sequence_feature_fit(data[name], config)
         for name, config in self.target_features.items():
             if name not in data.columns:
                 logger.warning(f"Target {name} not found in data")
                 continue
-            self._process_target_fit(data[name], config)
+            self.process_target_fit(data[name], config)
         self.is_fitted = True
         return self
         
@@ -736,14 +706,8 @@ class DataProcessor(FeatureSet):
         if isinstance(data, (str, os.PathLike)):
             if return_dict:
                 raise ValueError("Path transform writes files only; set return_dict=False when passing a path.")
-            return self._transform_path(str(data), output_path, save_format)
-        return self._transform_in_memory(
-            data=data,
-            return_dict=return_dict,
-            persist=output_path is not None,
-            save_format=save_format,
-            output_path=output_path,
-        )
+            return self.transform_path(str(data), output_path, save_format)
+        return self.transform_in_memory(data=data, return_dict=return_dict, persist=output_path is not None, save_format=save_format, output_path=output_path)
             
     def fit_transform(
         self, 

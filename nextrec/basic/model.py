@@ -10,6 +10,8 @@ import os
 import tqdm
 import pickle
 import logging
+import getpass
+import socket
 import numpy as np
 import pandas as pd
 import torch
@@ -24,7 +26,7 @@ from nextrec.basic.callback import EarlyStopper
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSet
 from nextrec.data.dataloader import TensorDictDataset, RecDataLoader
 
-from nextrec.basic.loggers import setup_logger, colorize
+from nextrec.basic.loggers import setup_logger, colorize, TrainingLogger
 from nextrec.basic.session import resolve_save_path, create_session
 from nextrec.basic.metrics import configure_metrics, evaluate_metrics, check_user_id
 
@@ -88,6 +90,7 @@ class BaseModel(FeatureSet, nn.Module):
         self.early_stop_patience = early_stop_patience
         self.max_gradient_norm = 1.0   
         self.logger_initialized = False
+        self.training_logger: TrainingLogger | None = None
 
     def register_regularization_weights(self, embedding_attr: str = "embedding", exclude_modules: list[str] | None = None, include_modules: list[str] | None = None) -> None:
         exclude_modules = exclude_modules or []
@@ -275,11 +278,13 @@ class BaseModel(FeatureSet, nn.Module):
             metrics: list[str] | dict[str, list[str]] | None = None, # ['auc', 'logloss'] or {'target1': ['auc', 'logloss'], 'target2': ['mse']}
             epochs:int=1, shuffle:bool=True, batch_size:int=32,
             user_id_column: str | None = None,
-            validation_split: float | None = None):
+            validation_split: float | None = None,
+            tensorboard: bool = True,):
         self.to(self.device)
         if not self.logger_initialized:
             setup_logger(session_id=self.session_id)
             self.logger_initialized = True
+        self.training_logger = TrainingLogger(session=self.session, enable_tensorboard=tensorboard)
 
         self.metrics, self.task_specific_metrics, self.best_metrics_mode = configure_metrics(task=self.task, metrics=metrics, target_names=self.target_columns) # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
         self.early_stopper = EarlyStopper(patience=self.early_stop_patience, mode=self.best_metrics_mode)
@@ -304,6 +309,20 @@ class BaseModel(FeatureSet, nn.Module):
 
         self.summary()
         logging.info("")
+        if self.training_logger and self.training_logger.enable_tensorboard:
+            tb_dir = self.training_logger.tensorboard_logdir
+            if tb_dir:
+                user = getpass.getuser()
+                host = socket.gethostname()
+                tb_cmd = f"tensorboard --logdir {tb_dir} --port 6006"
+                ssh_hint = f"ssh -L 6006:localhost:6006 {user}@{host}"
+                logging.info(colorize(f"TensorBoard logs saved to: {tb_dir}", color="cyan"))
+                logging.info(colorize("To view logs, run:", color="cyan"))
+                logging.info(colorize(f"    {tb_cmd}", color="cyan"))
+                logging.info(colorize("Then SSH port forward:", color="cyan"))
+                logging.info(colorize(f"    {ssh_hint}", color="cyan"))
+
+        logging.info("")
         logging.info(colorize("=" * 80, bold=True))
         if is_streaming:
             logging.info(colorize(f"Start streaming training", bold=True))
@@ -312,7 +331,7 @@ class BaseModel(FeatureSet, nn.Module):
         logging.info(colorize("=" * 80, bold=True))
         logging.info("")
         logging.info(colorize(f"Model device: {self.device}", bold=True))
-    
+
         for epoch in range(epochs):
             self.epoch_index = epoch
             if is_streaming:
@@ -326,7 +345,8 @@ class BaseModel(FeatureSet, nn.Module):
             else:
                 train_loss = train_result
                 train_metrics = None
-            
+
+            train_log_payload: dict[str, float] = {}
             # handle logging for single-task and multi-task
             if self.nums_task == 1:
                 log_str = f"Epoch {epoch + 1}/{epochs} - Train: loss={train_loss:.4f}"
@@ -334,6 +354,9 @@ class BaseModel(FeatureSet, nn.Module):
                     metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in train_metrics.items()])
                     log_str += f", {metrics_str}"
                 logging.info(colorize(log_str))
+                train_log_payload["loss"] = float(train_loss)
+                if train_metrics:
+                    train_log_payload.update(train_metrics)
             else:
                 total_loss_val = np.sum(train_loss) if isinstance(train_loss, np.ndarray) else train_loss  # type: ignore
                 log_str = f"Epoch {epoch + 1}/{epochs} - Train: loss={total_loss_val:.4f}"
@@ -356,12 +379,17 @@ class BaseModel(FeatureSet, nn.Module):
                                 task_metric_strs.append(f"{target_name}[{metrics_str}]")
                         log_str += ", " + ", ".join(task_metric_strs)
                 logging.info(colorize(log_str))
+                train_log_payload["loss"] = float(total_loss_val)
+                if train_metrics:
+                    train_log_payload.update(train_metrics)
+            if self.training_logger:
+                self.training_logger.log_metrics(train_log_payload, step=epoch + 1, split="train")
             if valid_loader is not None:
                 # pass user_ids only if needed for GAUC metric
                 val_metrics = self.evaluate(valid_loader, user_ids=valid_user_ids if self.needs_user_ids else None) # {'auc': 0.75, 'logloss': 0.45} or {'auc_target1': 0.75, 'logloss_target1': 0.45, 'mse_target2': 3.2}
                 if self.nums_task == 1:
                     metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in val_metrics.items()])
-                    logging.info(colorize(f"Epoch {epoch + 1}/{epochs} - Valid: {metrics_str}", color="cyan"))
+                    logging.info(colorize(f"  Epoch {epoch + 1}/{epochs} - Valid: {metrics_str}", color="cyan"))
                 else:
                     # multi task metrics
                     task_metrics = {}
@@ -378,7 +406,9 @@ class BaseModel(FeatureSet, nn.Module):
                         if target_name in task_metrics:
                             metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in task_metrics[target_name].items()])
                             task_metric_strs.append(f"{target_name}[{metrics_str}]")
-                    logging.info(colorize(f"Epoch {epoch + 1}/{epochs} - Valid: " + ", ".join(task_metric_strs), color="cyan"))
+                    logging.info(colorize(f"  Epoch {epoch + 1}/{epochs} - Valid: " + ", ".join(task_metric_strs), color="cyan"))
+                if val_metrics and self.training_logger:
+                    self.training_logger.log_metrics(val_metrics, step=epoch + 1, split="valid")
                 # Handle empty validation metrics
                 if not val_metrics:
                     self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
@@ -401,6 +431,7 @@ class BaseModel(FeatureSet, nn.Module):
                         self.best_metric = primary_metric
                         improved = True
                 self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
+                logging.info(" ")
                 if improved:
                     logging.info(colorize(f"Validation {primary_metric_key} improved to {self.best_metric:.4f}"))
                     self.save_model(self.best_path, add_timestamp=False, verbose=False)
@@ -431,6 +462,8 @@ class BaseModel(FeatureSet, nn.Module):
         if valid_loader is not None:
             logging.info(colorize(f"Load best model from: {self.best_checkpoint_path}"))
             self.load_model(self.best_checkpoint_path, map_location=self.device, verbose=False)
+        if self.training_logger:
+            self.training_logger.close()
         return self
 
     def train_epoch(self, train_loader: DataLoader, is_streaming: bool = False) -> Union[float, np.ndarray, tuple[Union[float, np.ndarray], dict]]:
@@ -527,6 +560,7 @@ class BaseModel(FeatureSet, nn.Module):
                     batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
                     if batch_user_id is not None:
                         collected_user_ids.append(batch_user_id)
+        logging.info(" ")
         logging.info(colorize(f"  Evaluation batches processed: {batch_count}", color="cyan"))
         if len(y_true_list) > 0:
             y_true_all = np.concatenate(y_true_list, axis=0)
@@ -956,9 +990,7 @@ class BaseModel(FeatureSet, nn.Module):
         logger.info(f"  Session ID:            {self.session_id}")
         logger.info(f"  Features Config Path:  {self.features_config_path}")
         logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")
-        
-        logger.info("")
-        logger.info("")
+
 
 
 class BaseMatchModel(BaseModel):
