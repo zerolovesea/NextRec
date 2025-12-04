@@ -68,7 +68,6 @@ class DSSM_v2(BaseMatchModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=early_stop_patience,
             **kwargs
         )
         

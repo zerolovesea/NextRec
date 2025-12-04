@@ -26,17 +26,7 @@ from nextrec.models.ranking.deepfm import DeepFM
 
 
 def generate_synthetic_dataset(num_samples=100000, num_users=10000, num_items=5000):
-    """
-    Generate a synthetic recommendation dataset for demonstration.
-    
-    Args:
-        num_samples: Number of training samples
-        num_users: Number of unique users
-        num_items: Number of unique items
-    
-    Returns:
-        DataFrame with synthetic features and labels
-    """
+
     print(f"Generating synthetic dataset with {num_samples} samples...")
     
     np.random.seed(42)
@@ -216,7 +206,6 @@ def main():
         "dims": [256, 128, 64],
         "activation": "relu",
         "dropout": 0.3,
-        "batch_norm": True,
     }
     
     if rank == 0:
@@ -238,7 +227,6 @@ def main():
         embedding_l2_reg=1e-5,
         dense_l1_reg=1e-6,
         dense_l2_reg=1e-5,
-        early_stop_patience=5,
         session_id=f"distributed_deepfm_tutorial",
     )
     
