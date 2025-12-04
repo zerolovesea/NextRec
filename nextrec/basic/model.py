@@ -17,10 +17,12 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
 
 from pathlib import Path
 from typing import Union, Literal, Any
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from nextrec.basic.callback import EarlyStopper
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSet
@@ -37,7 +39,7 @@ from nextrec.data.batch_utils import collate_fn, batch_to_dict
 from nextrec.loss import get_loss_fn, get_loss_kwargs
 from nextrec.utils import get_optimizer, get_scheduler
 from nextrec.utils.tensor import to_tensor
-
+from nextrec.utils.distributed import gather_numpy, configure_device, init_process_group
 from nextrec import __version__
 
 class BaseModel(FeatureSet, nn.Module):
@@ -62,7 +64,12 @@ class BaseModel(FeatureSet, nn.Module):
                  embedding_l2_reg: float = 0.0, 
                  dense_l2_reg: float = 0.0,
                  early_stop_patience: int = 20, 
-                 session_id: str | None = None,): 
+                 session_id: str | None = None,
+                 distributed: bool = False,
+                 rank: int | None = None,
+                 world_size: int | None = None,
+                 local_rank: int | None = None,
+                 ddp_find_unused_parameters: bool = False,): 
         
         super(BaseModel, self).__init__()
         try:
@@ -70,6 +77,18 @@ class BaseModel(FeatureSet, nn.Module):
         except Exception as e:
             logging.warning("[BaseModel Warning] Invalid device , defaulting to CPU.")
             self.device = torch.device('cpu')
+
+        env_rank = int(os.environ.get("RANK", "0"))
+        env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        env_local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        self.distributed = distributed or (env_world_size > 1)
+        self.rank = env_rank if rank is None else rank
+        self.world_size = env_world_size if world_size is None else world_size
+        self.local_rank = env_local_rank if local_rank is None else local_rank
+        self.is_main_process = self.rank == 0
+        self.ddp_find_unused_parameters = ddp_find_unused_parameters
+        self.ddp_model: torch.nn.parallel.DistributedDataParallel | None = None
+        self.device = configure_device(self.distributed, self.local_rank, self.device)
 
         self.session_id = session_id
         self.session = create_session(session_id)
@@ -265,14 +284,15 @@ class BaseModel(FeatureSet, nn.Module):
                 task_losses.append(task_loss)
             return torch.stack(task_losses).sum()
 
-    def prepare_data_loader(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 32, shuffle: bool = True, num_workers: int = 0,) -> DataLoader:
+    def prepare_data_loader(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 32, shuffle: bool = True, num_workers: int = 0, sampler=None, return_dataset: bool = False) -> DataLoader | tuple[DataLoader, TensorDictDataset | None]:
         if isinstance(data, DataLoader):
-            return data
+            return (data, None) if return_dataset else data
         tensors = build_tensors_from_data(data=data, raw_data=data, features=self.all_features, target_columns=self.target_columns, id_columns=self.id_columns,)
         if tensors is None:
             raise ValueError("[BaseModel-prepare_data_loader Error] No data available to create DataLoader.")
         dataset = TensorDictDataset(tensors)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn, num_workers=num_workers)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False if sampler is not None else shuffle, sampler=sampler, collate_fn=collate_fn, num_workers=num_workers)
+        return (loader, dataset) if return_dataset else loader
 
     def fit(self, 
             train_data: dict | pd.DataFrame | DataLoader, 
@@ -283,11 +303,16 @@ class BaseModel(FeatureSet, nn.Module):
             validation_split: float | None = None,
             num_workers: int = 0,
             tensorboard: bool = True,):
+        init_process_group(self.distributed, self.rank, self.world_size)
         self.to(self.device)
-        if not self.logger_initialized:
+        if self.distributed and dist.is_available() and dist.is_initialized() and self.ddp_model is None:
+            device_ids = [self.local_rank] if self.device.type == "cuda" else None
+            output_device = self.local_rank if self.device.type == "cuda" else None
+            object.__setattr__(self, "ddp_model", torch.nn.parallel.DistributedDataParallel(self, device_ids=device_ids, output_device=output_device, find_unused_parameters=self.ddp_find_unused_parameters))
+        if not self.logger_initialized and self.is_main_process:
             setup_logger(session_id=self.session_id)
             self.logger_initialized = True
-        self.training_logger = TrainingLogger(session=self.session, enable_tensorboard=tensorboard)
+        self.training_logger = TrainingLogger(session=self.session, enable_tensorboard=tensorboard) if self.is_main_process else None
 
         self.metrics, self.task_specific_metrics, self.best_metrics_mode = configure_metrics(task=self.task, metrics=metrics, target_names=self.target_columns) # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
         self.early_stopper = EarlyStopper(patience=self.early_stop_patience, mode=self.best_metrics_mode)
@@ -300,7 +325,15 @@ class BaseModel(FeatureSet, nn.Module):
         if validation_split is not None and valid_data is None:
             train_loader, valid_data = self.handle_validation_split(train_data=train_data, validation_split=validation_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers) # type: ignore
         else:
-            train_loader = (train_data if isinstance(train_data, DataLoader) else self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers))
+            if isinstance(train_data, DataLoader):
+                train_loader = train_data
+            else:
+                train_sampler = None
+                loader, dataset = self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, return_dataset=True)  # type: ignore
+                if self.distributed and dataset is not None and dist.is_available() and dist.is_initialized():
+                    train_sampler = DistributedSampler(dataset, num_replicas=self.world_size, rank=self.rank, shuffle=shuffle)
+                    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, sampler=train_sampler, collate_fn=collate_fn, num_workers=num_workers)
+                train_loader = loader
         
         valid_loader, valid_user_ids = self.prepare_validation_data(valid_data=valid_data, batch_size=batch_size, needs_user_ids=self.needs_user_ids, user_id_column=user_id_column, num_workers=num_workers)
         try:
@@ -310,38 +343,41 @@ class BaseModel(FeatureSet, nn.Module):
             self.steps_per_epoch = None
             is_streaming = True
 
-        self.summary()
-        logging.info("")
-        if self.training_logger and self.training_logger.enable_tensorboard:
-            tb_dir = self.training_logger.tensorboard_logdir
-            if tb_dir:
-                user = getpass.getuser()
-                host = socket.gethostname()
-                tb_cmd = f"tensorboard --logdir {tb_dir} --port 6006"
-                ssh_hint = f"ssh -L 6006:localhost:6006 {user}@{host}"
-                logging.info(colorize(f"TensorBoard logs saved to: {tb_dir}", color="cyan"))
-                logging.info(colorize("To view logs, run:", color="cyan"))
-                logging.info(colorize(f"    {tb_cmd}", color="cyan"))
-                logging.info(colorize("Then SSH port forward:", color="cyan"))
-                logging.info(colorize(f"    {ssh_hint}", color="cyan"))
+        if self.is_main_process:
+            self.summary()
+            logging.info("")
+            if self.training_logger and self.training_logger.enable_tensorboard:
+                tb_dir = self.training_logger.tensorboard_logdir
+                if tb_dir:
+                    user = getpass.getuser()
+                    host = socket.gethostname()
+                    tb_cmd = f"tensorboard --logdir {tb_dir} --port 6006"
+                    ssh_hint = f"ssh -L 6006:localhost:6006 {user}@{host}"
+                    logging.info(colorize(f"TensorBoard logs saved to: {tb_dir}", color="cyan"))
+                    logging.info(colorize("To view logs, run:", color="cyan"))
+                    logging.info(colorize(f"    {tb_cmd}", color="cyan"))
+                    logging.info(colorize("Then SSH port forward:", color="cyan"))
+                    logging.info(colorize(f"    {ssh_hint}", color="cyan"))
 
-        logging.info("")
-        logging.info(colorize("=" * 80, bold=True))
-        if is_streaming:
-            logging.info(colorize(f"Start streaming training", bold=True))
-        else:
-            logging.info(colorize(f"Start training", bold=True))
-        logging.info(colorize("=" * 80, bold=True))
-        logging.info("")
-        logging.info(colorize(f"Model device: {self.device}", bold=True))
+            logging.info("")
+            logging.info(colorize("=" * 80, bold=True))
+            if is_streaming:
+                logging.info(colorize(f"Start streaming training", bold=True))
+            else:
+                logging.info(colorize(f"Start training", bold=True))
+            logging.info(colorize("=" * 80, bold=True))
+            logging.info("")
+            logging.info(colorize(f"Model device: {self.device}", bold=True))
 
         for epoch in range(epochs):
             self.epoch_index = epoch
-            if is_streaming:
+            if is_streaming and self.is_main_process:
                 logging.info("")
                 logging.info(colorize(f"Epoch {epoch + 1}/{epochs}", bold=True)) # streaming mode, print epoch header before progress bar
 
             # handle train result
+            if self.distributed and hasattr(train_loader, "sampler") and isinstance(train_loader.sampler, DistributedSampler):
+                train_loader.sampler.set_epoch(epoch)
             train_result = self.train_epoch(train_loader, is_streaming=is_streaming) 
             if isinstance(train_result, tuple): # [avg_loss, metrics_dict]
                 train_loss, train_metrics = train_result
@@ -356,7 +392,8 @@ class BaseModel(FeatureSet, nn.Module):
                 if train_metrics:
                     metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in train_metrics.items()])
                     log_str += f", {metrics_str}"
-                logging.info(colorize(log_str))
+                if self.is_main_process:
+                    logging.info(colorize(log_str))
                 train_log_payload["loss"] = float(train_loss)
                 if train_metrics:
                     train_log_payload.update(train_metrics)
@@ -381,7 +418,8 @@ class BaseModel(FeatureSet, nn.Module):
                                 metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in task_metrics[target_name].items()])
                                 task_metric_strs.append(f"{target_name}[{metrics_str}]")
                         log_str += ", " + ", ".join(task_metric_strs)
-                logging.info(colorize(log_str))
+                if self.is_main_process:
+                    logging.info(colorize(log_str))
                 train_log_payload["loss"] = float(total_loss_val)
                 if train_metrics:
                     train_log_payload.update(train_metrics)
@@ -392,7 +430,8 @@ class BaseModel(FeatureSet, nn.Module):
                 val_metrics = self.evaluate(valid_loader, user_ids=valid_user_ids if self.needs_user_ids else None, num_workers=num_workers) # {'auc': 0.75, 'logloss': 0.45} or {'auc_target1': 0.75, 'logloss_target1': 0.45, 'mse_target2': 3.2}
                 if self.nums_task == 1:
                     metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in val_metrics.items()])
-                    logging.info(colorize(f"  Epoch {epoch + 1}/{epochs} - Valid: {metrics_str}", color="cyan"))
+                    if self.is_main_process:
+                        logging.info(colorize(f"  Epoch {epoch + 1}/{epochs} - Valid: {metrics_str}", color="cyan"))
                 else:
                     # multi task metrics
                     task_metrics = {}
@@ -409,14 +448,16 @@ class BaseModel(FeatureSet, nn.Module):
                         if target_name in task_metrics:
                             metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in task_metrics[target_name].items()])
                             task_metric_strs.append(f"{target_name}[{metrics_str}]")
-                    logging.info(colorize(f"  Epoch {epoch + 1}/{epochs} - Valid: " + ", ".join(task_metric_strs), color="cyan"))
+                    if self.is_main_process:
+                        logging.info(colorize(f"  Epoch {epoch + 1}/{epochs} - Valid: " + ", ".join(task_metric_strs), color="cyan"))
                 if val_metrics and self.training_logger:
                     self.training_logger.log_metrics(val_metrics, step=epoch + 1, split="valid")
                 # Handle empty validation metrics
                 if not val_metrics:
-                    self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
-                    self.best_checkpoint_path = self.checkpoint_path
-                    logging.info(colorize(f"Warning: No validation metrics computed. Skipping validation for this epoch.", color="yellow"))
+                    if self.is_main_process:
+                        self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
+                        self.best_checkpoint_path = self.checkpoint_path
+                        logging.info(colorize(f"Warning: No validation metrics computed. Skipping validation for this epoch.", color="yellow"))
                     continue
                 if self.nums_task == 1:
                     primary_metric_key = self.metrics[0]
@@ -433,24 +474,38 @@ class BaseModel(FeatureSet, nn.Module):
                     if primary_metric < self.best_metric:
                         self.best_metric = primary_metric
                         improved = True
-                self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
-                logging.info(" ")
-                if improved:
-                    logging.info(colorize(f"Validation {primary_metric_key} improved to {self.best_metric:.4f}"))
+
+                # save checkpoint and best model for main process
+                if self.is_main_process:
+                    self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
+                    logging.info(" ")
+                    if improved:
+                        logging.info(colorize(f"Validation {primary_metric_key} improved to {self.best_metric:.4f}"))
+                        self.save_model(self.best_path, add_timestamp=False, verbose=False)
+                        self.best_checkpoint_path = self.best_path
+                        self.early_stopper.trial_counter = 0
+                    else:
+                        self.early_stopper.trial_counter += 1
+                        logging.info(colorize(f"No improvement for {self.early_stopper.trial_counter} epoch(s)"))
+                    if self.early_stopper.trial_counter >= self.early_stopper.patience:
+                        self.stop_training = True
+                        logging.info(colorize(f"Early stopping triggered after {epoch + 1} epochs", color="bright_red", bold=True))
+                else:
+                    if improved:
+                        self.early_stopper.trial_counter = 0
+                    else:
+                        self.early_stopper.trial_counter += 1
+            else:
+                if self.is_main_process:
+                    self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
                     self.save_model(self.best_path, add_timestamp=False, verbose=False)
                     self.best_checkpoint_path = self.best_path
-                    self.early_stopper.trial_counter = 0
-                else:
-                    self.early_stopper.trial_counter += 1
-                    logging.info(colorize(f"No improvement for {self.early_stopper.trial_counter} epoch(s)"))
-                if self.early_stopper.trial_counter >= self.early_stopper.patience:
-                    self.stop_training = True
-                    logging.info(colorize(f"Early stopping triggered after {epoch + 1} epochs", color="bright_red", bold=True))
-                    break
-            else:
-                self.save_model(self.checkpoint_path, add_timestamp=False, verbose=False)
-                self.save_model(self.best_path, add_timestamp=False, verbose=False)
-                self.best_checkpoint_path = self.best_path
+
+            # stop training flag broadcast to all processes
+            if self.distributed and dist.is_available() and dist.is_initialized():
+                stop_tensor = torch.tensor([int(self.stop_training)], device=self.device)
+                dist.broadcast(stop_tensor, src=0)
+                self.stop_training = bool(stop_tensor.item())
             if self.stop_training:
                 break
             if self.scheduler_fn is not None:
@@ -459,41 +514,52 @@ class BaseModel(FeatureSet, nn.Module):
                         self.scheduler_fn.step(primary_metric)
                 else:
                     self.scheduler_fn.step()                   
-        logging.info(" ")
-        logging.info(colorize("Training finished.", bold=True))
-        logging.info(" ")
+        if self.distributed and dist.is_available() and dist.is_initialized():
+            dist.barrier() # dist.barrier() will wait for all processes, like async all_reduce()
+        if self.is_main_process:
+            logging.info(" ")
+            logging.info(colorize("Training finished.", bold=True))
+            logging.info(" ")
         if valid_loader is not None:
-            logging.info(colorize(f"Load best model from: {self.best_checkpoint_path}"))
+            if self.is_main_process:
+                logging.info(colorize(f"Load best model from: {self.best_checkpoint_path}"))
             self.load_model(self.best_checkpoint_path, map_location=self.device, verbose=False)
         if self.training_logger:
             self.training_logger.close()
         return self
 
     def train_epoch(self, train_loader: DataLoader, is_streaming: bool = False) -> Union[float, np.ndarray, tuple[Union[float, np.ndarray], dict]]:
+        # use ddp model for distributed training
+        model = self.ddp_model if getattr(self, "ddp_model") is not None else self
         accumulated_loss = 0.0
-        self.train()
+        model.train() # type: ignore
         num_batches = 0
         y_true_list = []
         y_pred_list = []
 
         user_ids_list = [] if self.needs_user_ids else None
+        tqdm_disable = not self.is_main_process
         if self.steps_per_epoch is not None:
-            batch_iter = enumerate(tqdm.tqdm(train_loader, desc=f"Epoch {self.epoch_index + 1}", total=self.steps_per_epoch))
+            batch_iter = enumerate(tqdm.tqdm(train_loader, desc=f"Epoch {self.epoch_index + 1}", total=self.steps_per_epoch, disable=tqdm_disable))
         else:
             desc = "Batches" if is_streaming else f"Epoch {self.epoch_index + 1}"
-            batch_iter = enumerate(tqdm.tqdm(train_loader, desc=desc))
+            batch_iter = enumerate(tqdm.tqdm(train_loader, desc=desc, disable=tqdm_disable))
         for batch_index, batch_data in batch_iter:
             batch_dict = batch_to_dict(batch_data)
             X_input, y_true = self.get_input(batch_dict, require_labels=True)
-            y_pred = self.forward(X_input)
+            y_pred = model.forward(X_input) # type: ignore
+
             loss = self.compute_loss(y_pred, y_true)
             reg_loss = self.add_reg_loss()
             total_loss = loss + reg_loss
             self.optimizer_fn.zero_grad()
             total_loss.backward()
-            nn.utils.clip_grad_norm_(self.parameters(), self.max_gradient_norm)
+
+            params = model.parameters() if self.ddp_model is not None else self.parameters() # type: ignore # ddp model parameters or self parameters 
+            nn.utils.clip_grad_norm_(params, self.max_gradient_norm)
             self.optimizer_fn.step()
             accumulated_loss += loss.item()
+
             if y_true is not None:
                 y_true_list.append(y_true.detach().cpu().numpy())
             if self.needs_user_ids and user_ids_list is not None:
@@ -504,12 +570,18 @@ class BaseModel(FeatureSet, nn.Module):
                 y_pred_list.append(y_pred.detach().cpu().numpy())
             num_batches += 1
         avg_loss = accumulated_loss / max(num_batches, 1)
+        
         if len(y_true_list) > 0 and len(y_pred_list) > 0: # Compute metrics if requested
             y_true_all = np.concatenate(y_true_list, axis=0)
             y_pred_all = np.concatenate(y_pred_list, axis=0)
             combined_user_ids = None
             if self.needs_user_ids and user_ids_list:
                 combined_user_ids = np.concatenate(user_ids_list, axis=0)
+            
+            # gather y_true, y_pred, user_ids to calculate metrics
+            y_true_all = gather_numpy(self, y_true_all)
+            y_pred_all = gather_numpy(self, y_pred_all)
+            combined_user_ids = gather_numpy(self, combined_user_ids) if combined_user_ids is not None else None
             metrics_dict = evaluate_metrics(y_true=y_true_all, y_pred=y_pred_all, metrics=self.metrics, task=self.task, target_names=self.target_columns, task_specific_metrics=self.task_specific_metrics, user_ids=combined_user_ids)
             return avg_loss, metrics_dict
         return avg_loss
@@ -519,12 +591,17 @@ class BaseModel(FeatureSet, nn.Module):
             return None, None
         if isinstance(valid_data, DataLoader):
             return valid_data, None
-        valid_loader = self.prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        valid_sampler = None
+        valid_loader, valid_dataset = self.prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False, num_workers=num_workers, return_dataset=True)  # type: ignore
+        if self.distributed and valid_dataset is not None and dist.is_available() and dist.is_initialized():
+            valid_sampler = DistributedSampler(valid_dataset, num_replicas=self.world_size, rank=self.rank, shuffle=False, drop_last=False)
+            valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, sampler=valid_sampler, collate_fn=collate_fn, num_workers=num_workers)
         valid_user_ids = None
         if needs_user_ids:
             if user_id_column is None:
                 raise ValueError("[BaseModel-validation Error] user_id_column must be specified when user IDs are needed for validation metrics.")
-            valid_user_ids = get_user_ids(data=valid_data, id_columns=user_id_column)
+            if not (self.distributed and valid_sampler is not None):
+                valid_user_ids = get_user_ids(data=valid_data, id_columns=user_id_column)
         return valid_loader, valid_user_ids
 
     def evaluate(self, 
@@ -564,20 +641,24 @@ class BaseModel(FeatureSet, nn.Module):
                     batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
                     if batch_user_id is not None:
                         collected_user_ids.append(batch_user_id)
-        logging.info(" ")
-        logging.info(colorize(f"  Evaluation batches processed: {batch_count}", color="cyan"))
+        if self.is_main_process:
+            logging.info(" ")
+            logging.info(colorize(f"  Evaluation batches processed: {batch_count}", color="cyan"))
         if len(y_true_list) > 0:
             y_true_all = np.concatenate(y_true_list, axis=0)
-            logging.info(colorize(f"  Evaluation samples: {y_true_all.shape[0]}", color="cyan"))
+            if self.is_main_process:
+                logging.info(colorize(f"  Evaluation samples: {y_true_all.shape[0]}", color="cyan"))
         else:
             y_true_all = None
-            logging.info(colorize(f"  Warning: No y_true collected from evaluation data", color="yellow"))
+            if self.is_main_process:
+                logging.info(colorize(f"  Warning: No y_true collected from evaluation data", color="yellow"))
             
         if len(y_pred_list) > 0:
             y_pred_all = np.concatenate(y_pred_list, axis=0)
         else:
             y_pred_all = None
-            logging.info(colorize(f"  Warning: No y_pred collected from evaluation data", color="yellow"))
+            if self.is_main_process:
+                logging.info(colorize(f"  Warning: No y_pred collected from evaluation data", color="yellow"))
         
         # Convert metrics to list if it's a dict
         if isinstance(eval_metrics, dict):
@@ -593,6 +674,9 @@ class BaseModel(FeatureSet, nn.Module):
         final_user_ids = user_ids
         if final_user_ids is None and collected_user_ids:
             final_user_ids = np.concatenate(collected_user_ids, axis=0)
+        y_true_all = gather_numpy(self, y_true_all) if y_true_all is not None else None
+        y_pred_all = gather_numpy(self, y_pred_all) if y_pred_all is not None else None
+        final_user_ids = gather_numpy(self, final_user_ids) if final_user_ids is not None else None
         metrics_dict = evaluate_metrics(y_true=y_true_all, y_pred=y_pred_all, metrics=metrics_to_use, task=self.task, target_names=self.target_columns, task_specific_metrics=self.task_specific_metrics, user_ids=final_user_ids,)
         return metrics_dict
 
@@ -784,7 +868,10 @@ class BaseModel(FeatureSet, nn.Module):
         add_timestamp = False if add_timestamp is None else add_timestamp
         target_path = resolve_save_path(path=save_path, default_dir=self.session_path, default_name=self.model_name, suffix=".model", add_timestamp=add_timestamp)
         model_path = Path(target_path)
-        torch.save(self.state_dict(), model_path)
+
+        model_to_save = (self.ddp_model.module if getattr(self, "ddp_model", None) is not None else self)
+        torch.save(model_to_save.state_dict(), model_path)
+        # torch.save(self.state_dict(), model_path)
 
         config_path = self.features_config_path
         features_config = {

@@ -127,13 +127,14 @@ class RecDataLoader(FeatureSet):
                          shuffle: bool = True,
                          load_full: bool = True,
                          chunk_size: int = 10000,
-                         num_workers: int = 0) -> DataLoader:
+                         num_workers: int = 0,
+                         sampler = None) -> DataLoader:
         if isinstance(data, DataLoader):
             return data
         elif isinstance(data, (str, os.PathLike)):
             return self.create_from_path(path=data, batch_size=batch_size, shuffle=shuffle, load_full=load_full, chunk_size=chunk_size, num_workers=num_workers)
         elif isinstance(data, (dict, pd.DataFrame)):
-            return self.create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+            return self.create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, sampler=sampler)
         else:
             raise ValueError(f"[RecDataLoader Error] Unsupported data type: {type(data)}")
     
@@ -141,7 +142,8 @@ class RecDataLoader(FeatureSet):
                            data: dict | pd.DataFrame,
                            batch_size: int,
                            shuffle: bool,
-                           num_workers: int = 0) -> DataLoader:
+                           num_workers: int = 0,
+                           sampler=None) -> DataLoader:
         raw_data = data
 
         if self.processor is not None:
@@ -152,7 +154,7 @@ class RecDataLoader(FeatureSet):
         if tensors is None:
             raise ValueError("[RecDataLoader Error] No valid tensors could be built from the provided data.")
         dataset = TensorDictDataset(tensors)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn, num_workers=num_workers)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=False if sampler is not None else shuffle, sampler=sampler, collate_fn=collate_fn, num_workers=num_workers)
     
     def create_from_path(self,
                          path: str,
