@@ -22,6 +22,7 @@ class Session:
 
     experiment_id: str
     root: Path
+    log_basename: str  # The base name for log files, without path separators
 
     @property
     def logs_dir(self) -> Path:
@@ -60,13 +61,14 @@ class Session:
         return path
 
 def create_session(experiment_id: str | Path | None = None) -> Session:
-    """Create a :class:`Session` instance with prepared directories."""
 
     if experiment_id is not None and str(experiment_id).strip():
         exp_id = str(experiment_id).strip()
     else:
         # Use local time for session naming
         exp_id = "nextrec_session_" + datetime.now().strftime("%Y%m%d")
+
+    log_basename = Path(exp_id).name if exp_id else exp_id
 
     if (
         os.getenv("PYTEST_CURRENT_TEST")
@@ -82,7 +84,7 @@ def create_session(experiment_id: str | Path | None = None) -> Session:
     session_path.mkdir(parents=True, exist_ok=True)
     root = session_path.resolve()
 
-    return Session(experiment_id=exp_id, root=root)
+    return Session(experiment_id=exp_id, root=root, log_basename=log_basename)
 
 def resolve_save_path(
     path: str | os.PathLike | Path | None,

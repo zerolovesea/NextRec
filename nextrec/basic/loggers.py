@@ -99,7 +99,7 @@ def setup_logger(session_id: str | os.PathLike | None = None):
     session = create_session(str(session_id) if session_id is not None else None)
     log_dir = session.logs_dir
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{session.experiment_id}.log"
+    log_file = log_dir / f"{session.log_basename}.log"
 
     console_format = '%(message)s'
     file_format = '%(asctime)s - %(levelname)s - %(message)s'

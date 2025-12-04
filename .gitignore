@@ -116,6 +116,7 @@ dmypy.json
 
 # test files
 *iflytek*
+generate_feature_config.py
 
 # DataProcessor saved files
 processor/
