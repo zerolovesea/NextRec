@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.3.6-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.3.7-orange.svg)
 
 [English Version](README.md) | 中文文档
 
@@ -54,7 +54,7 @@ NextRec采用模块化、低耦合的工程设计，使得推荐系统从数据�
 - [如何上手NextRec框架](/tutorials/notebooks/zh/Hands%20on%20nextrec.ipynb)
 - [如何使用数据处理器进行数据预处理](/tutorials/notebooks/zh/Hands%20on%20dataprocessor.ipynb)
 
-> 当前版本[0.3.6]，召回模型模块尚不完善，可能存在一些兼容性问题或意外报错，如果遇到问题，欢迎开发者在Issue区提出问题。
+> 当前版本[0.3.7]，召回模型模块尚不完善，可能存在一些兼容性问题或意外报错，如果遇到问题，欢迎开发者在Issue区提出问题。
 
 ## 5分钟快速上手
 
