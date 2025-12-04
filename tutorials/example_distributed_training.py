@@ -1,8 +1,5 @@
 """
-Example: Distributed Training with NextRec (Single Machine, Dual GPU)
-
-This tutorial demonstrates how to use NextRec for distributed training on a single machine with 2 GPUs.
-It creates a synthetic dataset and trains a DeepFM model using PyTorch DDP (DistributedDataParallel).
+Distributed Training with NextRec (Single Machine, Dual GPU)
 
 Usage:
     # Method 1: Using torchrun (recommended)
@@ -11,47 +8,41 @@ Usage:
     # Method 2: Using python -m torch.distributed.launch
     python -m torch.distributed.launch --nproc_per_node=2 example_distributed_training.py
 
-Author: Yang Zhou
-Date: 2025-12-04
+Date: create on 04/12/2025
+Checkpoint: edit on 04/12/2025
+Author: Yang Zhou,zyaztec@gmail.com
 """
 
 import os
 import numpy as np
 import pandas as pd
 import torch
+import torch.distributed as dist
 from sklearn.model_selection import train_test_split
 
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 from nextrec.models.ranking.deepfm import DeepFM
 
-
 def generate_synthetic_dataset(num_samples=100000, num_users=10000, num_items=5000):
 
     print(f"Generating synthetic dataset with {num_samples} samples...")
-    
     np.random.seed(42)
-    
-    # Generate user and item IDs
     user_ids = np.random.randint(1, num_users + 1, size=num_samples)
     item_ids = np.random.randint(1, num_items + 1, size=num_samples)
     
-    # Generate dense features (e.g., normalized continuous features)
     dense_features = {}
     for i in range(5):
         dense_features[f'dense_{i}'] = np.random.randn(num_samples).astype(np.float32)
-    
-    # Generate sparse categorical features
+
     sparse_features = {}
-    sparse_features['gender'] = np.random.randint(0, 2, size=num_samples)  # 0: female, 1: male
-    sparse_features['age_group'] = np.random.randint(0, 7, size=num_samples)  # 7 age groups
-    sparse_features['category'] = np.random.randint(0, 20, size=num_samples)  # 20 item categories
-    sparse_features['city'] = np.random.randint(0, 100, size=num_samples)  # 100 cities
+    sparse_features['gender'] = np.random.randint(0, 2, size=num_samples)  
+    sparse_features['age_group'] = np.random.randint(0, 7, size=num_samples)  
+    sparse_features['category'] = np.random.randint(0, 20, size=num_samples)  
+    sparse_features['city'] = np.random.randint(0, 100, size=num_samples) 
     
-    # Generate sequence features (e.g., user's historical item interactions)
     max_seq_len = 50
     sequence_features = {}
     
-    # Historical items (using item_id vocabulary)
     hist_items = []
     for _ in range(num_samples):
         seq_len = np.random.randint(5, max_seq_len + 1)
@@ -59,7 +50,6 @@ def generate_synthetic_dataset(num_samples=100000, num_users=10000, num_items=50
         hist_items.append(hist_item_seq)
     sequence_features['hist_items'] = hist_items
     
-    # Historical categories (using category vocabulary)
     hist_categories = []
     for _ in range(num_samples):
         seq_len = np.random.randint(5, max_seq_len + 1)
@@ -67,8 +57,6 @@ def generate_synthetic_dataset(num_samples=100000, num_users=10000, num_items=50
         hist_categories.append(hist_cat_seq)
     sequence_features['hist_categories'] = hist_categories
     
-    # Generate labels (binary classification: click or not)
-    # Add some correlation with features to make the task learnable
     label_probs = 1 / (1 + np.exp(-(
         dense_features['dense_0'] * 0.3 +
         dense_features['dense_1'] * 0.2 +
@@ -77,7 +65,6 @@ def generate_synthetic_dataset(num_samples=100000, num_users=10000, num_items=50
     )))
     labels = (label_probs > 0.5).astype(np.float32)
     
-    # Combine all features into a DataFrame
     data = {
         'user_id': user_ids,
         'item_id': item_ids,
@@ -95,8 +82,6 @@ def generate_synthetic_dataset(num_samples=100000, num_users=10000, num_items=50
 
 
 def main():
-    """Main training function for distributed training."""
-    
     # Check if we're in distributed mode
     is_distributed = 'RANK' in os.environ and 'WORLD_SIZE' in os.environ
     
@@ -130,93 +115,37 @@ def main():
     if rank == 0:
         print("\n=== Feature Configuration ===")
     
-    # Define dense features
-    dense_features = [
-        DenseFeature(name=f'dense_{i}', input_dim=1) 
-        for i in range(5)
-    ]
+    dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1)  for i in range(5)]
     
-    # Define sparse features
-    sparse_features = [
-        SparseFeature(
-            name='user_id',
-            embedding_name='user_emb',
-            vocab_size=int(train_df['user_id'].max() + 1),
-            embedding_dim=32
-        ),
-        SparseFeature(
-            name='item_id',
-            embedding_name='item_emb',
-            vocab_size=int(train_df['item_id'].max() + 1),
-            embedding_dim=32
-        ),
-        SparseFeature(
-            name='gender',
-            embedding_name='gender_emb',
-            vocab_size=2,
-            embedding_dim=8
-        ),
-        SparseFeature(
-            name='age_group',
-            embedding_name='age_group_emb',
-            vocab_size=7,
-            embedding_dim=8
-        ),
-        SparseFeature(
-            name='category',
-            embedding_name='category_emb',
-            vocab_size=20,
-            embedding_dim=16
-        ),
-        SparseFeature(
-            name='city',
-            embedding_name='city_emb',
-            vocab_size=100,
-            embedding_dim=16
-        ),
-    ]
+    embedding_dim = 32  
+    sparse_features = [SparseFeature(name='user_id', embedding_name='user_emb', vocab_size=int(train_df['user_id'].max() + 1), embedding_dim=embedding_dim),
+                       SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=int(train_df['item_id'].max() + 1), embedding_dim=embedding_dim),
+                       SparseFeature(name='gender', embedding_name='gender_emb', vocab_size=2, embedding_dim=embedding_dim),    
+                       SparseFeature(name='age_group', embedding_name='age_group_emb', vocab_size=7, embedding_dim=embedding_dim),
+                       SparseFeature(name='category', embedding_name='category_emb', vocab_size=20, embedding_dim=embedding_dim),
+                       SparseFeature(name='city', embedding_name='city_emb', vocab_size=100, embedding_dim=embedding_dim)]
     
     # Define sequence features
-    sequence_features = [
-        SequenceFeature(
-            name='hist_items',
-            vocab_size=int(train_df['item_id'].max() + 1),
-            embedding_dim=32,
-            max_len=50,
-            padding_idx=0,
-            embedding_name='item_emb',  # Share embedding with item_id
-        ),
-        SequenceFeature(
-            name='hist_categories',
-            vocab_size=20,
-            embedding_dim=16,
-            max_len=50,
-            padding_idx=0,
-            embedding_name='category_emb',  # Share embedding with category
-        ),
-    ]
+    sequence_features = [SequenceFeature(name='hist_items', vocab_size=int(train_df['item_id'].max() + 1), embedding_dim=embedding_dim, max_len=50, padding_idx=0, embedding_name='item_emb'),
+                         SequenceFeature(name='hist_categories', vocab_size=20, embedding_dim=embedding_dim, max_len=50, padding_idx=0, embedding_name='category_emb'),]
     
     if rank == 0:
         print(f"Dense features: {len(dense_features)}")
         print(f"Sparse features: {len(sparse_features)}")
         print(f"Sequence features: {len(sequence_features)}")
     
-    # Define MLP parameters
-    mlp_params = {
-        "dims": [256, 128, 64],
-        "activation": "relu",
-        "dropout": 0.3,
-    }
-    
     if rank == 0:
         print("\n=== Model Configuration ===")
     
-    # Create DeepFM model with distributed training support
     model = DeepFM(
         dense_features=dense_features,
         sparse_features=sparse_features,
         sequence_features=sequence_features,
-        mlp_params=mlp_params,
+        mlp_params={
+        "dims": [256, 128, 64],
+        "activation": "relu",
+        "dropout": 0.3,
+    },
         target='label',
         device=device,
         distributed=is_distributed,
@@ -254,26 +183,44 @@ def main():
         tensorboard=True,
     )
     
+    # Synchronize all processes after training
+    if is_distributed and dist.is_initialized():
+        dist.barrier()
+    
     if rank == 0:
         print("\n=== Training Complete ===")
         print(f"Best model saved to: {model.best_checkpoint_path}")
-        
-        # Evaluation on validation set
+    
+    # IMPORTANT: evaluate() uses distributed all_gather operations
+    # all processes must call evaluate() together, even if only rank 0 prints
+    if rank == 0:
         print("\n=== Final Evaluation ===")
-        eval_metrics = model.evaluate(
-            data=valid_df,
-            batch_size=1024,
-            metrics=['auc', 'logloss', 'accuracy'],
-        )
+    
+    # All processes evaluate together (required for distributed gather)
+    eval_metrics = model.evaluate(
+        data=valid_df,
+        batch_size=1024,
+        metrics=['auc', 'logloss', 'accuracy'],
+    )
+    
+    # Only rank 0 prints results
+    if rank == 0:
         print("Validation Metrics:")
         for metric_name, metric_value in eval_metrics.items():
             print(f"  {metric_name}: {metric_value:.4f}")
         
-        # Make predictions on a small sample
+        # predict() doesn't use distributed operations, safe to call only on rank 0
         print("\n=== Prediction Example ===")
         sample_df = valid_df.head(10)
         predictions = model.predict(data=sample_df, batch_size=10, return_dataframe=True)
         print(predictions)
+    
+    # Final synchronization and cleanup
+    if is_distributed and dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
+        if rank == 0:
+            print("\n[Main process] Distributed training cleaned up successfully.")
 
 
 if __name__ == '__main__':

@@ -18,12 +18,25 @@ def configure_device(distributed: bool, local_rank: int, base_device: torch.devi
             device = torch.device("cpu")
     return device
 
-def init_process_group(distributed: bool, rank: int, world_size: int) -> None:
+def init_process_group(distributed: bool, rank: int, world_size: int, device_id: int | None = None) -> None:
+    """
+    initialize distributed process group for multi-GPU training.
+    
+    Args:
+        distributed: whether to enable distributed training
+        rank: global rank of the current process
+        world_size: total number of processes
+        device_id: CUDA device id for nccl backend (to avoid barrier warnings)
+    """
     if not distributed or not dist.is_available() or dist.is_initialized():
         return
     backend = "nccl" if torch.cuda.is_available() else "gloo"
-    dist.init_process_group(backend=backend, init_method='env://', rank=rank, world_size=world_size)
-
+    
+    # for nccl need specify device_id to avoid barrier warnings
+    if backend == "nccl" and device_id is not None:
+        dist.init_process_group(backend=backend,  init_method='env://',  rank=rank,  world_size=world_size, device_id=torch.device(f'cuda:{device_id}'))
+    else:
+        dist.init_process_group(backend=backend,  init_method='env://',  rank=rank,  world_size=world_size)
 
 def gather_numpy(self, array: np.ndarray | None) -> np.ndarray | None:
     if array is None or not (self.distributed and dist.is_available() and dist.is_initialized()):

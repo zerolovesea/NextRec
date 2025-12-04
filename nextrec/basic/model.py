@@ -303,7 +303,7 @@ class BaseModel(FeatureSet, nn.Module):
             validation_split: float | None = None,
             num_workers: int = 0,
             tensorboard: bool = True,):
-        init_process_group(self.distributed, self.rank, self.world_size)
+        init_process_group(self.distributed, self.rank, self.world_size, device_id=self.local_rank)
         self.to(self.device)
         if self.distributed and dist.is_available() and dist.is_initialized() and self.ddp_model is None:
             device_ids = [self.local_rank] if self.device.type == "cuda" else None
@@ -611,6 +611,12 @@ class BaseModel(FeatureSet, nn.Module):
                  user_ids: np.ndarray | None = None,
                  user_id_column: str = 'user_id',
                  num_workers: int = 0,) -> dict:
+        """
+        **IMPORTANT for Distributed Training:**
+        in distributed mode, this method uses collective communication operations (all_gather).
+        all processes must call this method simultaneously, even if you only want results on rank 0.
+        failing to do so will cause the program to hang indefinitely.
+        """
         self.eval()
         eval_metrics = metrics if metrics is not None else self.metrics
         if eval_metrics is None:
