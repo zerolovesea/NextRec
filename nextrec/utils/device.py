@@ -4,9 +4,10 @@ Device management utilities for NextRec
 Date: create on 03/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
-
+import os
 import torch
 import platform
+import multiprocessing
 
 
 def resolve_device() -> str:

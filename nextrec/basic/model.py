@@ -155,7 +155,7 @@ class BaseModel(FeatureSet, nn.Module):
                 raise ValueError("[BaseModel-input Error] Labels are required but none were found in the input batch.")
         return X_input, y
 
-    def handle_validation_split(self, train_data: dict | pd.DataFrame, validation_split: float, batch_size: int, shuffle: bool,) -> tuple[DataLoader, dict | pd.DataFrame]:
+    def handle_validation_split(self, train_data: dict | pd.DataFrame, validation_split: float, batch_size: int, shuffle: bool, num_workers: int = 0,) -> tuple[DataLoader, dict | pd.DataFrame]:
         """This function will split training data into training and validation sets when: 1. valid_data is None; 2. validation_split is provided."""
         if not (0 < validation_split < 1):
             raise ValueError(f"[BaseModel-validation Error] validation_split must be between 0 and 1, got {validation_split}")
@@ -184,7 +184,7 @@ class BaseModel(FeatureSet, nn.Module):
                 arr = np.asarray(value)      
                 train_split[key] = arr[train_indices]
                 valid_split[key] = arr[valid_indices]
-        train_loader = self.prepare_data_loader(train_split, batch_size=batch_size, shuffle=shuffle)
+        train_loader = self.prepare_data_loader(train_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
         logging.info(f"Split data: {len(train_indices)} training samples, {len(valid_indices)} validation samples")
         return train_loader, valid_split
 
@@ -265,14 +265,14 @@ class BaseModel(FeatureSet, nn.Module):
                 task_losses.append(task_loss)
             return torch.stack(task_losses).sum()
 
-    def prepare_data_loader(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 32, shuffle: bool = True,):
+    def prepare_data_loader(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 32, shuffle: bool = True, num_workers: int = 0,) -> DataLoader:
         if isinstance(data, DataLoader):
             return data
         tensors = build_tensors_from_data(data=data, raw_data=data, features=self.all_features, target_columns=self.target_columns, id_columns=self.id_columns,)
         if tensors is None:
             raise ValueError("[BaseModel-prepare_data_loader Error] No data available to create DataLoader.")
         dataset = TensorDictDataset(tensors)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn, num_workers=num_workers)
 
     def fit(self, 
             train_data: dict | pd.DataFrame | DataLoader, 
@@ -281,6 +281,7 @@ class BaseModel(FeatureSet, nn.Module):
             epochs:int=1, shuffle:bool=True, batch_size:int=32,
             user_id_column: str | None = None,
             validation_split: float | None = None,
+            num_workers: int = 0,
             tensorboard: bool = True,):
         self.to(self.device)
         if not self.logger_initialized:
@@ -297,11 +298,11 @@ class BaseModel(FeatureSet, nn.Module):
         self.best_metric = float('-inf') if self.best_metrics_mode == 'max' else float('inf')
 
         if validation_split is not None and valid_data is None:
-            train_loader, valid_data = self.handle_validation_split(train_data=train_data, validation_split=validation_split, batch_size=batch_size, shuffle=shuffle,) # type: ignore
+            train_loader, valid_data = self.handle_validation_split(train_data=train_data, validation_split=validation_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers) # type: ignore
         else:
-            train_loader = (train_data if isinstance(train_data, DataLoader) else self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle))
+            train_loader = (train_data if isinstance(train_data, DataLoader) else self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers))
         
-        valid_loader, valid_user_ids = self.prepare_validation_data(valid_data=valid_data, batch_size=batch_size, needs_user_ids=self.needs_user_ids, user_id_column=user_id_column)
+        valid_loader, valid_user_ids = self.prepare_validation_data(valid_data=valid_data, batch_size=batch_size, needs_user_ids=self.needs_user_ids, user_id_column=user_id_column, num_workers=num_workers)
         try:
             self.steps_per_epoch = len(train_loader)
             is_streaming = False
@@ -388,7 +389,7 @@ class BaseModel(FeatureSet, nn.Module):
                 self.training_logger.log_metrics(train_log_payload, step=epoch + 1, split="train")
             if valid_loader is not None:
                 # pass user_ids only if needed for GAUC metric
-                val_metrics = self.evaluate(valid_loader, user_ids=valid_user_ids if self.needs_user_ids else None) # {'auc': 0.75, 'logloss': 0.45} or {'auc_target1': 0.75, 'logloss_target1': 0.45, 'mse_target2': 3.2}
+                val_metrics = self.evaluate(valid_loader, user_ids=valid_user_ids if self.needs_user_ids else None, num_workers=num_workers) # {'auc': 0.75, 'logloss': 0.45} or {'auc_target1': 0.75, 'logloss_target1': 0.45, 'mse_target2': 3.2}
                 if self.nums_task == 1:
                     metrics_str = ", ".join([f"{k}={v:.4f}" for k, v in val_metrics.items()])
                     logging.info(colorize(f"  Epoch {epoch + 1}/{epochs} - Valid: {metrics_str}", color="cyan"))
@@ -513,12 +514,12 @@ class BaseModel(FeatureSet, nn.Module):
             return avg_loss, metrics_dict
         return avg_loss
 
-    def prepare_validation_data(self, valid_data: dict | pd.DataFrame | DataLoader | None, batch_size: int, needs_user_ids: bool, user_id_column: str | None = 'user_id') -> tuple[DataLoader | None, np.ndarray | None]:
+    def prepare_validation_data(self, valid_data: dict | pd.DataFrame | DataLoader | None, batch_size: int, needs_user_ids: bool, user_id_column: str | None = 'user_id', num_workers: int = 0,) -> tuple[DataLoader | None, np.ndarray | None]:
         if valid_data is None:
             return None, None
         if isinstance(valid_data, DataLoader):
             return valid_data, None
-        valid_loader = self.prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False)
+        valid_loader = self.prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
         valid_user_ids = None
         if needs_user_ids:
             if user_id_column is None:
@@ -531,7 +532,8 @@ class BaseModel(FeatureSet, nn.Module):
                  metrics: list[str] | dict[str, list[str]] | None = None,
                  batch_size: int = 32,
                  user_ids: np.ndarray | None = None,
-                 user_id_column: str = 'user_id') -> dict:
+                 user_id_column: str = 'user_id',
+                 num_workers: int = 0,) -> dict:
         self.eval()
         eval_metrics = metrics if metrics is not None else self.metrics
         if eval_metrics is None:
@@ -543,7 +545,7 @@ class BaseModel(FeatureSet, nn.Module):
         else:
             if user_ids is None and needs_user_ids:
                 user_ids = get_user_ids(data=data, id_columns=user_id_column)
-            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False)
+            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
         y_true_list = []
         y_pred_list = []
         collected_user_ids = []
@@ -603,6 +605,7 @@ class BaseModel(FeatureSet, nn.Module):
         include_ids: bool | None = None,
         return_dataframe: bool = True,
         streaming_chunk_size: int = 10000,
+        num_workers: int = 0,
     ) -> pd.DataFrame | np.ndarray:
         self.eval()
         if include_ids is None:
@@ -615,7 +618,7 @@ class BaseModel(FeatureSet, nn.Module):
             rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target_columns, id_columns=self.id_columns,)
             data_loader = rec_loader.create_dataloader(data=data, batch_size=batch_size, shuffle=False, load_full=False, chunk_size=streaming_chunk_size,)
         elif not isinstance(data, DataLoader):
-            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False,)
+            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
         else:
             data_loader = data
         

@@ -126,20 +126,22 @@ class RecDataLoader(FeatureSet):
                          batch_size: int = 32,
                          shuffle: bool = True,
                          load_full: bool = True,
-                         chunk_size: int = 10000) -> DataLoader:
+                         chunk_size: int = 10000,
+                         num_workers: int = 0) -> DataLoader:
         if isinstance(data, DataLoader):
             return data
         elif isinstance(data, (str, os.PathLike)):
-            return self.create_from_path(path=data, batch_size=batch_size, shuffle=shuffle, load_full=load_full, chunk_size=chunk_size)
+            return self.create_from_path(path=data, batch_size=batch_size, shuffle=shuffle, load_full=load_full, chunk_size=chunk_size, num_workers=num_workers)
         elif isinstance(data, (dict, pd.DataFrame)):
-            return self.create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle)
+            return self.create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
         else:
             raise ValueError(f"[RecDataLoader Error] Unsupported data type: {type(data)}")
     
     def create_from_memory(self, 
                            data: dict | pd.DataFrame,
                            batch_size: int,
-                           shuffle: bool) -> DataLoader:
+                           shuffle: bool,
+                           num_workers: int = 0) -> DataLoader:
         raw_data = data
 
         if self.processor is not None:
@@ -150,14 +152,15 @@ class RecDataLoader(FeatureSet):
         if tensors is None:
             raise ValueError("[RecDataLoader Error] No valid tensors could be built from the provided data.")
         dataset = TensorDictDataset(tensors)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn, num_workers=num_workers)
     
     def create_from_path(self,
                          path: str,
                          batch_size: int,
                          shuffle: bool,
                          load_full: bool,
-                         chunk_size: int = 10000) -> DataLoader:
+                         chunk_size: int = 10000,
+                         num_workers: int = 0) -> DataLoader:
         file_paths, file_type = resolve_file_paths(str(Path(path)))
         # Load full data into memory
         if load_full:
@@ -169,6 +172,7 @@ class RecDataLoader(FeatureSet):
                 except OSError:
                     pass
                 try:
+                    df = read_table(file_path, file_type=file_type)
                     dfs.append(df)
                 except MemoryError as exc:
                     raise MemoryError(f"[RecDataLoader Error] Out of memory while reading {file_path}. Consider using load_full=False with streaming.") from exc
@@ -176,22 +180,23 @@ class RecDataLoader(FeatureSet):
                 combined_df = pd.concat(dfs, ignore_index=True)
             except MemoryError as exc:
                 raise MemoryError(f"[RecDataLoader Error] Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use load_full=False to stream or reduce chunk_size.") from exc
-            return self.create_from_memory(combined_df, batch_size, shuffle,)
+            return self.create_from_memory(combined_df, batch_size, shuffle, num_workers=num_workers)
         else:
-            return self.load_files_streaming(file_paths, file_type, batch_size, chunk_size, shuffle)
+            return self.load_files_streaming(file_paths, file_type, batch_size, chunk_size, shuffle, num_workers=num_workers)
 
     def load_files_streaming(self,
                              file_paths: list[str],
                              file_type: str,
                              batch_size: int,
                              chunk_size: int,
-                             shuffle: bool) -> DataLoader:
+                             shuffle: bool,
+                             num_workers: int = 0) -> DataLoader:
         if shuffle:
             logging.info("[RecDataLoader Info] Shuffle is ignored in streaming mode (IterableDataset).")
         if batch_size != 1:
             logging.info("[RecDataLoader Info] Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput.")
         dataset = FileDataset(file_paths=file_paths, dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target_columns=self.target_columns, id_columns=self.id_columns, chunk_size=chunk_size, file_type=file_type, processor=self.processor)
-        return DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
+        return DataLoader(dataset, batch_size=1, collate_fn=collate_fn, num_workers=num_workers)
 
 def normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
     if isinstance(column, pd.Series):
