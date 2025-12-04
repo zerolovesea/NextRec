@@ -22,7 +22,7 @@ def init_process_group(distributed: bool, rank: int, world_size: int) -> None:
     if not distributed or not dist.is_available() or dist.is_initialized():
         return
     backend = "nccl" if torch.cuda.is_available() else "gloo"
-    dist.init_process_group(backend=backend, rank=rank, world_size=world_size)
+    dist.init_process_group(backend=backend, init_method='env://', rank=rank, world_size=world_size)
 
 
 def gather_numpy(self, array: np.ndarray | None) -> np.ndarray | None:
