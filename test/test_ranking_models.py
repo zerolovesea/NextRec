@@ -53,7 +53,7 @@ class TestFMModel:
             device=device,
         )
         assert model.model_name == "FM"
-        assert model.task_type == "binary"
+        assert model.task == "binary"
 
     def test_fm_forward_pass(self, sample_sparse_features, sample_sequence_features, sample_batch_data, device, batch_size):
         model = FM(
@@ -96,7 +96,7 @@ class TestDeepFM:
         
         assert model is not None
         assert model.model_name == "DeepFM"
-        assert model.task_type == "binary"
+        assert model.task == "binary"
         logger.info("DeepFM initialization successful")
         
         # Count parameters
@@ -274,7 +274,7 @@ class TestDIN:
         
         assert model is not None
         assert model.model_name == "DIN"
-        assert model.task_type == "binary"
+        assert model.task == "binary"
         logger.info("DIN initialization successful")
         
         # Count parameters

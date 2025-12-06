@@ -7,6 +7,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 import os
 import torch
 import platform
+import logging
 import multiprocessing
 
 
@@ -36,3 +37,32 @@ def get_device_info() -> dict:
         info['cuda_capability'] = torch.cuda.get_device_capability(0)
     
     return info
+
+def configure_device(
+    distributed: bool,
+    local_rank: int,
+    base_device: torch.device | str = "cpu"
+) -> torch.device:
+    try:
+        device = torch.device(base_device)
+    except Exception:
+        logging.warning("[configure_device Warning] Invalid base_device, falling back to CPU.")
+        return torch.device("cpu")
+
+    if distributed:
+        if device.type == "cuda":
+            if not torch.cuda.is_available():
+                logging.warning("[Distributed Warning] CUDA requested but unavailable. Falling back to CPU.")
+                return torch.device("cpu")
+            if not (0 <= local_rank < torch.cuda.device_count()):
+                logging.warning(f"[Distributed Warning] local_rank {local_rank} is invalid for available CUDA devices. Falling back to CPU.")
+                return torch.device("cpu")
+            try:
+                torch.cuda.set_device(local_rank)
+                return torch.device(f"cuda:{local_rank}")
+            except Exception as exc:
+                logging.warning(f"[Distributed Warning] Failed to set CUDA device for local_rank {local_rank}: {exc}. Falling back to CPU.")
+                return torch.device("cpu")
+        else:
+            return torch.device("cpu")
+    return device

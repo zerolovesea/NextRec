@@ -56,7 +56,7 @@ class xDeepFM(BaseModel):
         return "xDeepFM"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
     
     def __init__(self,
@@ -67,6 +67,7 @@ class xDeepFM(BaseModel):
                  cin_size: list[int] = [128, 128],
                  split_half: bool = True,
                  target: list[str] = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -83,7 +84,7 @@ class xDeepFM(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -117,7 +118,7 @@ class xDeepFM(BaseModel):
         deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
         dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
         self.mlp = MLP(input_dim=deep_emb_dim_total + dense_input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(

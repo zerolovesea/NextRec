@@ -255,7 +255,7 @@ class HSTU(BaseModel):
         return "HSTU"
 
     @property
-    def task_type(self) -> str:
+    def default_task(self) -> str:
         return "multiclass"
 
     def __init__(
@@ -275,6 +275,7 @@ class HSTU(BaseModel):
 
         tie_embeddings: bool = True,
         target: Optional[list[str] | str] = None,
+        task: str | list[str] | None = None,
         optimizer: str = "adam",
         optimizer_params: Optional[dict] = None,
         scheduler: Optional[str] = None,
@@ -307,7 +308,7 @@ class HSTU(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,

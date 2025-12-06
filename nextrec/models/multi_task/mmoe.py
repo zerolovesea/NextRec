@@ -65,8 +65,11 @@ class MMOE(BaseModel):
         return "MMOE"
 
     @property
-    def task_type(self):
-        return self.task if isinstance(self.task, list) else [self.task]
+    def default_task(self):
+        num_tasks = getattr(self, "num_tasks", None)
+        if num_tasks is not None and num_tasks > 0:
+            return ['binary'] * num_tasks
+        return ['binary']
     
     def __init__(self,
                  dense_features: list[DenseFeature]=[],
@@ -76,7 +79,7 @@ class MMOE(BaseModel):
                  num_experts: int=3,
                  tower_params_list: list[dict]=[],
                  target: list[str]=[],
-                 task: str | list[str] = 'binary',
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | list[str | nn.Module] | None = "bce",
@@ -88,12 +91,14 @@ class MMOE(BaseModel):
                  dense_l2_reg=1e-4,
                  **kwargs):
         
+        self.num_tasks = len(target)
+
         super(MMOE, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=task,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -143,7 +148,7 @@ class MMOE(BaseModel):
         for tower_params in tower_params_list:
             tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1] * self.num_tasks)
+        self.prediction_layer = PredictionLayer(task_type=self.default_task, task_dims=[1] * self.num_tasks)
         # Register regularization weights
         self.register_regularization_weights(embedding_attr='embedding', include_modules=['experts', 'gates', 'towers'])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params,)

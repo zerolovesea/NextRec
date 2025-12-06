@@ -22,7 +22,7 @@ class DIN(BaseModel):
         return "DIN"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
     
     def __init__(self,
@@ -34,6 +34,7 @@ class DIN(BaseModel):
                  attention_activation: str = 'sigmoid',
                  attention_use_softmax: bool = True,
                  target: list[str] = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -50,7 +51,7 @@ class DIN(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -104,7 +105,7 @@ class DIN(BaseModel):
         
         # MLP for final prediction
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(

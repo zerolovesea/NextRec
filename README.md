@@ -1,5 +1,5 @@
 <p align="center">
-<img align="center" src="asserts/logo.png" width="40%">
+<img align="center" src="assets/logo.png" width="40%">
 <p>
 
 <div align="center">
@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.3.10-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.3.11-orange.svg)
 
 English | [中文文档](README_zh.md)
 
@@ -30,7 +30,7 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 NextRec adopts a modular and low-coupling engineering design, enabling full-pipeline reusability and scalability across data processing → model construction → training & evaluation → inference & deployment. Its core components include: a Feature-Spec-driven Embedding architecture, the BaseModel abstraction, a set of independent reusable Layers, a unified DataLoader for both training and inference, and a ready-to-use Model Zoo.
 
-![NextRec Architecture](asserts/nextrec_diagram_en.png)
+![NextRec Architecture](assets/nextrec_diagram_en.png)
 
 > The project borrows ideas from excellent open-source rec libraries. Early layers referenced [torch-rechub](https://github.com/datawhalechina/torch-rechub) but have been replaced with in-house implementations. torch-rechub remains mature in architecture and models; the author contributed a bit there—feel free to check it out.
 
@@ -54,7 +54,7 @@ To dive deeper, Jupyter notebooks are available:
 - [Hands on the NextRec framework](/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
 - [Using the data processor for preprocessing](/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
 
-> Current version [0.3.10]: the matching module is not fully polished yet and may have compatibility issues or unexpected errors. Please raise an issue if you run into problems.
+> Current version [0.3.11]: the matching module is not fully polished yet and may have compatibility issues or unexpected errors. Please raise an issue if you run into problems.
 
 ## 5-Minute Quick Start
 

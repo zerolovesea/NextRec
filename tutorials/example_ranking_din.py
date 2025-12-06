@@ -64,16 +64,16 @@ model.fit(
     user_id_column='user_id'  # Specify user_id column for GAUC
 )
 
+print("Training Complete!")
 
 # Predict
-print(" ")
-print("Model Prediction")
-print(" ")
+print("Prediction")
 
+predictions: pd.DataFrame = model.predict(valid_df, batch_size=512, return_dataframe=True)
+preview = predictions.head(5)
 
-pred_df: pd.DataFrame = model.predict(valid_df, batch_size=512, return_dataframe=True)
-preview = pred_df.head(5)
-print(f"\nPrediction sample (first 5 rows):\n{preview}")
+print(f"Prediction shape: {predictions.shape}")
+print(f"Prediction sample: {predictions[:10]}")
 
 metrics = model.evaluate(
     valid_df,

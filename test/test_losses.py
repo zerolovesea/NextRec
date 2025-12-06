@@ -107,7 +107,7 @@ class _DummyBinaryModel(BaseModel):  # type: ignore[misc]
         return "DummyBinary"
 
     @property
-    def task_type(self) -> str:
+    def default_task(self) -> str:
         return "binary"
 
     def forward(self, X_input):

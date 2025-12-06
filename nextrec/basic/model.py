@@ -2,10 +2,9 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 02/12/2025
+Checkpoint: edit on 05/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
-
 import os
 import tqdm
 import pickle
@@ -23,6 +22,7 @@ from pathlib import Path
 from typing import Union, Literal, Any
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from nextrec.basic.callback import EarlyStopper
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSet
@@ -33,22 +33,23 @@ from nextrec.basic.session import resolve_save_path, create_session
 from nextrec.basic.metrics import configure_metrics, evaluate_metrics, check_user_id
 
 from nextrec.data.dataloader import build_tensors_from_data
-from nextrec.data.data_processing import get_column_data, get_user_ids
 from nextrec.data.batch_utils import collate_fn, batch_to_dict
+from nextrec.data.data_processing import get_column_data, get_user_ids
 
 from nextrec.loss import get_loss_fn, get_loss_kwargs
-from nextrec.utils import get_optimizer, get_scheduler
 from nextrec.utils.tensor import to_tensor
-from nextrec.utils.distributed import gather_numpy, configure_device, init_process_group
+from nextrec.utils.device import configure_device
+from nextrec.utils.optimizer import get_optimizer, get_scheduler
+from nextrec.utils.distributed import gather_numpy, init_process_group, add_distributed_sampler
 from nextrec import __version__
 
 class BaseModel(FeatureSet, nn.Module):
     @property
     def model_name(self) -> str:
         raise NotImplementedError
-    
+
     @property
-    def task_type(self) -> str:
+    def default_task(self) -> str | list[str]:
         raise NotImplementedError
 
     def __init__(self, 
@@ -57,27 +58,46 @@ class BaseModel(FeatureSet, nn.Module):
                  sequence_features: list[SequenceFeature] | None = None,
                  target: list[str] | str | None = None,
                  id_columns: list[str] | str | None = None,
-                 task: str|list[str] = 'binary',
+                 task: str | list[str] | None = None,
                  device: str = 'cpu',
+                 early_stop_patience: int = 20, 
+                 session_id: str | None = None,
                  embedding_l1_reg: float = 0.0,
                  dense_l1_reg: float = 0.0,
                  embedding_l2_reg: float = 0.0, 
                  dense_l2_reg: float = 0.0,
-                 early_stop_patience: int = 20, 
-                 session_id: str | None = None,
+
                  distributed: bool = False,
                  rank: int | None = None,
                  world_size: int | None = None,
                  local_rank: int | None = None,
                  ddp_find_unused_parameters: bool = False,): 
-        
-        super(BaseModel, self).__init__()
-        try:
-            self.device = torch.device(device)
-        except Exception as e:
-            logging.warning("[BaseModel Warning] Invalid device , defaulting to CPU.")
-            self.device = torch.device('cpu')
+        """
+        Initialize a base model.
 
+        Args:
+            dense_features: DenseFeature definitions.
+            sparse_features: SparseFeature definitions.
+            sequence_features: SequenceFeature definitions.
+            target: Target column name.
+            id_columns: Identifier column name, only need to specify if GAUC is required.
+            task: Task types, e.g., 'binary', 'regression', or ['binary', 'regression']. If None, falls back to self.default_task.
+            device: Torch device string or torch.device. e.g., 'cpu', 'cuda:0'.
+            embedding_l1_reg: L1 regularization strength for embedding params. e.g., 1e-6.
+            dense_l1_reg: L1 regularization strength for dense params. e.g., 1e-5.
+            embedding_l2_reg: L2 regularization strength for embedding params. e.g., 1e-5.
+            dense_l2_reg: L2 regularization strength for dense params. e.g., 1e-4.
+            early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
+            session_id: Session id for logging. If None, a default id with timestamps will be created.
+            distributed: Enable DistributedDataParallel flow, set True to enable distributed training.
+            rank: Global rank (defaults to env RANK).
+            world_size: Number of processes (defaults to env WORLD_SIZE).
+            local_rank: Local rank for selecting CUDA device (defaults to env LOCAL_RANK).
+            ddp_find_unused_parameters: Default False, set it True only when exist unused parameters in ddp model, in most cases should be False.
+        """
+        super(BaseModel, self).__init__()
+
+        # distributed training settings
         env_rank = int(os.environ.get("RANK", "0"))
         env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
         env_local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -87,8 +107,8 @@ class BaseModel(FeatureSet, nn.Module):
         self.local_rank = env_local_rank if local_rank is None else local_rank
         self.is_main_process = self.rank == 0
         self.ddp_find_unused_parameters = ddp_find_unused_parameters
-        self.ddp_model: torch.nn.parallel.DistributedDataParallel | None = None
-        self.device = configure_device(self.distributed, self.local_rank, self.device)
+        self.ddp_model: DDP | None = None
+        self.device = configure_device(self.distributed, self.local_rank, device)
 
         self.session_id = session_id
         self.session = create_session(session_id)
@@ -98,8 +118,8 @@ class BaseModel(FeatureSet, nn.Module):
         self.features_config_path = os.path.join(self.session_path, "features_config.pkl")
         self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
-        self.task = task
-        self.nums_task = len(task) if isinstance(task, list) else 1
+        self.task = self.default_task if task is None else task
+        self.nums_task = len(self.task) if isinstance(self.task, list) else 1
 
         self.embedding_l1_reg = embedding_l1_reg
         self.dense_l1_reg = dense_l1_reg
@@ -108,10 +128,11 @@ class BaseModel(FeatureSet, nn.Module):
         self.regularization_weights = [] 
         self.embedding_params = []
         self.loss_weight = None
+
         self.early_stop_patience = early_stop_patience
         self.max_gradient_norm = 1.0   
         self.logger_initialized = False
-        self.training_logger: TrainingLogger | None = None
+        self.training_logger = None
 
     def register_regularization_weights(self, embedding_attr: str = "embedding", exclude_modules: list[str] | None = None, include_modules: list[str] | None = None) -> None:
         exclude_modules = exclude_modules or []
@@ -164,18 +185,22 @@ class BaseModel(FeatureSet, nn.Module):
                         raise ValueError(f"[BaseModel-input Error] Target column '{target_name}' contains no data.")
                     continue
                 target_tensor = to_tensor(target_data, dtype=torch.float32, device=self.device)
-                target_tensor = target_tensor.view(target_tensor.size(0), -1)
+                target_tensor = target_tensor.view(target_tensor.size(0), -1) # always reshape to (batch_size, num_targets)
                 target_tensors.append(target_tensor)
             if target_tensors:
                 y = torch.cat(target_tensors, dim=1)
-                if y.shape[1] == 1:
+                if y.shape[1] == 1: # no need to do that again
                     y = y.view(-1)
             elif require_labels:
                 raise ValueError("[BaseModel-input Error] Labels are required but none were found in the input batch.")
         return X_input, y
 
-    def handle_validation_split(self, train_data: dict | pd.DataFrame, validation_split: float, batch_size: int, shuffle: bool, num_workers: int = 0,) -> tuple[DataLoader, dict | pd.DataFrame]:
-        """This function will split training data into training and validation sets when: 1. valid_data is None; 2. validation_split is provided."""
+    def handle_validation_split(self, train_data: dict | pd.DataFrame, validation_split: float, batch_size: int, shuffle: bool, num_workers: int = 0,):
+        """
+        This function will split training data into training and validation sets when: 
+        1. valid_data is None; 
+        2. validation_split is provided.
+        """
         if not (0 < validation_split < 1):
             raise ValueError(f"[BaseModel-validation Error] validation_split must be between 0 and 1, got {validation_split}")
         if not isinstance(train_data, (pd.DataFrame, dict)):
@@ -208,15 +233,30 @@ class BaseModel(FeatureSet, nn.Module):
         return train_loader, valid_split
 
     def compile(
-        self,
-        optimizer: str | torch.optim.Optimizer = "adam",
-        optimizer_params: dict | None = None,
-        scheduler: str | torch.optim.lr_scheduler._LRScheduler | torch.optim.lr_scheduler.LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | type[torch.optim.lr_scheduler.LRScheduler] | None = None,
-        scheduler_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        loss_weights: int | float | list[int | float] | None = None,
-    ):
+            self,
+            optimizer: str | torch.optim.Optimizer = "adam",
+            optimizer_params: dict | None = None,
+            scheduler: str | torch.optim.lr_scheduler._LRScheduler | torch.optim.lr_scheduler.LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | type[torch.optim.lr_scheduler.LRScheduler] | None = None,
+            scheduler_params: dict | None = None,
+            loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+            loss_params: dict | list[dict] | None = None,
+            loss_weights: int | float | list[int | float] | None = None,
+        ):
+        """
+        Configure the model for training.
+        Args:
+            optimizer: Optimizer name or instance. e.g., 'adam', 'sgd', or torch.optim.Adam().
+            optimizer_params: Optimizer parameters. e.g., {'lr': 1e-3, 'weight_decay': 1e-5}.
+            scheduler: Learning rate scheduler name or instance. e.g., 'step_lr', 'cosine_annealing', or torch.optim.lr_scheduler.StepLR().
+            scheduler_params: Scheduler parameters. e.g., {'step_size': 10, 'gamma': 0.1}.
+            loss: Loss function name, instance, or list for multi-task. e.g., 'bce', 'mse', or torch.nn.BCELoss(), you can also use custom loss functions.
+            loss_params: Loss function parameters, or list for multi-task. e.g., {'weight': tensor([0.25, 0.75])}.
+            loss_weights: Weights for each task loss, int/float for single-task or list for multi-task. e.g., 1.0, or [1.0, 0.5].
+        """
+        if loss_params is None:
+            self.loss_params = {}
+        else:
+            self.loss_params = loss_params
         optimizer_params = optimizer_params or {}
         self.optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
         self.optimizer_params = optimizer_params
@@ -236,7 +276,9 @@ class BaseModel(FeatureSet, nn.Module):
         self.loss_params = loss_params or {}
         self.loss_fn = []
         if isinstance(loss, list): # for example: ['bce', 'mse'] -> ['bce', 'mse']
-            loss_list = [loss[i] if i < len(loss) else None for i in range(self.nums_task)]
+            if len(loss) != self.nums_task:
+                raise ValueError(f"[BaseModel-compile Error] Number of loss functions ({len(loss)}) must match number of tasks ({self.nums_task}).")
+            loss_list = [loss[i] for i in range(self.nums_task)]
         else: # for example: 'bce' -> ['bce', 'bce']
             loss_list = [loss] * self.nums_task
 
@@ -250,12 +292,12 @@ class BaseModel(FeatureSet, nn.Module):
             self.loss_weights = None
         elif self.nums_task == 1:
             if isinstance(loss_weights, (list, tuple)):
-                if len(loss_weights) != 1 and isinstance(loss_weights, (list, tuple)):
+                if len(loss_weights) != 1:
                     raise ValueError("[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup.")
                 weight_value = loss_weights[0]
             else:
                 weight_value = loss_weights
-            self.loss_weights = float(weight_value)
+            self.loss_weights = [float(weight_value)]
         else:
             if isinstance(loss_weights, (int, float)):
                 weights = [float(loss_weights)] * self.nums_task
@@ -269,20 +311,38 @@ class BaseModel(FeatureSet, nn.Module):
 
     def compute_loss(self, y_pred, y_true):
         if y_true is None:
-            raise ValueError("[BaseModel-compute_loss Error] Ground truth labels (y_true) are required to compute loss.")
+            raise ValueError("[BaseModel-compute_loss Error] Ground truth labels (y_true) are required.")
         if self.nums_task == 1:
-            loss = self.loss_fn[0](y_pred, y_true)
+            if y_pred.dim() == 1:
+                y_pred = y_pred.view(-1, 1)
+            if y_true.dim() == 1:
+                y_true = y_true.view(-1, 1)
+            if y_pred.shape != y_true.shape:
+                raise ValueError(f"Shape mismatch: {y_pred.shape} vs {y_true.shape}")
+            task_dim = self.task_dims[0] if hasattr(self, "task_dims") else y_pred.shape[1] # type: ignore
+            if task_dim == 1:
+                loss = self.loss_fn[0](y_pred.view(-1), y_true.view(-1))
+            else:
+                loss = self.loss_fn[0](y_pred, y_true)
             if self.loss_weights is not None:
-                loss = loss * self.loss_weights
+                loss *= self.loss_weights[0]
             return loss
+        # multi-task
+        if y_pred.shape != y_true.shape:
+            raise ValueError(f"Shape mismatch: {y_pred.shape} vs {y_true.shape}")
+        if hasattr(self, "prediction_layer"): # we need to use registered task_slices for multi-task and multi-class
+            slices = self.prediction_layer._task_slices # type: ignore
         else:
-            task_losses = []
-            for i in range(self.nums_task):
-                task_loss = self.loss_fn[i](y_pred[:, i], y_true[:, i])
-                if isinstance(self.loss_weights, (list, tuple)):
-                    task_loss = task_loss * self.loss_weights[i]
-                task_losses.append(task_loss)
-            return torch.stack(task_losses).sum()
+            slices = [(i, i + 1) for i in range(self.nums_task)]
+        task_losses = []
+        for i, (start, end) in enumerate(slices): # type: ignore
+            y_pred_i = y_pred[:, start:end]
+            y_true_i = y_true[:, start:end]
+            task_loss = self.loss_fn[i](y_pred_i, y_true_i)
+            if isinstance(self.loss_weights, (list, tuple)):
+                task_loss *= self.loss_weights[i]
+            task_losses.append(task_loss)
+        return torch.stack(task_losses).sum()
 
     def prepare_data_loader(self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 32, shuffle: bool = True, num_workers: int = 0, sampler=None, return_dataset: bool = False) -> DataLoader | tuple[DataLoader, TensorDictDataset | None]:
         if isinstance(data, DataLoader):
@@ -302,40 +362,82 @@ class BaseModel(FeatureSet, nn.Module):
             user_id_column: str | None = None,
             validation_split: float | None = None,
             num_workers: int = 0,
-            tensorboard: bool = True,):
-        init_process_group(self.distributed, self.rank, self.world_size, device_id=self.local_rank)
+            tensorboard: bool = True,
+            auto_distributed_sampler: bool = True,):
+        """
+        Train the model.
+
+        Args:
+            train_data: Training data (dict/df/DataLoader). If distributed, each rank uses its own sampler/batches.
+            valid_data: Optional validation data; if None and validation_split is set, a split is created.
+            metrics: Metrics names or per-target dict. e.g. {'target1': ['auc', 'logloss'], 'target2': ['mse']} or ['auc', 'logloss'].
+            epochs: Training epochs.
+            shuffle: Whether to shuffle training data (ignored when a sampler enforces order).
+            batch_size: Batch size (per process when distributed).
+            user_id_column: Column name for GAUC-style metrics;.
+            validation_split: Ratio to split training data when valid_data is None.
+            num_workers: DataLoader worker count.
+            tensorboard: Enable tensorboard logging.
+            auto_distributed_sampler: Attach DistributedSampler automatically when distributed, set False to when data is already sharded per rank.
+
+        Notes:
+            - Distributed training uses DDP; init occurs via env vars (RANK/WORLD_SIZE/LOCAL_RANK).
+            - All ranks must call evaluate() together because it performs collective ops.
+        """
+        device_id = self.local_rank if self.device.type == "cuda" else None
+        init_process_group(self.distributed, self.rank, self.world_size, device_id=device_id)
         self.to(self.device)
+
         if self.distributed and dist.is_available() and dist.is_initialized() and self.ddp_model is None:
-            device_ids = [self.local_rank] if self.device.type == "cuda" else None
-            output_device = self.local_rank if self.device.type == "cuda" else None
-            object.__setattr__(self, "ddp_model", torch.nn.parallel.DistributedDataParallel(self, device_ids=device_ids, output_device=output_device, find_unused_parameters=self.ddp_find_unused_parameters))
-        if not self.logger_initialized and self.is_main_process:
+            device_ids = [self.local_rank] if self.device.type == "cuda" else None # device_ids means which device to use in ddp
+            output_device = self.local_rank if self.device.type == "cuda" else None # output_device means which device to place the output in ddp
+            object.__setattr__(self, "ddp_model", DDP(self, device_ids=device_ids, output_device=output_device, find_unused_parameters=self.ddp_find_unused_parameters))
+        
+        if not self.logger_initialized and self.is_main_process: # only main process initializes logger
             setup_logger(session_id=self.session_id)
             self.logger_initialized = True
         self.training_logger = TrainingLogger(session=self.session, enable_tensorboard=tensorboard) if self.is_main_process else None
 
         self.metrics, self.task_specific_metrics, self.best_metrics_mode = configure_metrics(task=self.task, metrics=metrics, target_names=self.target_columns) # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
         self.early_stopper = EarlyStopper(patience=self.early_stop_patience, mode=self.best_metrics_mode)
+        self.best_metric = float('-inf') if self.best_metrics_mode == 'max' else float('inf')
+
         self.needs_user_ids = check_user_id(self.metrics, self.task_specific_metrics) # check user_id needed for GAUC metrics    
         self.epoch_index = 0
         self.stop_training = False
         self.best_checkpoint_path = self.best_path
-        self.best_metric = float('-inf') if self.best_metrics_mode == 'max' else float('inf')
 
+        if not auto_distributed_sampler and self.distributed and self.is_main_process:
+            logging.info(colorize("[Distributed Info] auto_distributed_sampler=False; assuming data is already sharded per rank.", color="yellow"))
+
+        train_sampler: DistributedSampler | None = None
         if validation_split is not None and valid_data is None:
             train_loader, valid_data = self.handle_validation_split(train_data=train_data, validation_split=validation_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers) # type: ignore
+            if auto_distributed_sampler and self.distributed and dist.is_available() and dist.is_initialized():
+                base_dataset = getattr(train_loader, "dataset", None)
+                if base_dataset is not None and not isinstance(getattr(train_loader, "sampler", None), DistributedSampler):
+                    train_sampler = DistributedSampler(base_dataset, num_replicas=self.world_size, rank=self.rank, shuffle=shuffle, drop_last=True)
+                    train_loader = DataLoader(base_dataset, batch_size=batch_size, shuffle=False, sampler=train_sampler, collate_fn=collate_fn, num_workers=num_workers, drop_last=True)
         else:
             if isinstance(train_data, DataLoader):
-                train_loader = train_data
+                if auto_distributed_sampler and self.distributed:
+                    train_loader, train_sampler = add_distributed_sampler(train_data, distributed=self.distributed, world_size=self.world_size, rank=self.rank, shuffle=shuffle, drop_last=True, default_batch_size=batch_size, is_main_process=self.is_main_process)
+                    # train_loader, train_sampler = add_distributed_sampler(train_data, distributed=self.distributed, world_size=self.world_size, rank=self.rank, shuffle=shuffle, drop_last=True, default_batch_size=batch_size, is_main_process=self.is_main_process)
+                else:
+                    train_loader = train_data
             else:
-                train_sampler = None
                 loader, dataset = self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, return_dataset=True)  # type: ignore
-                if self.distributed and dataset is not None and dist.is_available() and dist.is_initialized():
+                if auto_distributed_sampler and self.distributed and dataset is not None and dist.is_available() and dist.is_initialized():
                     train_sampler = DistributedSampler(dataset, num_replicas=self.world_size, rank=self.rank, shuffle=shuffle, drop_last=True)
                     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, sampler=train_sampler, collate_fn=collate_fn, num_workers=num_workers, drop_last=True)
                 train_loader = loader
+
+        # If split-based loader was built without sampler, attach here when enabled
+        if self.distributed and auto_distributed_sampler and isinstance(train_loader, DataLoader) and train_sampler is None:
+            raise NotImplementedError("[BaseModel-fit Error] auto_distributed_sampler with pre-defined DataLoader is not supported yet.")
+            # train_loader, train_sampler = add_distributed_sampler(train_loader, distributed=self.distributed, world_size=self.world_size, rank=self.rank, shuffle=shuffle, drop_last=True, default_batch_size=batch_size, is_main_process=self.is_main_process)
         
-        valid_loader, valid_user_ids = self.prepare_validation_data(valid_data=valid_data, batch_size=batch_size, needs_user_ids=self.needs_user_ids, user_id_column=user_id_column, num_workers=num_workers)
+        valid_loader, valid_user_ids = self.prepare_validation_data(valid_data=valid_data, batch_size=batch_size, needs_user_ids=self.needs_user_ids, user_id_column=user_id_column, num_workers=num_workers, auto_distributed_sampler=auto_distributed_sampler)
         try:
             self.steps_per_epoch = len(train_loader)
             is_streaming = False
@@ -464,6 +566,13 @@ class BaseModel(FeatureSet, nn.Module):
                 else:
                     primary_metric_key = f"{self.metrics[0]}_{self.target_columns[0]}"
                 primary_metric = val_metrics.get(primary_metric_key, val_metrics[list(val_metrics.keys())[0]]) # get primary metric value, default to first metric if not found
+                
+                # In distributed mode, broadcast primary_metric to ensure all processes use the same value
+                if self.distributed and dist.is_available() and dist.is_initialized():
+                    metric_tensor = torch.tensor([primary_metric], device=self.device, dtype=torch.float32)
+                    dist.broadcast(metric_tensor, src=0)
+                    primary_metric = float(metric_tensor.item())
+                
                 improved = False
                 # early stopping check
                 if self.best_metrics_mode == 'max':
@@ -491,6 +600,7 @@ class BaseModel(FeatureSet, nn.Module):
                         self.stop_training = True
                         logging.info(colorize(f"Early stopping triggered after {epoch + 1} epochs", color="bright_red", bold=True))
                 else:
+                    # Non-main processes also update trial_counter to keep in sync
                     if improved:
                         self.early_stopper.trial_counter = 0
                     else:
@@ -501,11 +611,12 @@ class BaseModel(FeatureSet, nn.Module):
                     self.save_model(self.best_path, add_timestamp=False, verbose=False)
                     self.best_checkpoint_path = self.best_path
 
-            # stop training flag broadcast to all processes
+            # Broadcast stop_training flag to all processes (always, regardless of validation)
             if self.distributed and dist.is_available() and dist.is_initialized():
                 stop_tensor = torch.tensor([int(self.stop_training)], device=self.device)
                 dist.broadcast(stop_tensor, src=0)
                 self.stop_training = bool(stop_tensor.item())
+            
             if self.stop_training:
                 break
             if self.scheduler_fn is not None:
@@ -547,7 +658,8 @@ class BaseModel(FeatureSet, nn.Module):
         for batch_index, batch_data in batch_iter:
             batch_dict = batch_to_dict(batch_data)
             X_input, y_true = self.get_input(batch_dict, require_labels=True)
-            y_pred = model.forward(X_input) # type: ignore
+            # call via __call__ so DDP hooks run (no grad sync if calling .forward directly)
+            y_pred = model(X_input) # type: ignore
 
             loss = self.compute_loss(y_pred, y_true)
             reg_loss = self.add_reg_loss()
@@ -569,55 +681,78 @@ class BaseModel(FeatureSet, nn.Module):
             if y_pred is not None and isinstance(y_pred, torch.Tensor):
                 y_pred_list.append(y_pred.detach().cpu().numpy())
             num_batches += 1
+        if self.distributed and dist.is_available() and dist.is_initialized():
+            loss_tensor = torch.tensor([accumulated_loss, num_batches], device=self.device, dtype=torch.float32)
+            dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
+            accumulated_loss = loss_tensor[0].item()
+            num_batches = int(loss_tensor[1].item())
         avg_loss = accumulated_loss / max(num_batches, 1)
         
-        if len(y_true_list) > 0 and len(y_pred_list) > 0: # Compute metrics if requested
-            y_true_all = np.concatenate(y_true_list, axis=0)
-            y_pred_all = np.concatenate(y_pred_list, axis=0)
-            combined_user_ids = None
-            if self.needs_user_ids and user_ids_list:
-                combined_user_ids = np.concatenate(user_ids_list, axis=0)
-            
-            # gather y_true, y_pred, user_ids to calculate metrics
-            y_true_all = gather_numpy(self, y_true_all)
-            y_pred_all = gather_numpy(self, y_pred_all)
-            combined_user_ids = gather_numpy(self, combined_user_ids) if combined_user_ids is not None else None
+        y_true_all_local = np.concatenate(y_true_list, axis=0) if y_true_list else None
+        y_pred_all_local = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
+        combined_user_ids_local = np.concatenate(user_ids_list, axis=0) if self.needs_user_ids and user_ids_list else None
+
+        # gather across ranks even when local is empty to avoid DDP hang
+        y_true_all = gather_numpy(self, y_true_all_local)
+        y_pred_all = gather_numpy(self, y_pred_all_local)
+        combined_user_ids = gather_numpy(self, combined_user_ids_local) if self.needs_user_ids else None
+
+        if y_true_all is not None and y_pred_all is not None and len(y_true_all) > 0 and len(y_pred_all) > 0:
             metrics_dict = evaluate_metrics(y_true=y_true_all, y_pred=y_pred_all, metrics=self.metrics, task=self.task, target_names=self.target_columns, task_specific_metrics=self.task_specific_metrics, user_ids=combined_user_ids)
             return avg_loss, metrics_dict
         return avg_loss
 
-    def prepare_validation_data(self, valid_data: dict | pd.DataFrame | DataLoader | None, batch_size: int, needs_user_ids: bool, user_id_column: str | None = 'user_id', num_workers: int = 0,) -> tuple[DataLoader | None, np.ndarray | None]:
+    def prepare_validation_data(self, valid_data: dict | pd.DataFrame | DataLoader | None, batch_size: int, needs_user_ids: bool, user_id_column: str | None = 'user_id', num_workers: int = 0, auto_distributed_sampler: bool = True,) -> tuple[DataLoader | None, np.ndarray | None]:
         if valid_data is None:
             return None, None
         if isinstance(valid_data, DataLoader):
-            return valid_data, None
+            if auto_distributed_sampler and self.distributed:
+                raise NotImplementedError("[BaseModel-prepare_validation_data Error] auto_distributed_sampler with pre-defined DataLoader is not supported yet.")
+                # valid_loader, _ = add_distributed_sampler(valid_data, distributed=self.distributed, world_size=self.world_size, rank=self.rank, shuffle=False, drop_last=False, default_batch_size=batch_size, is_main_process=self.is_main_process)
+            else:
+                valid_loader = valid_data
+            return valid_loader, None
         valid_sampler = None
         valid_loader, valid_dataset = self.prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False, num_workers=num_workers, return_dataset=True)  # type: ignore
-        if self.distributed and valid_dataset is not None and dist.is_available() and dist.is_initialized():
+        if auto_distributed_sampler and self.distributed and valid_dataset is not None and dist.is_available() and dist.is_initialized():
             valid_sampler = DistributedSampler(valid_dataset, num_replicas=self.world_size, rank=self.rank, shuffle=False, drop_last=False)
             valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, sampler=valid_sampler, collate_fn=collate_fn, num_workers=num_workers)
         valid_user_ids = None
         if needs_user_ids:
             if user_id_column is None:
                 raise ValueError("[BaseModel-validation Error] user_id_column must be specified when user IDs are needed for validation metrics.")
-            if not (self.distributed and valid_sampler is not None):
+            # In distributed mode, user_ids will be collected during evaluation from each batch
+            # and gathered across all processes, so we don't pre-extract them here
+            if not self.distributed:
                 valid_user_ids = get_user_ids(data=valid_data, id_columns=user_id_column)
         return valid_loader, valid_user_ids
 
-    def evaluate(self, 
-                 data: dict | pd.DataFrame | DataLoader, 
-                 metrics: list[str] | dict[str, list[str]] | None = None,
-                 batch_size: int = 32,
-                 user_ids: np.ndarray | None = None,
-                 user_id_column: str = 'user_id',
-                 num_workers: int = 0,) -> dict:
+    def evaluate(
+            self, 
+            data: dict | pd.DataFrame | DataLoader, 
+            metrics: list[str] | dict[str, list[str]] | None = None,
+            batch_size: int = 32,
+            user_ids: np.ndarray | None = None,
+            user_id_column: str = 'user_id',
+            num_workers: int = 0,) -> dict:
         """
         **IMPORTANT for Distributed Training:**
         in distributed mode, this method uses collective communication operations (all_gather).
         all processes must call this method simultaneously, even if you only want results on rank 0.
         failing to do so will cause the program to hang indefinitely.
+
+        Evaluate the model on the given data.
+
+        Args:
+            data: Evaluation data (dict/df/DataLoader).
+            metrics: Metrics names or per-target dict. e.g. {'target1': ['auc', 'logloss'], 'target2': ['mse']} or ['auc', 'logloss'].
+            batch_size: Batch size (per process when distributed).
+            user_ids: Optional array of user IDs for GAUC-style metrics; if None and needed, will be extracted from data using user_id_column. e.g. np.array([...])
+            user_id_column: Column name for user IDs if user_ids is not provided. e.g. 'user_id'
+            num_workers: DataLoader worker count.
         """
-        self.eval()
+        model = self.ddp_model if getattr(self, "ddp_model", None) is not None else self
+        model.eval()
         eval_metrics = metrics if metrics is not None else self.metrics
         if eval_metrics is None:
             raise ValueError("[BaseModel-evaluate Error] No metrics specified for evaluation. Please provide metrics parameter or call fit() first.")
@@ -638,7 +773,7 @@ class BaseModel(FeatureSet, nn.Module):
                 batch_count += 1
                 batch_dict = batch_to_dict(batch_data)
                 X_input, y_true = self.get_input(batch_dict, require_labels=True)
-                y_pred = self.forward(X_input)
+                y_pred = model(X_input)
                 if y_true is not None:
                     y_true_list.append(y_true.cpu().numpy())
                 if y_pred is not None and isinstance(y_pred, torch.Tensor):
@@ -650,21 +785,8 @@ class BaseModel(FeatureSet, nn.Module):
         if self.is_main_process:
             logging.info(" ")
             logging.info(colorize(f"  Evaluation batches processed: {batch_count}", color="cyan"))
-        if len(y_true_list) > 0:
-            y_true_all = np.concatenate(y_true_list, axis=0)
-            if self.is_main_process:
-                logging.info(colorize(f"  Evaluation samples: {y_true_all.shape[0]}", color="cyan"))
-        else:
-            y_true_all = None
-            if self.is_main_process:
-                logging.info(colorize(f"  Warning: No y_true collected from evaluation data", color="yellow"))
-            
-        if len(y_pred_list) > 0:
-            y_pred_all = np.concatenate(y_pred_list, axis=0)
-        else:
-            y_pred_all = None
-            if self.is_main_process:
-                logging.info(colorize(f"  Warning: No y_pred collected from evaluation data", color="yellow"))
+        y_true_all_local = np.concatenate(y_true_list, axis=0) if y_true_list else None
+        y_pred_all_local = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
         
         # Convert metrics to list if it's a dict
         if isinstance(eval_metrics, dict):
@@ -677,54 +799,86 @@ class BaseModel(FeatureSet, nn.Module):
             metrics_to_use = unique_metrics
         else:
             metrics_to_use = eval_metrics 
-        final_user_ids = user_ids
-        if final_user_ids is None and collected_user_ids:
-            final_user_ids = np.concatenate(collected_user_ids, axis=0)
-        y_true_all = gather_numpy(self, y_true_all) if y_true_all is not None else None
-        y_pred_all = gather_numpy(self, y_pred_all) if y_pred_all is not None else None
-        final_user_ids = gather_numpy(self, final_user_ids) if final_user_ids is not None else None
+        final_user_ids_local = user_ids
+        if final_user_ids_local is None and collected_user_ids:
+            final_user_ids_local = np.concatenate(collected_user_ids, axis=0)
+
+        # gather across ranks even when local arrays are empty to keep collectives aligned
+        y_true_all = gather_numpy(self, y_true_all_local)
+        y_pred_all = gather_numpy(self, y_pred_all_local)
+        final_user_ids = gather_numpy(self, final_user_ids_local) if needs_user_ids else None
+        if y_true_all is None or y_pred_all is None or len(y_true_all) == 0 or len(y_pred_all) == 0:
+            if self.is_main_process:
+                logging.info(colorize("  Warning: Not enough evaluation data to compute metrics after gathering", color="yellow"))
+            return {}
+        if self.is_main_process:
+            logging.info(colorize(f"  Evaluation samples: {y_true_all.shape[0]}", color="cyan"))
         metrics_dict = evaluate_metrics(y_true=y_true_all, y_pred=y_pred_all, metrics=metrics_to_use, task=self.task, target_names=self.target_columns, task_specific_metrics=self.task_specific_metrics, user_ids=final_user_ids,)
         return metrics_dict
 
     def predict(
-        self,
-        data: str | dict | pd.DataFrame | DataLoader,
-        batch_size: int = 32,
-        save_path: str | os.PathLike | None = None,
-        save_format: Literal["csv", "parquet"] = "csv",
-        include_ids: bool | None = None,
-        return_dataframe: bool = True,
-        streaming_chunk_size: int = 10000,
-        num_workers: int = 0,
-    ) -> pd.DataFrame | np.ndarray:
-        self.eval()
-        if include_ids is None:
-            include_ids = bool(self.id_columns)
-        include_ids = include_ids and bool(self.id_columns)
+            self,
+            data: str | dict | pd.DataFrame | DataLoader,
+            batch_size: int = 32,
+            save_path: str | os.PathLike | None = None,
+            save_format: Literal["csv", "parquet"] = "csv",
+            include_ids: bool | None = None,
+            id_columns: str | list[str] | None = None,
+            return_dataframe: bool = True,
+            streaming_chunk_size: int = 10000,
+            num_workers: int = 0,
+            ) -> pd.DataFrame | np.ndarray:
+        """
+        Note: predict does not support distributed mode currently, consider it as a single-process operation.
+        Make predictions on the given data.
 
-        if save_path is not None and not return_dataframe:
-            return self._predict_streaming(data=data, batch_size=batch_size, save_path=save_path, save_format=save_format, include_ids=include_ids, streaming_chunk_size=streaming_chunk_size, return_dataframe=return_dataframe)
-        if isinstance(data, (str, os.PathLike)):
-            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target_columns, id_columns=self.id_columns,)
-            data_loader = rec_loader.create_dataloader(data=data, batch_size=batch_size, shuffle=False, load_full=False, chunk_size=streaming_chunk_size,)
-        elif not isinstance(data, DataLoader):
-            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-        else:
-            data_loader = data
+        Args:
+            data: Input data for prediction (file path, dict, DataFrame, or DataLoader).
+            batch_size: Batch size for prediction (per process when distributed).
+            save_path: Optional path to save predictions; if None, predictions are not saved to disk.
+            save_format: Format to save predictions ('csv' or 'parquet').
+            include_ids: Whether to include ID columns in the output; if None, includes if id_columns are set.
+            id_columns: Column name(s) to use as IDs; if None, uses model's id_columns.
+            return_dataframe: Whether to return predictions as a pandas DataFrame; if False, returns a NumPy array.
+            streaming_chunk_size: Number of rows per chunk when using streaming mode for large datasets.
+            num_workers: DataLoader worker count.
+        """
+        self.eval()
+        # Use prediction-time id_columns if provided, otherwise fall back to model's id_columns
+        predict_id_columns = id_columns if id_columns is not None else self.id_columns
+        if isinstance(predict_id_columns, str):
+            predict_id_columns = [predict_id_columns]
         
-        y_pred_list: list[np.ndarray] = []
-        id_buffers: dict[str, list[np.ndarray]] = {name: [] for name in (self.id_columns or [])} if include_ids else {}
-        id_arrays: dict[str, np.ndarray] | None = None
+        if include_ids is None:
+            include_ids = bool(predict_id_columns)
+        include_ids = include_ids and bool(predict_id_columns)
+
+        # Use streaming mode for large file saves without loading all data into memory
+        if save_path is not None and not return_dataframe:
+            return self.predict_streaming(data=data, batch_size=batch_size, save_path=save_path, save_format=save_format, include_ids=include_ids, streaming_chunk_size=streaming_chunk_size, return_dataframe=return_dataframe, id_columns=predict_id_columns)
+        
+        # Create DataLoader based on data type
+        if isinstance(data, DataLoader):
+            data_loader = data
+        elif isinstance(data, (str, os.PathLike)):
+            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target_columns, id_columns=predict_id_columns,)
+            data_loader = rec_loader.create_dataloader(data=data, batch_size=batch_size, shuffle=False, load_full=False, chunk_size=streaming_chunk_size,)
+        else:
+            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        
+        y_pred_list = []
+        id_buffers = {name: [] for name in (predict_id_columns or [])} if include_ids else {}
+        id_arrays = None
         
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Predicting"):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
-                y_pred = self.forward(X_input)
+                y_pred = self(X_input)
                 if y_pred is not None and isinstance(y_pred, torch.Tensor):
                     y_pred_list.append(y_pred.detach().cpu().numpy())
-                if include_ids and self.id_columns and batch_dict.get("ids"):
-                    for id_name in self.id_columns:
+                if include_ids and predict_id_columns and batch_dict.get("ids"):
+                    for id_name in predict_id_columns:
                         if id_name not in batch_dict["ids"]:
                             continue
                         id_tensor = batch_dict["ids"][id_name]
@@ -747,7 +901,7 @@ class BaseModel(FeatureSet, nn.Module):
                 pred_columns.append(f"{name}_pred")
         while len(pred_columns) < num_outputs:
             pred_columns.append(f"pred_{len(pred_columns)}")
-        if include_ids and self.id_columns:
+        if include_ids and predict_id_columns:
             id_arrays = {}
             for id_name, pieces in id_buffers.items():
                 if pieces:
@@ -774,7 +928,7 @@ class BaseModel(FeatureSet, nn.Module):
                 df_to_save = output
             else:
                 df_to_save = pd.DataFrame(y_pred_all, columns=pred_columns)
-                if include_ids and self.id_columns and id_arrays is not None:
+                if include_ids and predict_id_columns and id_arrays is not None:
                     id_df = pd.DataFrame(id_arrays)
                     if len(id_df) and len(df_to_save) and len(id_df) != len(df_to_save):
                         raise ValueError(f"[BaseModel-predict Error] Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_to_save)}).")
@@ -786,7 +940,7 @@ class BaseModel(FeatureSet, nn.Module):
             logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         return output
 
-    def _predict_streaming(
+    def predict_streaming(
         self,
         data: str | dict | pd.DataFrame | DataLoader,
         batch_size: int,
@@ -795,9 +949,10 @@ class BaseModel(FeatureSet, nn.Module):
         include_ids: bool,
         streaming_chunk_size: int,
         return_dataframe: bool,
+        id_columns: list[str] | None = None,
     ) -> pd.DataFrame:
         if isinstance(data, (str, os.PathLike)):
-            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target_columns, id_columns=self.id_columns)
+            rec_loader = RecDataLoader(dense_features=self.dense_features, sparse_features=self.sparse_features, sequence_features=self.sequence_features, target=self.target_columns, id_columns=id_columns)
             data_loader = rec_loader.create_dataloader(data=data, batch_size=batch_size, shuffle=False, load_full=False, chunk_size=streaming_chunk_size,)
         elif not isinstance(data, DataLoader):
             data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False,)
@@ -810,8 +965,8 @@ class BaseModel(FeatureSet, nn.Module):
         header_written = target_path.exists() and target_path.stat().st_size > 0
         parquet_writer = None
 
-        pred_columns: list[str] | None = None
-        collected_frames: list[pd.DataFrame] = []
+        pred_columns = None
+        collected_frames = [] # only used when return_dataframe is True
 
         with torch.no_grad():
             for batch_data in tqdm.tqdm(data_loader, desc="Predicting"):
@@ -832,9 +987,9 @@ class BaseModel(FeatureSet, nn.Module):
                     while len(pred_columns) < num_outputs:
                         pred_columns.append(f"pred_{len(pred_columns)}")
                         
-                id_arrays_batch: dict[str, np.ndarray] = {}
-                if include_ids and self.id_columns and batch_dict.get("ids"):
-                    for id_name in self.id_columns:
+                id_arrays_batch = {}
+                if include_ids and id_columns and batch_dict.get("ids"):
+                    for id_name in id_columns:
                         if id_name not in batch_dict["ids"]:
                             continue
                         id_tensor = batch_dict["ids"][id_name]
@@ -938,8 +1093,8 @@ class BaseModel(FeatureSet, nn.Module):
         **kwargs: Any,
     ) -> "BaseModel":
         """
-        Factory that reconstructs a model instance (including feature specs)
-        from a saved checkpoint directory or *.model file.
+        Load a model from a checkpoint path. The checkpoint path should contain:
+        a .model file and a features_config.pkl file.
         """
         base_path = Path(checkpoint_path)
         verbose = kwargs.pop("verbose", True)
@@ -1099,10 +1254,10 @@ class BaseMatchModel(BaseModel):
     @property
     def model_name(self) -> str:
         raise NotImplementedError
-
+    
     @property
-    def task_type(self) -> str:
-        raise NotImplementedError
+    def default_task(self) -> str:
+        return "binary"
     
     @property
     def support_training_modes(self) -> list[str]:

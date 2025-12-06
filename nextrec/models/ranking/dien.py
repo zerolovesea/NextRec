@@ -146,7 +146,7 @@ class DIEN(BaseModel):
         return "DIEN"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
     
     def __init__(self,
@@ -159,6 +159,7 @@ class DIEN(BaseModel):
                  attention_activation: str = 'sigmoid',
                  use_negsampling: bool = False,
                  target: list[str] = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -175,7 +176,7 @@ class DIEN(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -234,7 +235,7 @@ class DIEN(BaseModel):
         mlp_input_dim += sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
         # MLP for final prediction
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.task)
         # Register regularization weights
         self.register_regularization_weights(embedding_attr='embedding', include_modules=['interest_extractor', 'interest_evolution', 'attention_layer', 'mlp', 'candidate_proj'])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)

@@ -28,7 +28,7 @@ class FiBiNET(BaseModel):
         return "FiBiNET"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
     
     def __init__(self,
@@ -39,6 +39,7 @@ class FiBiNET(BaseModel):
                  bilinear_type: str = "field_interaction",
                  senet_reduction: int = 3,
                  target: list[str] | list = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -55,7 +56,7 @@ class FiBiNET(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -100,7 +101,7 @@ class FiBiNET(BaseModel):
         num_pairs = self.num_fields * (self.num_fields - 1) // 2
         interaction_dim = num_pairs * self.embedding_dim * 2
         self.mlp = MLP(input_dim=interaction_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.default_task)
 
         # Register regularization weights
         self.register_regularization_weights(

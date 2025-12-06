@@ -20,8 +20,11 @@ def assert_model_output_shape(output: torch.Tensor, expected_shape: tuple, messa
         message: Optional custom message
     """
     actual_shape = tuple(output.shape)
-    assert actual_shape == expected_shape, (
-        f"{message}\nExpected shape: {expected_shape}, but got: {actual_shape}"
+    normalized_expected = expected_shape
+    if len(expected_shape) == 1 and len(actual_shape) == 2 and actual_shape[-1] == 1 and actual_shape[0] == expected_shape[0]:
+        normalized_expected = actual_shape  # accept trailing singleton dim for single-output heads
+    assert actual_shape == normalized_expected, (
+        f"{message}\nExpected shape: {normalized_expected}, but got: {actual_shape}"
     )
     logger.info(f"Output shape assertion passed: {actual_shape}")
 
@@ -92,6 +95,11 @@ def run_model_forward_backward(model: torch.nn.Module,
     # Forward pass
     output = model(data)
     assert_no_nan_or_inf(output, "model_output")
+    if isinstance(targets, torch.Tensor):
+        if output.dim() == 2 and output.shape[-1] == 1 and targets.dim() == 1:
+            targets = targets.view(-1, 1)
+        elif output.shape != targets.shape and targets.numel() == output.numel():
+            targets = targets.view_as(output)
     
     # Calculate loss
     logger.info("Testing backward pass...")

@@ -55,7 +55,6 @@ print(f"Train interactions: {len(df_train_all)}, Valid interactions: {len(df_val
 train_df = df_train_all[df_train_all['label'] == 1].reset_index(drop=True)
 print(f"Train positives for contrastive learning: {len(train_df)}")
 
-
 user_feature_cols = ['user_id'] + [c for c in user_sparse_cols if c != 'user_id'] + user_dense_cols
 item_feature_cols = ['item_id'] + [c for c in item_sparse_cols if c != 'item_id']
 
@@ -87,7 +86,6 @@ item_sparse_features.append(
     SparseFeature('item_id', vocab_size=int(df['item_id'].max()) + 1, embedding_dim=32)
 )
 
-print("\n--- Training DSSM Model (pairwise, in-batch negatives) ---")
 model = DSSM(
     user_dense_features=user_dense_features,
     user_sparse_features=user_sparse_features,
@@ -120,3 +118,7 @@ model.fit(
 predictions = model.predict(valid_df, batch_size=512)
 print(f"\nPredictions shape: {predictions.shape}")
 print(f"Sample predictions: {predictions[:10]}")
+
+print(" ")
+print("DSSM Example Complete!")
+print(" ")

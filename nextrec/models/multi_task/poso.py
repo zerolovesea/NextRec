@@ -261,8 +261,11 @@ class POSO(BaseModel):
         return "POSO"
 
     @property
-    def task_type(self) -> list[str]:
-        return self.task if isinstance(self.task, list) else [self.task]
+    def default_task(self) -> list[str]:
+        num_tasks = getattr(self, "num_tasks", None)
+        if num_tasks is not None and num_tasks > 0:
+            return ["binary"] * num_tasks
+        return ["binary"]
 
     def __init__(
         self,
@@ -274,7 +277,7 @@ class POSO(BaseModel):
         pc_sequence_features: list[SequenceFeature] | None,
         tower_params_list: list[dict],
         target: list[str],
-        task: str | list[str] = "binary",
+        task: str | list[str] | None = None,
         architecture: str = "mlp",
         # POSO gating defaults
         gate_hidden_dim: int = 32,
@@ -307,6 +310,7 @@ class POSO(BaseModel):
         self.pc_dense_features = list(pc_dense_features or [])
         self.pc_sparse_features = list(pc_sparse_features or [])
         self.pc_sequence_features = list(pc_sequence_features or [])
+        self.num_tasks = len(target)
 
         if not self.pc_dense_features and not self.pc_sparse_features and not self.pc_sequence_features:
             raise ValueError("POSO requires at least one PC feature for personalization.")
@@ -320,7 +324,7 @@ class POSO(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=task,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -386,7 +390,7 @@ class POSO(BaseModel):
             )
             self.towers = nn.ModuleList([MLP(input_dim=self.mmoe.expert_output_dim, output_layer=True, **tower_params,) for tower_params in tower_params_list])
             self.tower_heads = None
-        self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1] * self.num_tasks,)
+        self.prediction_layer = PredictionLayer(task_type=self.default_task, task_dims=[1] * self.num_tasks,)
         include_modules = ["towers", "tower_heads"] if self.architecture == "mlp" else ["mmoe", "towers"]
         self.register_regularization_weights(embedding_attr="embedding", include_modules=include_modules)
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
