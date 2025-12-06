@@ -11,7 +11,10 @@ import pandas as pd
 from typing import Any, Mapping
 
 
-def get_column_data(data: dict | pd.DataFrame, name: str):
+def get_column_data(
+        data: dict | pd.DataFrame, 
+        name: str):
+    
     if isinstance(data, dict):
         return data[name] if name in data else None
     elif isinstance(data, pd.DataFrame):
@@ -24,10 +27,11 @@ def get_column_data(data: dict | pd.DataFrame, name: str):
         raise KeyError(f"Unsupported data type for extracting column {name}")
 
 def split_dict_random(
-    data_dict: dict,
-    test_size: float = 0.2,
-    random_state: int | None = None
-):
+        data_dict: dict,
+        test_size: float = 0.2,
+        random_state: int | None = None
+        ):
+    
     lengths = [len(v) for v in data_dict.values()]
     if len(set(lengths)) != 1:
         raise ValueError(f"Length mismatch: {lengths}")
@@ -51,18 +55,27 @@ def split_dict_random(
     test_dict = {k: take(v, test_idx) for k, v in data_dict.items()}
     return train_dict, test_dict
 
+def split_data(
+        df: pd.DataFrame, 
+        test_size: float = 0.2
+        ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    
+    split_idx = int(len(df) * (1 - test_size))
+    train_df = df.iloc[:split_idx].reset_index(drop=True)
+    valid_df = df.iloc[split_idx:].reset_index(drop=True)
+    return train_df, valid_df
 
 def build_eval_candidates(
-    df_all: pd.DataFrame,
-    user_col: str,
-    item_col: str,
-    label_col: str,
-    user_features: pd.DataFrame,
-    item_features: pd.DataFrame,
-    num_pos_per_user: int = 5,
-    num_neg_per_pos: int = 50,
-    random_seed: int = 2025,
-) -> pd.DataFrame:
+        df_all: pd.DataFrame,
+        user_col: str,
+        item_col: str,
+        label_col: str,
+        user_features: pd.DataFrame,
+        item_features: pd.DataFrame,
+        num_pos_per_user: int = 5,
+        num_neg_per_pos: int = 50,
+        random_seed: int = 2025,
+        ) -> pd.DataFrame:
     """
     Build evaluation candidates with positive and negative samples for each user.
     
@@ -111,11 +124,10 @@ def build_eval_candidates(
     eval_df = eval_df.merge(item_features, on=item_col, how='left')
     return eval_df
 
-
 def get_user_ids(
-    data: Any,
-    id_columns: list[str] | str | None = None
-) -> np.ndarray | None:
+        data: Any,
+        id_columns: list[str] | str | None = None
+        ) -> np.ndarray | None:
     """
     Extract user IDs from various data structures.
     

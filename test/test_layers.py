@@ -524,7 +524,7 @@ class TestPredictionLayer:
         output = pred_layer(x)
         
         # Output should be probabilities in [0, 1]
-        assert output.shape == (32,)
+        assert output.shape == (32, 1)
         assert torch.all(output >= 0) and torch.all(output <= 1)
         
         logger.info("PredictionLayer binary test successful")
@@ -540,7 +540,7 @@ class TestPredictionLayer:
         x = torch.randn(32, 1)
         output = pred_layer(x)
         
-        assert output.shape == (32,)
+        assert output.shape == (32, 1)
         
         logger.info("PredictionLayer regression test successful")
 
@@ -591,7 +591,8 @@ class TestPredictionLayer:
 
         x = torch.randn(10, 1)
         output = pred_layer(x)
-        assert torch.allclose(output, x.squeeze(-1))
+        assert output.shape == (10, 1)
+        assert torch.allclose(output, x)
 
 
 if __name__ == "__main__":

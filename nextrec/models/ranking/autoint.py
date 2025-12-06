@@ -68,7 +68,7 @@ class AutoInt(BaseModel):
         return "AutoInt"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
     
     def __init__(self,
@@ -80,9 +80,10 @@ class AutoInt(BaseModel):
                  att_head_num: int = 2,
                  att_dropout: float = 0.0,
                  att_use_residual: bool = True,
-                 target: list[str] = [],
+                 target: list[str] | None = None,
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
-                 optimizer_params: dict = {},
+                 optimizer_params: dict | None = None,
                  loss: str | nn.Module | None = "bce",
                  loss_params: dict | list[dict] | None = None,
                  device: str = 'cpu',
@@ -97,24 +98,29 @@ class AutoInt(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=20,
             **kwargs
         )
 
-        self.loss = loss
-        if self.loss is None:
-            self.loss = "bce"
+        if target is None:
+            target = []
+        if optimizer_params is None:
+            optimizer_params = {}
+        if loss is None:
+            loss = "bce"
             
         self.att_layer_num = att_layer_num
         self.att_embedding_dim = att_embedding_dim
         
         # Use sparse and sequence features for interaction
+        # **INFO**: this is different from the original paper, we also include dense features
+        # if you want to follow the paper strictly, set dense_features=[]
+        # or modify the code accordingly
         self.interaction_features = dense_features + sparse_features + sequence_features 
         
         # All features for embedding
@@ -147,7 +153,7 @@ class AutoInt(BaseModel):
         
         # Final prediction layer
         self.fc = nn.Linear(num_fields * att_embedding_dim, 1)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.default_task)
 
         # Register regularization weights
         self.register_regularization_weights(

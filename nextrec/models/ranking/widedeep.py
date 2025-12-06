@@ -53,7 +53,7 @@ class WideDeep(BaseModel):
         return "WideDeep"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
     
     def __init__(self,
@@ -62,6 +62,7 @@ class WideDeep(BaseModel):
                  sequence_features: list[SequenceFeature],
                  mlp_params: dict,
                  target: list[str] = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -78,13 +79,12 @@ class WideDeep(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=20,
             **kwargs
         )
 
@@ -109,7 +109,7 @@ class WideDeep(BaseModel):
         # deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
         # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
         self.mlp = MLP(input_dim=input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.task)
         # Register regularization weights
         self.register_regularization_weights(embedding_attr='embedding', include_modules=['linear', 'mlp'])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)

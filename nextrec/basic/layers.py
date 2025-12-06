@@ -80,9 +80,7 @@ class PredictionLayer(nn.Module):
             else:
                 raise ValueError(f"[PredictionLayer Error]: Unsupported task_type '{task_type}'.")
             outputs.append(activation(task_logits))
-        result = torch.cat(outputs, dim=-1)
-        if result.shape[-1] == 1:
-            result = result.squeeze(-1)
+        result = torch.cat(outputs, dim=-1)  # single: (N,1), multi-task/multi-class: (N,total_dim)
         return result
 
 class EmbeddingLayer(nn.Module):
@@ -235,14 +233,28 @@ class InputMask(nn.Module):
         super().__init__()
 
     def forward(self, x: dict[str, torch.Tensor], feature: SequenceFeature, seq_tensor: torch.Tensor | None = None):
-        values = seq_tensor if seq_tensor is not None else x[feature.name]
-        if feature.padding_idx is not None:
-            mask = (values.long() != feature.padding_idx)
+        if seq_tensor is not None:
+            values = seq_tensor
         else:
-            mask = (values.long() != 0)
+            values = x[feature.name]
+        values = values.long()
+        padding_idx = feature.padding_idx if feature.padding_idx is not None else 0
+        mask = (values != padding_idx) 
+
         if mask.dim() == 1:
-            mask = mask.unsqueeze(-1)
-        return mask.unsqueeze(1).float()
+            # [B] -> [B, 1, 1]
+            mask = mask.unsqueeze(1).unsqueeze(2)
+        elif mask.dim() == 2:
+            # [B, L] -> [B, 1, L]
+            mask = mask.unsqueeze(1)
+        elif mask.dim() == 3:
+            # [B, 1, L]
+            # [B, L, 1]  -> [B, L] -> [B, 1, L]
+            if mask.size(1) != 1 and mask.size(2) == 1:
+                mask = mask.squeeze(-1).unsqueeze(1)
+        else:
+            raise ValueError(f"InputMask only supports 1D/2D/3D tensors, got shape {values.shape}")
+        return mask.float()
 
 class LR(nn.Module):
     def __init__(
@@ -299,20 +311,25 @@ class MLP(nn.Module):
         super().__init__()
         if dims is None:
             dims = []
-        layers = list()
+        layers = []
+        current_dim = input_dim
+
         for i_dim in dims:
-            layers.append(nn.Linear(input_dim, i_dim))
+            layers.append(nn.Linear(current_dim, i_dim))
             layers.append(nn.BatchNorm1d(i_dim))
             layers.append(activation_layer(activation))
             layers.append(nn.Dropout(p=dropout))
-            input_dim = i_dim
+            current_dim = i_dim
+            
         if output_layer:
-            layers.append(nn.Linear(input_dim, 1))
+            layers.append(nn.Linear(current_dim, 1))
+            self.output_dim = 1
+        else:
+            self.output_dim = current_dim  
         self.mlp = nn.Sequential(*layers)
-
     def forward(self, x):
         return self.mlp(x)
-
+    
 class FM(nn.Module):
     def __init__(self, reduce_sum: bool = True):
         super().__init__()

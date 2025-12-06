@@ -143,8 +143,7 @@ class MaskNet(BaseModel):
         return "MaskNet"
 
     @property
-    def task_type(self):
-        # Align with PredictionLayer supported task types
+    def default_task(self):
         return "binary"
 
     def __init__(
@@ -159,6 +158,7 @@ class MaskNet(BaseModel):
         block_dropout: float = 0.0,
         mlp_params: dict | None = None,
         target: list[str] | None = None,
+        task: str | list[str] | None = None,
         optimizer: str = "adam",
         optimizer_params: dict | None = None,
         loss: str | nn.Module | None = "bce",
@@ -182,13 +182,12 @@ class MaskNet(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=20,
             **kwargs,
         )
 
@@ -231,7 +230,7 @@ class MaskNet(BaseModel):
             self.mask_blocks = nn.ModuleList([MaskBlockOnEmbedding(num_fields=self.num_fields, embedding_dim=self.embedding_dim, mask_hidden_dim=mask_hidden_dim, hidden_dim=block_hidden_dim) for _ in range(self.num_blocks)])
             self.final_mlp = MLP(input_dim=self.num_blocks * block_hidden_dim, **mlp_params)
             self.output_layer = None
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.task)
 
         if self.model_type == "serial":
             self.register_regularization_weights(embedding_attr="embedding", include_modules=["mask_blocks", "output_layer"],)

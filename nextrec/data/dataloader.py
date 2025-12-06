@@ -15,15 +15,15 @@ import pyarrow.parquet as pq
 from pathlib import Path
 from typing import cast
 
-from torch.utils.data import DataLoader, Dataset, IterableDataset
-from nextrec.data.preprocessor import DataProcessor
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSet
-
 from nextrec.basic.loggers import colorize
-from nextrec.data.data_processing import get_column_data
-from nextrec.data.batch_utils import collate_fn
-from nextrec.utils.file import resolve_file_paths, read_table
+from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature, FeatureSet
+from nextrec.data.preprocessor import DataProcessor
+from torch.utils.data import DataLoader, Dataset, IterableDataset
+
 from nextrec.utils.tensor import to_tensor
+from nextrec.utils.file import resolve_file_paths, read_table
+from nextrec.data.batch_utils import collate_fn
+from nextrec.data.data_processing import get_column_data
 
 class TensorDictDataset(Dataset):
     """Dataset returning sample-level dicts matching the unified batch schema."""
@@ -118,6 +118,18 @@ class RecDataLoader(FeatureSet):
                  target: list[str] | None | str = None,
                  id_columns: str | list[str] | None = None,
                  processor: DataProcessor | None = None):
+        """
+        RecDataLoader is a unified dataloader for supporting in-memory and streaming data.
+        Basemodel will accept RecDataLoader to create dataloaders for training/evaluation/prediction.
+
+        Args:  
+            dense_features: list of DenseFeature definitions
+            sparse_features: list of SparseFeature definitions
+            sequence_features: list of SequenceFeature definitions
+            target: target column name(s), e.g. 'label' or ['ctr', 'ctcvr']
+            id_columns: id column name(s) to carry through (not used for model inputs), e.g. 'user_id' or ['user_id', 'item_id']
+            processor: an instance of DataProcessor, if provided, will be used to transform data before creating tensors.
+        """
         self.processor = processor
         self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
@@ -127,13 +139,29 @@ class RecDataLoader(FeatureSet):
                          shuffle: bool = True,
                          load_full: bool = True,
                          chunk_size: int = 10000,
-                         num_workers: int = 0) -> DataLoader:
+                         num_workers: int = 0,
+                         sampler = None) -> DataLoader:
+        """
+        Create a DataLoader from various data sources.
+
+        Args:
+            data: Data source, can be a dict, pd.DataFrame, file path (str), or existing DataLoader.
+            batch_size: Batch size for DataLoader.
+            shuffle: Whether to shuffle the data (ignored in streaming mode).
+            load_full: If True, load full data into memory; if False, use streaming mode for large files.
+            chunk_size: Chunk size for streaming mode (number of rows per chunk).
+            num_workers: Number of worker processes for data loading.
+            sampler: Optional sampler for DataLoader, only used for distributed training.
+        Returns:
+            DataLoader instance.
+        """
+
         if isinstance(data, DataLoader):
             return data
         elif isinstance(data, (str, os.PathLike)):
             return self.create_from_path(path=data, batch_size=batch_size, shuffle=shuffle, load_full=load_full, chunk_size=chunk_size, num_workers=num_workers)
         elif isinstance(data, (dict, pd.DataFrame)):
-            return self.create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+            return self.create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, sampler=sampler)
         else:
             raise ValueError(f"[RecDataLoader Error] Unsupported data type: {type(data)}")
     
@@ -141,7 +169,9 @@ class RecDataLoader(FeatureSet):
                            data: dict | pd.DataFrame,
                            batch_size: int,
                            shuffle: bool,
-                           num_workers: int = 0) -> DataLoader:
+                           num_workers: int = 0,
+                           sampler=None) -> DataLoader:
+
         raw_data = data
 
         if self.processor is not None:
@@ -152,7 +182,7 @@ class RecDataLoader(FeatureSet):
         if tensors is None:
             raise ValueError("[RecDataLoader Error] No valid tensors could be built from the provided data.")
         dataset = TensorDictDataset(tensors)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn, num_workers=num_workers)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=False if sampler is not None else shuffle, sampler=sampler, collate_fn=collate_fn, num_workers=num_workers)
     
     def create_from_path(self,
                          path: str,

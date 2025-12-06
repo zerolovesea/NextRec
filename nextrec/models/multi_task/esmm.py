@@ -64,10 +64,9 @@ class ESMM(BaseModel):
     @property
     def model_name(self):
         return "ESMM"
-
+    
     @property
-    def task_type(self):
-        # ESMM has fixed task types: CTR (binary) and CVR (binary)
+    def default_task(self):
         return ['binary', 'binary']
     
     def __init__(self,
@@ -77,7 +76,7 @@ class ESMM(BaseModel):
                  ctr_params: dict,
                  cvr_params: dict,
                  target: list[str] = ['ctr', 'ctcvr'],  # Note: ctcvr = ctr * cvr
-                 task: list[str] = ['binary', 'binary'],
+                 task: list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | list[str | nn.Module] | None = "bce",
@@ -98,13 +97,12 @@ class ESMM(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=task,  # Both CTR and CTCVR are binary classification
+            task=task or self.default_task,  # Both CTR and CTCVR are binary classification
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=20,
             **kwargs
         )
 
@@ -126,7 +124,7 @@ class ESMM(BaseModel):
         
         # CVR tower
         self.cvr_tower = MLP(input_dim=input_dim, output_layer=True, **cvr_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type, task_dims=[1, 1])
+        self.prediction_layer = PredictionLayer(task_type=self.default_task, task_dims=[1, 1])
         # Register regularization weights
         self.register_regularization_weights(embedding_attr='embedding', include_modules=['ctr_tower', 'cvr_tower'])
         self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)

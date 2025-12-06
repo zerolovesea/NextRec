@@ -19,7 +19,7 @@ class FM(BaseModel):
         return "FM"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
     
     def __init__(self,
@@ -27,6 +27,7 @@ class FM(BaseModel):
                  sparse_features: list[SparseFeature] | list = [],
                  sequence_features: list[SequenceFeature] | list = [],
                  target: list[str] | list = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -43,13 +44,12 @@ class FM(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=20,
             **kwargs
         )
 
@@ -66,7 +66,7 @@ class FM(BaseModel):
         fm_input_dim = sum([f.embedding_dim for f in self.fm_features])
         self.linear = LR(fm_input_dim)
         self.fm = FMInteraction(reduce_sum=True)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(

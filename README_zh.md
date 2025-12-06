@@ -1,5 +1,5 @@
 <p align="center">
-<img align="center" src="asserts/logo.png" width="40%">
+<img align="center" src="assets/logo.png" width="40%">
 <p>
 
 <div align="center">
@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.3.6-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.1-orange.svg)
 
 [English Version](README.md) | 中文文档
 
@@ -17,7 +17,7 @@
 
 ## 简介
 
-NextRec 是一个基于 PyTorch 构建的现代推荐系统框架，为研究人员与工程团队提供统一的建模、训练与评估体验。框架采用模块化设计，内置丰富的模型实现、数据处理工具和工程化训练组件，可快速覆盖多种推荐场景，主要面向Spark集群下，基于大数据量parquet离线特征训练的工业推荐召回算法场景。
+NextRec 是一个基于 PyTorch 构建的现代推荐系统框架,为研究人员与工程团队提供统一的建模、训练与评估体验。框架采用模块化设计,内置丰富的模型实现、数据处理工具和工程化训练组件,可快速覆盖多种推荐场景,主要面向Spark集群下,基于大数据量parquet离线特征训练的工业推荐召回算法场景。
 
 ## Why NextRec
 
@@ -30,7 +30,7 @@ NextRec 是一个基于 PyTorch 构建的现代推荐系统框架，为研究人
 
 NextRec采用模块化、低耦合的工程设计，使得推荐系统从数据处理 → 模型构建 → 训练评估 → 推理部署 全链路都具备复用性与可扩展性。其中的核心组件包括：Feature Spec驱动的Embedding架构；模型基类BaseModel；独立Layer模块；支持训练和推理的统一的DataLoader；开箱即用的模型库。
 
-![NextRec架构](asserts/nextrec_diagram_zh.png)
+![NextRec架构](assets/nextrec_diagram_zh.png)
 
 > 项目的架构借鉴了一些优秀的开源推荐算法库，其中最初版的layer层借鉴了DataWhaleChina社区的[torch-rechub](https://github.com/datawhalechina/torch-rechub)，现已替换为了自有实现。torch-rechub在开发架构和模型实现上相对成熟，本人也参与了其中一小部分的维护，欢迎感兴趣的开发者前往了解。
 
@@ -54,7 +54,7 @@ NextRec采用模块化、低耦合的工程设计，使得推荐系统从数据�
 - [如何上手NextRec框架](/tutorials/notebooks/zh/Hands%20on%20nextrec.ipynb)
 - [如何使用数据处理器进行数据预处理](/tutorials/notebooks/zh/Hands%20on%20dataprocessor.ipynb)
 
-> 当前版本[0.3.6]，召回模型模块尚不完善，可能存在一些兼容性问题或意外报错，如果遇到问题，欢迎开发者在Issue区提出问题。
+> 当前版本[0.4.1]，召回模型模块尚不完善，可能存在一些兼容性问题或意外报错，如果遇到问题，欢迎开发者在Issue区提出问题。
 
 ## 5分钟快速上手
 
@@ -138,6 +138,15 @@ metrics = model.evaluate(
     user_id_column='user_id'
 )
 ```
+## 兼容平台
+
+当前最新版本为0.4.1，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+
+| 平台 | 配置 | 
+|------|------|
+| MacOS latest| MacBook Pro M4 Pro 24G内存 |
+| Ubuntu latest| AutoDL 4070D 双卡 |
+| CentOS 7 | Intel Xeon 5138Y 96核 377G内存 | 
 
 ## 支持模型
 

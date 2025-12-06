@@ -56,15 +56,16 @@ class DeepFM(BaseModel):
         return "DeepFM"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
-    
+
     def __init__(self,
                  dense_features: list[DenseFeature]|list = [],
                  sparse_features: list[SparseFeature]|list = [],
                  sequence_features: list[SequenceFeature]|list = [],
                  mlp_params: dict = {},
                  target: list[str]|str = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -80,13 +81,12 @@ class DeepFM(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=20,
             **kwargs
         )
 
@@ -104,7 +104,7 @@ class DeepFM(BaseModel):
         self.linear = LR(fm_emb_dim_total)
         self.fm = FM(reduce_sum=True)
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.default_task)
 
         # Register regularization weights
         self.register_regularization_weights(embedding_attr='embedding', include_modules=['linear', 'mlp'])

@@ -25,15 +25,11 @@ class CrossNetwork(nn.Module):
         self.b = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)])
 
     def forward(self, x):
-        """
-        :param x: Float tensor of size ``(batch_size, num_fields, embed_dim)``
-        """
         x0 = x
         for i in range(self.num_layers):
             xw = self.w[i](x)
             x = x0 * xw + self.b[i] + x
-        return x
-
+        return x # [batch_size, input_dim]
 
 class DCN(BaseModel):
     @property
@@ -41,9 +37,9 @@ class DCN(BaseModel):
         return "DCN"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
-    
+
     def __init__(self,
                  dense_features: list[DenseFeature],
                  sparse_features: list[SparseFeature],
@@ -51,6 +47,7 @@ class DCN(BaseModel):
                  cross_num: int = 3,
                  mlp_params: dict | None = None,
                  target: list[str] = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -67,13 +64,12 @@ class DCN(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=20,
             **kwargs
         )
 
@@ -99,14 +95,15 @@ class DCN(BaseModel):
         if mlp_params is not None:
             self.use_dnn = True
             self.mlp = MLP(input_dim=input_dim, **mlp_params)
+            deep_dim = self.mlp.output_dim
             # Final layer combines cross and deep
-            self.final_layer = nn.Linear(input_dim + 1, 1)  # +1 for MLP output
+            self.final_layer = nn.Linear(input_dim + deep_dim, 1)  # + deep_dim for MLP output
         else:
             self.use_dnn = False
             # Final layer only uses cross network output
             self.final_layer = nn.Linear(input_dim, 1)
 
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(

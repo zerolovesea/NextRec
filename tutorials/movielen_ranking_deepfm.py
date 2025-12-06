@@ -15,7 +15,7 @@ processor.fit(df)
 
 df = processor.transform(df, return_dict=False)
 processor.save(save_path="./")
-print(f"\nSample training data:")
+print(f"Sample training data:")
 print(df.head())
 
 train_df, valid_df = train_test_split(df, test_size=0.2, random_state=2024)
@@ -30,7 +30,6 @@ sparse_features.append(SparseFeature('gender', vocab_size=df['gender'].max()+1, 
 sparse_features.append(SparseFeature('occupation', vocab_size=df['occupation'].max()+1, embedding_dim=4))
 sparse_features.append(SparseFeature('movie_title', vocab_size=df['movie_title'].max()+1, embedding_dim=4))
 
-print("\n--- Training DeepFM Model ---")
 model = DeepFM(
     dense_features=dense_features,
     sparse_features=sparse_features,
@@ -55,6 +54,10 @@ model.fit(
     shuffle=True
 )
 
-pred_df = model.predict(valid_df, batch_size=512)
-preview = pred_df.head(5)
-print(f"\nPrediction sample (first 5 rows):\n{preview}")
+predictions = model.predict(valid_df, batch_size=512)
+print(f"\nPredictions shape: {predictions.shape}")
+print(f"Sample predictions: {predictions[:10]}")
+
+print(" ")
+print("DeepFM Example Complete!")
+print(" ")

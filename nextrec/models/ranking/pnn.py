@@ -20,7 +20,7 @@ class PNN(BaseModel):
         return "PNN"
 
     @property
-    def task_type(self):
+    def default_task(self):
         return "binary"
     
     def __init__(self,
@@ -31,6 +31,7 @@ class PNN(BaseModel):
                  product_type: str = "inner",
                  outer_product_dim: int | None = None,
                  target: list[str] | list = [],
+                 task: str | list[str] | None = None,
                  optimizer: str = "adam",
                  optimizer_params: dict = {},
                  loss: str | nn.Module | None = "bce",
@@ -47,13 +48,12 @@ class PNN(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=self.task_type,
+            task=task or self.default_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=20,
             **kwargs
         )
 
@@ -86,7 +86,7 @@ class PNN(BaseModel):
 
         linear_dim = self.num_fields * self.embedding_dim
         self.mlp = MLP(input_dim=linear_dim + product_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task_type)
+        self.prediction_layer = PredictionLayer(task_type=self.task)
 
         modules = ['mlp']
         if self.product_type == "outer":

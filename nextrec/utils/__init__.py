@@ -12,10 +12,10 @@ This package provides various utility functions organized by category:
 - feature_utils: Feature processing utilities
 
 Date: create on 13/11/2025
-Last update: 03/12/2025 (refactored)
+Last update: 06/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
-
+from . import optimizer, initializer, embedding
 from .optimizer import get_optimizer, get_scheduler
 from .initializer import get_initializer
 from .embedding import get_auto_embedding_dim
@@ -24,7 +24,7 @@ from .tensor import to_tensor, stack_tensors, concat_tensors, pad_sequence_tenso
 from .file import resolve_file_paths, read_table, load_dataframes, iter_file_chunks, default_output_dir
 from .model import merge_features, get_mlp_output_dim
 from .feature import normalize_to_list
-from . import optimizer, initializer, embedding
+from .synthetic_data import generate_ranking_data, generate_distributed_ranking_data, generate_match_data, generate_multitask_data
 
 __all__ = [
     # Optimizer & Scheduler
@@ -60,6 +60,10 @@ __all__ = [
     
     # Feature utilities
     'normalize_to_list',
+    
+    # Synthetic data utilities
+    'generate_ranking_data',
+    'generate_distributed_ranking_data',
     
     # Module exports
     'optimizer',
