@@ -2,6 +2,7 @@
 Embedding utilities for NextRec
 
 Date: create on 13/11/2025
+Checkpoint: edit on 06/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 

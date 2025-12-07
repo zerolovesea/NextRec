@@ -10,10 +10,8 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, List, Tuple, TYPE_CHECKING
+from typing import Optional, Dict, List, Tuple
 
-if TYPE_CHECKING:
-    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 def generate_ranking_data(
     n_samples: int = 10000,
@@ -27,38 +25,38 @@ def generate_ranking_data(
     embedding_dim: int = 16,
     seed: int = 42,
     custom_sparse_features: Optional[Dict[str, int]] = None,
-    use_simple_names: bool = True
+    use_simple_names: bool = True,
 ) -> Tuple[pd.DataFrame, List, List, List]:
     """
     Generate synthetic data for ranking tasks (CTR prediction)
-    
+
     Returns:
         tuple: (dataframe, dense_features, sparse_features, sequence_features)
     """
     print(f"Generating {n_samples} synthetic ranking samples...")
-    
+
     np.random.seed(seed)
     data = {}
-    
+
     for i in range(n_dense):
-        data[f'dense_{i}'] = np.random.randn(n_samples).astype(np.float32)
-    
+        data[f"dense_{i}"] = np.random.randn(n_samples).astype(np.float32)
+
     # Generate basic sparse features (always include user_id and item_id)
-    data['user_id'] = np.random.randint(1, user_vocab_size, n_samples)
-    data['item_id'] = np.random.randint(1, item_vocab_size, n_samples)
-    
+    data["user_id"] = np.random.randint(1, user_vocab_size, n_samples)
+    data["item_id"] = np.random.randint(1, item_vocab_size, n_samples)
+
     # Generate additional sparse features
     if custom_sparse_features:
         for feat_name, vocab_size in custom_sparse_features.items():
             data[feat_name] = np.random.randint(0, vocab_size, n_samples)
     else:
         for i in range(n_sparse - 2):
-            data[f'sparse_{i}'] = np.random.randint(1, sparse_vocab_size, n_samples)
-    
+            data[f"sparse_{i}"] = np.random.randint(1, sparse_vocab_size, n_samples)
+
     # Generate sequence features (list of IDs)
     sequence_names = []
     sequence_vocabs = []
-    
+
     for i in range(n_sequences):
         sequences = []
         for _ in range(n_samples):
@@ -68,77 +66,126 @@ def generate_ranking_data(
                 seq = np.random.randint(0, item_vocab_size, seq_len).tolist()
                 seq_vocab = item_vocab_size
                 if custom_sparse_features:
-                    seq_name = 'hist_items'
+                    seq_name = "hist_items"
                 else:
-                    seq_name = 'sequence_0'
+                    seq_name = "sequence_0"
             else:
                 # Other sequences use category vocabulary
-                if custom_sparse_features and 'category' in custom_sparse_features:
-                    seq_vocab = custom_sparse_features['category']
+                if custom_sparse_features and "category" in custom_sparse_features:
+                    seq_vocab = custom_sparse_features["category"]
                     seq = np.random.randint(0, seq_vocab, seq_len).tolist()
-                    seq_name = f'hist_categories' if i == 1 else f'sequence_{i}'
+                    seq_name = "hist_categories" if i == 1 else f"sequence_{i}"
                 else:
                     seq_vocab = sparse_vocab_size
                     seq = np.random.randint(0, seq_vocab, seq_len).tolist()
-                    seq_name = f'sequence_{i}'
-            
+                    seq_name = f"sequence_{i}"
+
             # Padding
             seq = seq + [0] * (sequence_max_len - len(seq))
             sequences.append(seq)
-        
+
         data[seq_name] = sequences
         sequence_names.append(seq_name)
         sequence_vocabs.append(seq_vocab)
-    
-    if 'gender' in data and 'dense_0' in data:
+
+    if "gender" in data and "dense_0" in data:
         # Complex label generation with feature correlation
-        label_probs = 1 / (1 + np.exp(-(
-            data['dense_0'] * 0.3 +
-            data['dense_1'] * 0.2 +
-            (data['gender'] - 0.5) * 0.5 +
-            np.random.randn(n_samples) * 0.1
-        )))
-        data['label'] = (label_probs > 0.5).astype(np.float32)
+        label_probs = 1 / (
+            1
+            + np.exp(
+                -(
+                    data["dense_0"] * 0.3
+                    + data["dense_1"] * 0.2
+                    + (data["gender"] - 0.5) * 0.5
+                    + np.random.randn(n_samples) * 0.1
+                )
+            )
+        )
+        data["label"] = (label_probs > 0.5).astype(np.float32)
     else:
-        data['label'] = np.random.randint(0, 2, n_samples).astype(np.float32)
-    
+        data["label"] = np.random.randint(0, 2, n_samples).astype(np.float32)
+
     df = pd.DataFrame(data)
     print(f"Generated data shape: {df.shape}")
-    if 'gender' in data:
+    if "gender" in data:
         print(f"Positive rate: {data['label'].mean():.4f}")
-    
+
     # Import here to avoid circular import
     from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-    
+
     # Create feature definitions
     # Use input_dim for dense features to be compatible with both simple and complex scenarios
-    dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1)  for i in range(n_dense)]
-    
+    dense_features = [
+        DenseFeature(name=f"dense_{i}", input_dim=1) for i in range(n_dense)
+    ]
+
     # Create sparse features
-    sparse_features = [SparseFeature( name='user_id',  embedding_name='user_emb',  vocab_size=user_vocab_size, embedding_dim=embedding_dim),
-                       SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=item_vocab_size,  embedding_dim=embedding_dim),]
-    
+    sparse_features = [
+        SparseFeature(
+            name="user_id",
+            embedding_name="user_emb",
+            vocab_size=user_vocab_size,
+            embedding_dim=embedding_dim,
+        ),
+        SparseFeature(
+            name="item_id",
+            embedding_name="item_emb",
+            vocab_size=item_vocab_size,
+            embedding_dim=embedding_dim,
+        ),
+    ]
+
     if custom_sparse_features:
         # Add custom sparse features with proper vocab sizes
         for feat_name, vocab_size in custom_sparse_features.items():
-            sparse_features.append(SparseFeature(name=feat_name, embedding_name=f'{feat_name}_emb', vocab_size=vocab_size, embedding_dim=embedding_dim))
+            sparse_features.append(
+                SparseFeature(
+                    name=feat_name,
+                    embedding_name=f"{feat_name}_emb",
+                    vocab_size=vocab_size,
+                    embedding_dim=embedding_dim,
+                )
+            )
     else:
         # Add generic sparse features
-        sparse_features.extend([SparseFeature(name=f'sparse_{i}',  embedding_name=f'sparse_{i}_emb', vocab_size=sparse_vocab_size,  embedding_dim=embedding_dim) for i in range(n_sparse - 2)])
-    
+        sparse_features.extend(
+            [
+                SparseFeature(
+                    name=f"sparse_{i}",
+                    embedding_name=f"sparse_{i}_emb",
+                    vocab_size=sparse_vocab_size,
+                    embedding_dim=embedding_dim,
+                )
+                for i in range(n_sparse - 2)
+            ]
+        )
+
     # Create sequence features
     sequence_features = []
     for i, (seq_name, seq_vocab) in enumerate(zip(sequence_names, sequence_vocabs)):
         if i == 0:
             # First sequence shares embedding with item_id
-            embedding_name = 'item_emb'
-        elif custom_sparse_features and 'category' in custom_sparse_features and seq_name == 'hist_categories':
+            embedding_name = "item_emb"
+        elif (
+            custom_sparse_features
+            and "category" in custom_sparse_features
+            and seq_name == "hist_categories"
+        ):
             # hist_categories shares embedding with category
-            embedding_name = 'category_emb'
+            embedding_name = "category_emb"
         else:
             # Other sequences share with sparse_0
-            embedding_name = 'sparse_0_emb'
-        sequence_features.append(SequenceFeature(name=seq_name, vocab_size=seq_vocab, max_len=sequence_max_len, embedding_dim=embedding_dim, padding_idx=0, embedding_name=embedding_name))
+            embedding_name = "sparse_0_emb"
+        sequence_features.append(
+            SequenceFeature(
+                name=seq_name,
+                vocab_size=seq_vocab,
+                max_len=sequence_max_len,
+                embedding_dim=embedding_dim,
+                padding_idx=0,
+                embedding_name=embedding_name,
+            )
+        )
     return df, dense_features, sparse_features, sequence_features
 
 
@@ -154,29 +201,31 @@ def generate_match_data(
     sequence_max_len: int = 50,
     user_embedding_dim: int = 32,
     item_embedding_dim: int = 32,
-    seed: int = 42
+    seed: int = 42,
 ) -> Tuple[pd.DataFrame, List, List, List, List, List, List]:
     """
     Generate synthetic data for match/retrieval tasks
-    
+
     Returns:
         tuple: (dataframe, user_dense_features, user_sparse_features, user_sequence_features,
                 item_dense_features, item_sparse_features, item_sequence_features)
     """
     print(f"Generating {n_samples} synthetic match samples...")
-    
+
     np.random.seed(seed)
     data = {}
-    
+
     # User features
-    data['user_id'] = np.random.randint(1, user_vocab_size, n_samples)
-    data['user_age'] = np.random.randn(n_samples).astype(np.float32)
-    data['user_gender'] = np.random.randint(0, 2, n_samples)
-    data['user_city'] = np.random.randint(0, city_vocab_size, n_samples)
-    
+    data["user_id"] = np.random.randint(1, user_vocab_size, n_samples)
+    data["user_age"] = np.random.randn(n_samples).astype(np.float32)
+    data["user_gender"] = np.random.randint(0, 2, n_samples)
+    data["user_city"] = np.random.randint(0, city_vocab_size, n_samples)
+
     for i in range(3):
-        data[f'user_feature_{i}'] = np.random.randint(1, user_feature_vocab_size, n_samples)
-    
+        data[f"user_feature_{i}"] = np.random.randint(
+            1, user_feature_vocab_size, n_samples
+        )
+
     # User behavior sequences
     user_hist_items = []
     user_hist_categories = []
@@ -185,80 +234,122 @@ def generate_match_data(
         hist_items = np.random.randint(1, item_vocab_size, seq_len).tolist()
         hist_items = hist_items + [0] * (sequence_max_len - len(hist_items))
         user_hist_items.append(hist_items)
-        
+
         hist_cats = np.random.randint(1, category_vocab_size, seq_len).tolist()
         hist_cats = hist_cats + [0] * (sequence_max_len - len(hist_cats))
         user_hist_categories.append(hist_cats)
-    
-    data['user_hist_items'] = user_hist_items
-    data['user_hist_categories'] = user_hist_categories
-    
+
+    data["user_hist_items"] = user_hist_items
+    data["user_hist_categories"] = user_hist_categories
+
     # Item features
-    data['item_id'] = np.random.randint(1, item_vocab_size, n_samples)
-    data['item_price'] = np.random.randn(n_samples).astype(np.float32)
-    data['item_category'] = np.random.randint(1, category_vocab_size, n_samples)
-    data['item_brand'] = np.random.randint(1, brand_vocab_size, n_samples)
-    
+    data["item_id"] = np.random.randint(1, item_vocab_size, n_samples)
+    data["item_price"] = np.random.randn(n_samples).astype(np.float32)
+    data["item_category"] = np.random.randint(1, category_vocab_size, n_samples)
+    data["item_brand"] = np.random.randint(1, brand_vocab_size, n_samples)
+
     for i in range(3):
-        data[f'item_feature_{i}'] = np.random.randint(1, item_feature_vocab_size, n_samples)
-    
+        data[f"item_feature_{i}"] = np.random.randint(
+            1, item_feature_vocab_size, n_samples
+        )
+
     # Generate labels with some correlation to features
-    label_probs = 1 / (1 + np.exp(-(
-        data['user_age'] * 0.2 +
-        (data['user_gender'] - 0.5) * 0.3 +
-        data['item_price'] * 0.15 +
-        np.random.randn(n_samples) * 0.5
-    )))
-    data['label'] = (label_probs > 0.5).astype(np.float32)
-    
+    label_probs = 1 / (
+        1
+        + np.exp(
+            -(
+                data["user_age"] * 0.2
+                + (data["user_gender"] - 0.5) * 0.3
+                + data["item_price"] * 0.15
+                + np.random.randn(n_samples) * 0.5
+            )
+        )
+    )
+    data["label"] = (label_probs > 0.5).astype(np.float32)
+
     df = pd.DataFrame(data)
     print(f"Generated data shape: {df.shape}")
     print(f"Positive rate: {data['label'].mean():.4f}")
-    
+
     # Import here to avoid circular import
     from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-    
+
     # User dense features
-    user_dense_features = [DenseFeature(name='user_age', input_dim=1)]
-    
+    user_dense_features = [DenseFeature(name="user_age", input_dim=1)]
+
     # User sparse features
     user_sparse_features = [
-        SparseFeature(name='user_id', vocab_size=user_vocab_size, embedding_dim=user_embedding_dim),
-        SparseFeature(name='user_gender', vocab_size=2, embedding_dim=8),
-        SparseFeature(name='user_city', vocab_size=city_vocab_size, embedding_dim=16),
+        SparseFeature(
+            name="user_id", vocab_size=user_vocab_size, embedding_dim=user_embedding_dim
+        ),
+        SparseFeature(name="user_gender", vocab_size=2, embedding_dim=8),
+        SparseFeature(name="user_city", vocab_size=city_vocab_size, embedding_dim=16),
     ]
-    user_sparse_features.extend([
-        SparseFeature(name=f'user_feature_{i}', vocab_size=user_feature_vocab_size, embedding_dim=8)
-        for i in range(3)
-    ])
-    
+    user_sparse_features.extend(
+        [
+            SparseFeature(
+                name=f"user_feature_{i}",
+                vocab_size=user_feature_vocab_size,
+                embedding_dim=8,
+            )
+            for i in range(3)
+        ]
+    )
+
     # User sequence features
     user_sequence_features = [
-        SequenceFeature(name='user_hist_items', vocab_size=item_vocab_size, 
-                       max_len=sequence_max_len, embedding_dim=user_embedding_dim, padding_idx=0),
-        SequenceFeature(name='user_hist_categories', vocab_size=category_vocab_size,
-                       max_len=sequence_max_len, embedding_dim=16, padding_idx=0),
+        SequenceFeature(
+            name="user_hist_items",
+            vocab_size=item_vocab_size,
+            max_len=sequence_max_len,
+            embedding_dim=user_embedding_dim,
+            padding_idx=0,
+        ),
+        SequenceFeature(
+            name="user_hist_categories",
+            vocab_size=category_vocab_size,
+            max_len=sequence_max_len,
+            embedding_dim=16,
+            padding_idx=0,
+        ),
     ]
-    
+
     # Item dense features
-    item_dense_features = [DenseFeature(name='item_price', input_dim=1)]
-    
+    item_dense_features = [DenseFeature(name="item_price", input_dim=1)]
+
     # Item sparse features
     item_sparse_features = [
-        SparseFeature(name='item_id', vocab_size=item_vocab_size, embedding_dim=item_embedding_dim),
-        SparseFeature(name='item_category', vocab_size=category_vocab_size, embedding_dim=16),
-        SparseFeature(name='item_brand', vocab_size=brand_vocab_size, embedding_dim=16),
+        SparseFeature(
+            name="item_id", vocab_size=item_vocab_size, embedding_dim=item_embedding_dim
+        ),
+        SparseFeature(
+            name="item_category", vocab_size=category_vocab_size, embedding_dim=16
+        ),
+        SparseFeature(name="item_brand", vocab_size=brand_vocab_size, embedding_dim=16),
     ]
-    item_sparse_features.extend([
-        SparseFeature(name=f'item_feature_{i}', vocab_size=item_feature_vocab_size, embedding_dim=8)
-        for i in range(3)
-    ])
-    
+    item_sparse_features.extend(
+        [
+            SparseFeature(
+                name=f"item_feature_{i}",
+                vocab_size=item_feature_vocab_size,
+                embedding_dim=8,
+            )
+            for i in range(3)
+        ]
+    )
+
     # Item sequence features (empty for most match models)
     item_sequence_features = []
-    
-    return (df, user_dense_features, user_sparse_features, user_sequence_features,
-            item_dense_features, item_sparse_features, item_sequence_features)
+
+    return (
+        df,
+        user_dense_features,
+        user_sparse_features,
+        user_sequence_features,
+        item_dense_features,
+        item_sparse_features,
+        item_sequence_features,
+    )
 
 
 def generate_multitask_data(
@@ -271,34 +362,34 @@ def generate_multitask_data(
     sparse_vocab_size: int = 50,
     sequence_max_len: int = 20,
     embedding_dim: int = 16,
-    seed: int = 42
+    seed: int = 42,
 ) -> Tuple[pd.DataFrame, List, List, List]:
     """
     Generate synthetic data for multi-task learning
-    
+
     Returns:
         tuple: (dataframe, dense_features, sparse_features, sequence_features)
     """
     print(f"Generating {n_samples} synthetic multi-task samples...")
-    
+
     np.random.seed(seed)
     data = {}
-    
+
     # Generate dense features
     for i in range(n_dense):
-        data[f'dense_{i}'] = np.random.randn(n_samples).astype(np.float32)
-    
+        data[f"dense_{i}"] = np.random.randn(n_samples).astype(np.float32)
+
     # Generate sparse features
-    data['user_id'] = np.random.randint(1, user_vocab_size, n_samples)
-    data['item_id'] = np.random.randint(1, item_vocab_size, n_samples)
-    
+    data["user_id"] = np.random.randint(1, user_vocab_size, n_samples)
+    data["item_id"] = np.random.randint(1, item_vocab_size, n_samples)
+
     for i in range(n_sparse - 2):
-        data[f'sparse_{i}'] = np.random.randint(1, sparse_vocab_size, n_samples)
-    
+        data[f"sparse_{i}"] = np.random.randint(1, sparse_vocab_size, n_samples)
+
     # Generate sequence features
     sequence_names = []
     sequence_vocabs = []
-    
+
     for i in range(n_sequences):
         sequences = []
         for _ in range(n_samples):
@@ -306,79 +397,101 @@ def generate_multitask_data(
             if i == 0:
                 seq = np.random.randint(0, item_vocab_size, seq_len).tolist()
                 seq_vocab = item_vocab_size
-                seq_name = 'sequence_0'
+                seq_name = "sequence_0"
             else:
                 seq = np.random.randint(0, sparse_vocab_size, seq_len).tolist()
                 seq_vocab = sparse_vocab_size
-                seq_name = f'sequence_{i}'
-            
+                seq_name = f"sequence_{i}"
+
             seq = seq + [0] * (sequence_max_len - len(seq))
             sequences.append(seq)
-        
+
         data[seq_name] = sequences
         sequence_names.append(seq_name)
         sequence_vocabs.append(seq_vocab)
-    
+
     # Generate multi-task labels with correlation
     # CTR (click) is relatively easier to predict
     ctr_logits = (
-        data['dense_0'] * 0.3 + 
-        data['dense_1'] * 0.2 + 
-        np.random.randn(n_samples) * 0.5
+        data["dense_0"] * 0.3 + data["dense_1"] * 0.2 + np.random.randn(n_samples) * 0.5
     )
-    data['click'] = (1 / (1 + np.exp(-ctr_logits)) > 0.5).astype(np.float32)
-    
+    data["click"] = (1 / (1 + np.exp(-ctr_logits)) > 0.5).astype(np.float32)
+
     # CVR (conversion) depends on click and is harder
     cvr_logits = (
-        data['dense_2'] * 0.2 + 
-        data['dense_3'] * 0.15 +
-        data['click'] * 1.5 +  # Strong dependency on click
-        np.random.randn(n_samples) * 0.8
+        data["dense_2"] * 0.2
+        + data["dense_3"] * 0.15
+        + data["click"] * 1.5  # Strong dependency on click
+        + np.random.randn(n_samples) * 0.8
     )
-    data['conversion'] = (1 / (1 + np.exp(-cvr_logits)) > 0.3).astype(np.float32)
-    
+    data["conversion"] = (1 / (1 + np.exp(-cvr_logits)) > 0.3).astype(np.float32)
+
     # CTCVR = click AND conversion
-    data['ctcvr'] = (data['click'] * data['conversion']).astype(np.float32)
-    
+    data["ctcvr"] = (data["click"] * data["conversion"]).astype(np.float32)
+
     df = pd.DataFrame(data)
     print(f"Generated data shape: {df.shape}")
     print(f"Click rate: {data['click'].mean():.4f}")
     print(f"Conversion rate (overall): {data['conversion'].mean():.4f}")
-    if data['click'].sum() > 0:
-        print(f"Conversion rate (given click): {data['conversion'][data['click'] == 1].mean():.4f}")
+    if data["click"].sum() > 0:
+        print(
+            f"Conversion rate (given click): {data['conversion'][data['click'] == 1].mean():.4f}"
+        )
     print(f"CTCVR rate: {data['ctcvr'].mean():.4f}")
-    
+
     # Import here to avoid circular import
     from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-    
+
     # Create feature definitions
-    dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1) for i in range(n_dense)]
-    
+    dense_features = [
+        DenseFeature(name=f"dense_{i}", input_dim=1) for i in range(n_dense)
+    ]
+
     # Create sparse features
     sparse_features = [
-        SparseFeature(name='user_id', embedding_name='user_emb', 
-                     vocab_size=user_vocab_size, embedding_dim=embedding_dim),
-        SparseFeature(name='item_id', embedding_name='item_emb', 
-                     vocab_size=item_vocab_size, embedding_dim=embedding_dim),
+        SparseFeature(
+            name="user_id",
+            embedding_name="user_emb",
+            vocab_size=user_vocab_size,
+            embedding_dim=embedding_dim,
+        ),
+        SparseFeature(
+            name="item_id",
+            embedding_name="item_emb",
+            vocab_size=item_vocab_size,
+            embedding_dim=embedding_dim,
+        ),
     ]
-    sparse_features.extend([
-        SparseFeature(name=f'sparse_{i}', embedding_name=f'sparse_{i}_emb',
-                     vocab_size=sparse_vocab_size, embedding_dim=embedding_dim) 
-        for i in range(n_sparse - 2)
-    ])
-    
+    sparse_features.extend(
+        [
+            SparseFeature(
+                name=f"sparse_{i}",
+                embedding_name=f"sparse_{i}_emb",
+                vocab_size=sparse_vocab_size,
+                embedding_dim=embedding_dim,
+            )
+            for i in range(n_sparse - 2)
+        ]
+    )
+
     # Create sequence features
     sequence_features = []
     for i, (seq_name, seq_vocab) in enumerate(zip(sequence_names, sequence_vocabs)):
         if i == 0:
-            embedding_name = 'item_emb'
+            embedding_name = "item_emb"
         else:
-            embedding_name = 'sparse_0_emb'
+            embedding_name = "sparse_0_emb"
         sequence_features.append(
-            SequenceFeature(name=seq_name, vocab_size=seq_vocab, max_len=sequence_max_len, 
-                          embedding_dim=embedding_dim, padding_idx=0, embedding_name=embedding_name)
+            SequenceFeature(
+                name=seq_name,
+                vocab_size=seq_vocab,
+                max_len=sequence_max_len,
+                embedding_dim=embedding_dim,
+                padding_idx=0,
+                embedding_name=embedding_name,
+            )
         )
-    
+
     return df, dense_features, sparse_features, sequence_features
 
 
@@ -394,7 +507,7 @@ def generate_distributed_ranking_data(
 ) -> Tuple[pd.DataFrame, List, List, List]:
     """
     Generate synthetic data for distributed training scenarios
-    
+
     Returns:
         tuple: (dataframe, dense_features, sparse_features, sequence_features)
     """
@@ -408,6 +521,11 @@ def generate_distributed_ranking_data(
         sequence_max_len=max_seq_len,
         embedding_dim=embedding_dim,
         seed=seed,
-        custom_sparse_features={'gender': 2, 'age_group': 7, 'category': num_categories,'city': num_cities},
-        use_simple_names=False
+        custom_sparse_features={
+            "gender": 2,
+            "age_group": 7,
+            "category": num_categories,
+            "city": num_cities,
+        },
+        use_simple_names=False,
     )

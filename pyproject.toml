@@ -1,6 +1,6 @@
 [project]
 name = "nextrec"
-version = "0.4.1"
+version = "0.4.2"
 description = "A comprehensive recommendation library with match, ranking, and multi-task learning models"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -71,6 +71,9 @@ Homepage = "https://github.com/zerolovesea/NextRec"
 Repository = "https://github.com/zerolovesea/NextRec"
 Documentation = "https://github.com/zerolovesea/NextRec/blob/main/README.md"
 Issues = "https://github.com/zerolovesea/NextRec/issues"
+
+[project.scripts]
+nextrec = "nextrec.cli:main"
 
 [build-system]
 requires = ["hatchling"]

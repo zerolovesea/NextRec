@@ -36,6 +36,7 @@ class BPRLoss(nn.Module):
             return loss.sum()
         return loss
 
+
 class HingeLoss(nn.Module):
     """
     Hinge loss for pairwise ranking.
@@ -58,6 +59,7 @@ class HingeLoss(nn.Module):
         if self.reduction == "sum":
             return loss.sum()
         return loss
+
 
 class TripletLoss(nn.Module):
     """

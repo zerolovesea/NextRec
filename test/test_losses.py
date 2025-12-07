@@ -46,7 +46,9 @@ def test_weighted_bce_auto_balance_matches_manual_ratio():
     auto_loss = WeightedBCELoss(pos_weight=None, auto_balance=True)
     manual_loss = WeightedBCELoss(pos_weight=manual_ratio)
 
-    assert torch.allclose(auto_loss(probs, labels), manual_loss(probs, labels), atol=1e-6)
+    assert torch.allclose(
+        auto_loss(probs, labels), manual_loss(probs, labels), atol=1e-6
+    )
 
 
 def test_class_balanced_focal_loss_reduces_meaningfully():
@@ -114,7 +116,13 @@ class _DummyBinaryModel(BaseModel):  # type: ignore[misc]
         return torch.zeros(1, 1)
 
     def __init__(self):
-        super().__init__(dense_features=[], sparse_features=[], sequence_features=[], target=["y"], task="binary")
+        super().__init__(
+            dense_features=[],
+            sparse_features=[],
+            sequence_features=[],
+            target=["y"],
+            task="binary",
+        )
         self.dummy = nn.Parameter(torch.zeros(1))
 
 

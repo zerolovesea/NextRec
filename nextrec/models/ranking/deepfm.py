@@ -43,12 +43,12 @@ embedding，无需手工构造交叉特征即可端到端训练，常用于 CTR/
 - CTR/CVR 任务的常用强基线
 """
 
-import torch
 import torch.nn as nn
 
 from nextrec.basic.model import BaseModel
 from nextrec.basic.layers import FM, LR, EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+
 
 class DeepFM(BaseModel):
     @property
@@ -59,23 +59,26 @@ class DeepFM(BaseModel):
     def default_task(self):
         return "binary"
 
-    def __init__(self,
-                 dense_features: list[DenseFeature]|list = [],
-                 sparse_features: list[SparseFeature]|list = [],
-                 sequence_features: list[SequenceFeature]|list = [],
-                 mlp_params: dict = {},
-                 target: list[str]|str = [],
-                 task: str | list[str] | None = None,
-                 optimizer: str = "adam",
-                 optimizer_params: dict = {},
-                 loss: str | nn.Module | None = "bce",
-                 loss_params: dict | list[dict] | None = None,
-                 device: str = 'cpu',
-                 embedding_l1_reg=1e-6,
-                 dense_l1_reg=1e-5,
-                 embedding_l2_reg=1e-5,
-                 dense_l2_reg=1e-4, **kwargs):
-        
+    def __init__(
+        self,
+        dense_features: list[DenseFeature] | list = [],
+        sparse_features: list[SparseFeature] | list = [],
+        sequence_features: list[SequenceFeature] | list = [],
+        mlp_params: dict = {},
+        target: list[str] | str = [],
+        task: str | list[str] | None = None,
+        optimizer: str = "adam",
+        optimizer_params: dict = {},
+        loss: str | nn.Module | None = "bce",
+        loss_params: dict | list[dict] | None = None,
+        device: str = "cpu",
+        embedding_l1_reg=1e-6,
+        dense_l1_reg=1e-5,
+        embedding_l2_reg=1e-5,
+        dense_l2_reg=1e-4,
+        **kwargs,
+    ):
+
         super(DeepFM, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
@@ -87,13 +90,13 @@ class DeepFM(BaseModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            **kwargs
+            **kwargs,
         )
 
         self.loss = loss
         if self.loss is None:
             self.loss = "bce"
-            
+
         self.fm_features = sparse_features + sequence_features
         self.deep_features = dense_features + sparse_features + sequence_features
         self.embedding = EmbeddingLayer(features=self.deep_features)
@@ -107,8 +110,15 @@ class DeepFM(BaseModel):
         self.prediction_layer = PredictionLayer(task_type=self.default_task)
 
         # Register regularization weights
-        self.register_regularization_weights(embedding_attr='embedding', include_modules=['linear', 'mlp'])
-        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
+        self.register_regularization_weights(
+            embedding_attr="embedding", include_modules=["linear", "mlp"]
+        )
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            loss=loss,
+            loss_params=loss_params,
+        )
 
     def forward(self, x):
         input_deep = self.embedding(x=x, features=self.deep_features, squeeze_dim=True)

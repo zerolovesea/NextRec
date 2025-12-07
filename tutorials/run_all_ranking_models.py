@@ -5,7 +5,6 @@ Date: create on 06/12/2025
 Checkpoint: edit on 06/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
-import torch
 
 from nextrec.models.ranking.fm import FM
 from nextrec.models.ranking.deepfm import DeepFM
@@ -22,28 +21,44 @@ from nextrec.models.ranking.masknet import MaskNet
 
 from nextrec.utils import generate_ranking_data
 
-def train_model(model_class, model_name, dense_features, sparse_features, 
-                sequence_features, train_df, valid_df, device='cpu', **kwargs):
-    
+
+def train_model(
+    model_class,
+    model_name,
+    dense_features,
+    sparse_features,
+    sequence_features,
+    train_df,
+    valid_df,
+    device="cpu",
+    **kwargs,
+):
+
     print("=" * 80)
     print(f"Training {model_name}")
     print("=" * 80)
-    
+
     try:
         # Determine if model needs sequence features
         # DIN and DIEN require sequence features
-        if model_name in ['DIN', 'DIEN']:
+        if model_name in ["DIN", "DIEN"]:
             seq_feats = sequence_features
         else:
             seq_feats = []
-        
+
         # MaskNet requires all features to have the same embedding_dim
         # Set dense features' embedding_dim to match sparse features for MaskNet
-        if model_name == 'MaskNet':
+        if model_name == "MaskNet":
             from nextrec.basic.features import DenseFeature
+
             embedding_dim = sparse_features[0].embedding_dim if sparse_features else 16
             adjusted_dense_features = [
-                DenseFeature(name=f.name, embedding_dim=embedding_dim, input_dim=f.input_dim, use_embedding=True)
+                DenseFeature(
+                    name=f.name,
+                    embedding_dim=embedding_dim,
+                    input_dim=f.input_dim,
+                    use_embedding=True,
+                )
                 for f in dense_features
             ]
         else:
@@ -53,33 +68,33 @@ def train_model(model_class, model_name, dense_features, sparse_features,
             dense_features=adjusted_dense_features,
             sparse_features=sparse_features,
             sequence_features=seq_feats,
-            target=['label'],
+            target=["label"],
             device=device,
             session_id=f"ranking_{model_name.lower()}_tutorial",
-            **kwargs
+            **kwargs,
         )
 
         model.compile(
             optimizer="adam",
             optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
-            loss='binary_crossentropy',
+            loss="binary_crossentropy",
         )
 
         model.fit(
             train_data=train_df,
             valid_data=valid_df,
-            metrics=['auc', 'logloss'],
+            metrics=["auc", "logloss"],
             epochs=1,
             batch_size=512,
             shuffle=True,
             tensorboard=False,
         )
-        
-        metrics = model.evaluate(valid_df, metrics=['auc', 'logloss'], batch_size=512)
-        
+
+        metrics = model.evaluate(valid_df, metrics=["auc", "logloss"], batch_size=512)
+
         print(f"{model_name} completed successfully")
         return True, metrics
-        
+
     except Exception as e:
         print(f"{model_name} failed with error: {str(e)}")
         return False, None
@@ -89,8 +104,8 @@ def main():
     print("=" * 80)
     print("Training all supported ranking models with synthetic data")
     print("=" * 80)
-    
-    device = 'cpu'
+
+    device = "cpu"
 
     df, dense_features, sparse_features, sequence_features = generate_ranking_data(
         n_samples=10000,
@@ -102,17 +117,20 @@ def main():
         sparse_vocab_size=50,
         sequence_max_len=20,
         embedding_dim=16,
-        seed=42
+        seed=42,
     )
-    
+
     split_idx = int(len(df) * 0.8)
     train_df = df.iloc[:split_idx].reset_index(drop=True)
     valid_df = df.iloc[split_idx:].reset_index(drop=True)
     print(f"Train size: {len(train_df)}, Valid size: {len(valid_df)}")
 
-    mlp_params = {"dims": [256, 128, 64], "activation": "relu", "dropout": 0.2,}
+    mlp_params = {
+        "dims": [256, 128, 64],
+        "activation": "relu",
+        "dropout": 0.2,
+    }
     results = {}
-
 
     models_to_train = [
         (FM, "FM", {}),
@@ -120,19 +138,62 @@ def main():
         (WideDeep, "WideDeep", {"mlp_params": mlp_params}),
         (DCN, "DCN", {"mlp_params": mlp_params, "cross_num": 3}),
         (xDeepFM, "xDeepFM", {"mlp_params": mlp_params, "cin_size": [128, 128]}),
-        (AutoInt, "AutoInt", {"att_layer_num": 3, "att_embedding_dim": 16, "att_head_num": 2, "att_dropout": 0.2}),
+        (
+            AutoInt,
+            "AutoInt",
+            {
+                "att_layer_num": 3,
+                "att_embedding_dim": 16,
+                "att_head_num": 2,
+                "att_dropout": 0.2,
+            },
+        ),
         (AFM, "AFM", {"attention_dim": 64, "attention_dropout": 0.2}),
         (PNN, "PNN", {"mlp_params": mlp_params, "product_type": "inner"}),
-        (FiBiNET, "FiBiNET", {"mlp_params": mlp_params, "bilinear_type": "field_interaction", "senet_reduction": 3}),
-        (DIN, "DIN", {"mlp_params": mlp_params, "attention_hidden_units": [80, 40], "attention_activation": "sigmoid"}),
-        (DIEN, "DIEN", {"mlp_params": mlp_params, "gru_hidden_size": 32, "attention_hidden_units": [80, 40]}),
-        (MaskNet, "MaskNet", {"mlp_params": mlp_params, "model_type": "parallel", "num_blocks": 3, "mask_hidden_dim": 64, "block_hidden_dim": 256}),
+        (
+            FiBiNET,
+            "FiBiNET",
+            {
+                "mlp_params": mlp_params,
+                "bilinear_type": "field_interaction",
+                "senet_reduction": 3,
+            },
+        ),
+        (
+            DIN,
+            "DIN",
+            {
+                "mlp_params": mlp_params,
+                "attention_hidden_units": [80, 40],
+                "attention_activation": "sigmoid",
+            },
+        ),
+        (
+            DIEN,
+            "DIEN",
+            {
+                "mlp_params": mlp_params,
+                "gru_hidden_size": 32,
+                "attention_hidden_units": [80, 40],
+            },
+        ),
+        (
+            MaskNet,
+            "MaskNet",
+            {
+                "mlp_params": mlp_params,
+                "model_type": "parallel",
+                "num_blocks": 3,
+                "mask_hidden_dim": 64,
+                "block_hidden_dim": 256,
+            },
+        ),
     ]
-    
+
     successful = 0
     failed = 0
     failed_models = []
-    
+
     for model_class, model_name, extra_params in models_to_train:
         success, metrics = train_model(
             model_class=model_class,
@@ -143,20 +204,21 @@ def main():
             train_df=train_df,
             valid_df=valid_df,
             device=device,
-            **extra_params
+            **extra_params,
         )
-        
+
         if success:
             successful += 1
             results[model_name] = metrics
         else:
             failed += 1
             failed_models.append(model_name)
-    
+
     print("Test Summary")
     print(f"Total models: {len(models_to_train)}")
     print(f"Successful counts: {successful}")
     print(f"Failed counts: {failed}, Models: {failed_models}")
+
 
 if __name__ == "__main__":
     main()

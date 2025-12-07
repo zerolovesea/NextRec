@@ -39,7 +39,6 @@ Wide & Deep 同时使用宽线性部分（记忆共现/手工交叉）与深网�
 - 共享特征空间，减少工程开销
 """
 
-import torch
 import torch.nn as nn
 
 from nextrec.basic.model import BaseModel
@@ -55,25 +54,27 @@ class WideDeep(BaseModel):
     @property
     def default_task(self):
         return "binary"
-    
-    def __init__(self,
-                 dense_features: list[DenseFeature],
-                 sparse_features: list[SparseFeature],
-                 sequence_features: list[SequenceFeature],
-                 mlp_params: dict,
-                 target: list[str] = [],
-                 task: str | list[str] | None = None,
-                 optimizer: str = "adam",
-                 optimizer_params: dict = {},
-                 loss: str | nn.Module | None = "bce",
-                 loss_params: dict | list[dict] | None = None,
-                 device: str = 'cpu',
-                 embedding_l1_reg=1e-6,
-                 dense_l1_reg=1e-5,
-                 embedding_l2_reg=1e-5,
-                 dense_l2_reg=1e-4,
-                 **kwargs):
-        
+
+    def __init__(
+        self,
+        dense_features: list[DenseFeature],
+        sparse_features: list[SparseFeature],
+        sequence_features: list[SequenceFeature],
+        mlp_params: dict,
+        target: list[str] = [],
+        task: str | list[str] | None = None,
+        optimizer: str = "adam",
+        optimizer_params: dict = {},
+        loss: str | nn.Module | None = "bce",
+        loss_params: dict | list[dict] | None = None,
+        device: str = "cpu",
+        embedding_l1_reg=1e-6,
+        dense_l1_reg=1e-5,
+        embedding_l2_reg=1e-5,
+        dense_l2_reg=1e-4,
+        **kwargs,
+    ):
+
         super(WideDeep, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
@@ -85,13 +86,13 @@ class WideDeep(BaseModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            **kwargs
+            **kwargs,
         )
 
         self.loss = loss
         if self.loss is None:
             self.loss = "bce"
-            
+
         # Wide part: use all features for linear model
         self.wide_features = sparse_features + sequence_features
         # Deep part: use all features
@@ -103,7 +104,7 @@ class WideDeep(BaseModel):
         # Wide part: Linear layer
         wide_dim = sum([f.embedding_dim for f in self.wide_features])
         self.linear = LR(wide_dim)
-        
+
         # Deep part: MLP
         input_dim = self.embedding.input_dim
         # deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
@@ -111,14 +112,21 @@ class WideDeep(BaseModel):
         self.mlp = MLP(input_dim=input_dim, **mlp_params)
         self.prediction_layer = PredictionLayer(task_type=self.task)
         # Register regularization weights
-        self.register_regularization_weights(embedding_attr='embedding', include_modules=['linear', 'mlp'])
-        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
+        self.register_regularization_weights(
+            embedding_attr="embedding", include_modules=["linear", "mlp"]
+        )
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            loss=loss,
+            loss_params=loss_params,
+        )
 
     def forward(self, x):
         # Deep part
         input_deep = self.embedding(x=x, features=self.deep_features, squeeze_dim=True)
         y_deep = self.mlp(input_deep)  # [B, 1]
-        
+
         # Wide part
         input_wide = self.embedding(x=x, features=self.wide_features, squeeze_dim=True)
         y_wide = self.linear(input_wide)

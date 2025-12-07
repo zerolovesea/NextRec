@@ -79,7 +79,7 @@ class POSOGate(nn.Module):
         h = self.act(self.fc1(pc))
         g = torch.sigmoid(self.fc2(h))  # (B, out_dim) in (0,1)
         return self.scale_factor * g
-    
+
 
 class POSOFC(nn.Module):
     """
@@ -116,10 +116,10 @@ class POSOFC(nn.Module):
         pc: (B, pc_dim)
         return: (B, out_dim)
         """
-        h = self.act(self.linear(x))          # Standard FC with activation
-        g = self.gate(pc)                     # (B, out_dim)
-        return g * h                          # Element-wise gating
-    
+        h = self.act(self.linear(x))  # Standard FC with activation
+        g = self.gate(pc)  # (B, out_dim)
+        return g * h  # Element-wise gating
+
 
 class POSOMLP(nn.Module):
     """
@@ -173,7 +173,7 @@ class POSOMLP(nn.Module):
             if self.dropout is not None:
                 h = self.dropout(h)
         return h
-    
+
 
 class POSOMMoE(nn.Module):
     """
@@ -183,7 +183,7 @@ class POSOMMoE(nn.Module):
         - Task gates aggregate the PC-masked expert outputs
 
     Concretely:
-        h_e = expert_e(x)                 # (B, D) 
+        h_e = expert_e(x)                 # (B, D)
         g_e = POSOGate(pc) in (0, C)^{D}  # (B, D)
         h_e_tilde = g_e ⊙ h_e            # (B, D)
         z_t = Σ_e gate_t,e(x) * h_e_tilde
@@ -192,14 +192,14 @@ class POSOMMoE(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        pc_dim: int,                   # for poso feature dimension
+        pc_dim: int,  # for poso feature dimension
         num_experts: int,
         expert_hidden_dims: list[int],
         num_tasks: int,
         activation: str = "relu",
         expert_dropout: float = 0.0,
-        gate_hidden_dim: int = 32,     # for poso gate hidden dimension
-        scale_factor: float = 2.0,     # for poso gate scale factor
+        gate_hidden_dim: int = 32,  # for poso gate hidden dimension
+        scale_factor: float = 2.0,  # for poso gate scale factor
         gate_use_softmax: bool = True,
     ) -> None:
         super().__init__()
@@ -207,15 +207,41 @@ class POSOMMoE(nn.Module):
         self.num_tasks = num_tasks
 
         # Experts built with framework MLP, same as standard MMoE
-        self.experts = nn.ModuleList([MLP(input_dim=input_dim, output_layer=False, dims=expert_hidden_dims, activation=activation, dropout=expert_dropout,) for _ in range(num_experts)])
-        self.expert_output_dim = expert_hidden_dims[-1] if expert_hidden_dims else input_dim
+        self.experts = nn.ModuleList(
+            [
+                MLP(
+                    input_dim=input_dim,
+                    output_layer=False,
+                    dims=expert_hidden_dims,
+                    activation=activation,
+                    dropout=expert_dropout,
+                )
+                for _ in range(num_experts)
+            ]
+        )
+        self.expert_output_dim = (
+            expert_hidden_dims[-1] if expert_hidden_dims else input_dim
+        )
 
         # Task-specific gates: gate_t(x) over experts
-        self.gates = nn.ModuleList([nn.Linear(input_dim, num_experts) for _ in range(num_tasks)])
+        self.gates = nn.ModuleList(
+            [nn.Linear(input_dim, num_experts) for _ in range(num_tasks)]
+        )
         self.gate_use_softmax = gate_use_softmax
 
         # PC gate per expert: g_e(pc) ∈ R^D
-        self.expert_pc_gates = nn.ModuleList([POSOGate(pc_dim=pc_dim, out_dim=self.expert_output_dim, hidden_dim=gate_hidden_dim, scale_factor=scale_factor, activation=activation,) for _ in range(num_experts)])
+        self.expert_pc_gates = nn.ModuleList(
+            [
+                POSOGate(
+                    pc_dim=pc_dim,
+                    out_dim=self.expert_output_dim,
+                    hidden_dim=gate_hidden_dim,
+                    scale_factor=scale_factor,
+                    activation=activation,
+                )
+                for _ in range(num_experts)
+            ]
+        )
 
     def forward(self, x: torch.Tensor, pc: torch.Tensor) -> list[torch.Tensor]:
         """
@@ -226,9 +252,9 @@ class POSOMMoE(nn.Module):
         # 1) Expert outputs with POSO PC gate
         masked_expert_outputs = []
         for e, expert in enumerate(self.experts):
-            h_e = expert(x)                         # (B, D)
-            g_e = self.expert_pc_gates[e](pc)       # (B, D)
-            h_e_tilde = g_e * h_e                   # (B, D)
+            h_e = expert(x)  # (B, D)
+            g_e = self.expert_pc_gates[e](pc)  # (B, D)
+            h_e_tilde = g_e * h_e  # (B, D)
             masked_expert_outputs.append(h_e_tilde)
 
         masked_expert_outputs = torch.stack(masked_expert_outputs, dim=1)  # (B, E, D)
@@ -236,13 +262,13 @@ class POSOMMoE(nn.Module):
         # 2) Task gates depend on x as in standard MMoE
         task_outputs: list[torch.Tensor] = []
         for t in range(self.num_tasks):
-            logits = self.gates[t](x)               # (B, E)
+            logits = self.gates[t](x)  # (B, E)
             if self.gate_use_softmax:
                 gate = F.softmax(logits, dim=1)
             else:
                 gate = logits
 
-            gate = gate.unsqueeze(-1)               # (B, E, 1)
+            gate = gate.unsqueeze(-1)  # (B, E, 1)
             z_t = torch.sum(gate * masked_expert_outputs, dim=1)  # (B, D)
             task_outputs.append(z_t)
 
@@ -312,12 +338,24 @@ class POSO(BaseModel):
         self.pc_sequence_features = list(pc_sequence_features or [])
         self.num_tasks = len(target)
 
-        if not self.pc_dense_features and not self.pc_sparse_features and not self.pc_sequence_features:
-            raise ValueError("POSO requires at least one PC feature for personalization.")
+        if (
+            not self.pc_dense_features
+            and not self.pc_sparse_features
+            and not self.pc_sequence_features
+        ):
+            raise ValueError(
+                "POSO requires at least one PC feature for personalization."
+            )
 
-        dense_features = merge_features(self.main_dense_features, self.pc_dense_features)
-        sparse_features = merge_features(self.main_sparse_features, self.pc_sparse_features)
-        sequence_features = merge_features(self.main_sequence_features, self.pc_sequence_features)
+        dense_features = merge_features(
+            self.main_dense_features, self.pc_dense_features
+        )
+        sparse_features = merge_features(
+            self.main_sparse_features, self.pc_sparse_features
+        )
+        sequence_features = merge_features(
+            self.main_sequence_features, self.pc_sequence_features
+        )
 
         super().__init__(
             dense_features=dense_features,
@@ -338,10 +376,18 @@ class POSO(BaseModel):
 
         self.num_tasks = len(target)
         if len(tower_params_list) != self.num_tasks:
-            raise ValueError(f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})")
+            raise ValueError(
+                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
+            )
 
-        self.main_features = self.main_dense_features + self.main_sparse_features + self.main_sequence_features
-        self.pc_features = self.pc_dense_features + self.pc_sparse_features + self.pc_sequence_features
+        self.main_features = (
+            self.main_dense_features
+            + self.main_sparse_features
+            + self.main_sequence_features
+        )
+        self.pc_features = (
+            self.pc_dense_features + self.pc_sparse_features + self.pc_sequence_features
+        )
 
         self.embedding = EmbeddingLayer(features=self.all_features)
         self.main_input_dim = self.embedding.get_input_dim(self.main_features)
@@ -349,7 +395,9 @@ class POSO(BaseModel):
 
         self.architecture = architecture.lower()
         if self.architecture not in {"mlp", "mmoe"}:
-            raise ValueError(f"Unsupported architecture '{architecture}', choose from ['mlp', 'mmoe'].")
+            raise ValueError(
+                f"Unsupported architecture '{architecture}', choose from ['mlp', 'mmoe']."
+            )
 
         # Build backbones
         if self.architecture == "mlp":
@@ -358,13 +406,17 @@ class POSO(BaseModel):
             for tower_params in tower_params_list:
                 dims = tower_params.get("dims")
                 if not dims:
-                    raise ValueError("tower_params must include a non-empty 'dims' list for POSO-MLP towers.")
+                    raise ValueError(
+                        "tower_params must include a non-empty 'dims' list for POSO-MLP towers."
+                    )
                 dropout = tower_params.get("dropout", 0.0)
                 tower = POSOMLP(
                     input_dim=self.main_input_dim,
                     pc_dim=self.pc_input_dim,
                     dims=dims,
-                    gate_hidden_dim=tower_params.get("gate_hidden_dim", gate_hidden_dim),
+                    gate_hidden_dim=tower_params.get(
+                        "gate_hidden_dim", gate_hidden_dim
+                    ),
                     scale_factor=tower_params.get("scale_factor", gate_scale_factor),
                     activation=tower_params.get("activation", gate_activation),
                     use_bias=tower_params.get("use_bias", gate_use_bias),
@@ -375,7 +427,9 @@ class POSO(BaseModel):
                 self.tower_heads.append(nn.Linear(tower_output_dim, 1))
         else:
             if expert_hidden_dims is None or not expert_hidden_dims:
-                raise ValueError("expert_hidden_dims must be provided for MMoE architecture.")
+                raise ValueError(
+                    "expert_hidden_dims must be provided for MMoE architecture."
+                )
             self.mmoe = POSOMMoE(
                 input_dim=self.main_input_dim,
                 pc_dim=self.pc_input_dim,
@@ -388,12 +442,35 @@ class POSO(BaseModel):
                 scale_factor=expert_gate_scale_factor,
                 gate_use_softmax=gate_use_softmax,
             )
-            self.towers = nn.ModuleList([MLP(input_dim=self.mmoe.expert_output_dim, output_layer=True, **tower_params,) for tower_params in tower_params_list])
+            self.towers = nn.ModuleList(
+                [
+                    MLP(
+                        input_dim=self.mmoe.expert_output_dim,
+                        output_layer=True,
+                        **tower_params,
+                    )
+                    for tower_params in tower_params_list
+                ]
+            )
             self.tower_heads = None
-        self.prediction_layer = PredictionLayer(task_type=self.default_task, task_dims=[1] * self.num_tasks,)
-        include_modules = ["towers", "tower_heads"] if self.architecture == "mlp" else ["mmoe", "towers"]
-        self.register_regularization_weights(embedding_attr="embedding", include_modules=include_modules)
-        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
+        self.prediction_layer = PredictionLayer(
+            task_type=self.default_task,
+            task_dims=[1] * self.num_tasks,
+        )
+        include_modules = (
+            ["towers", "tower_heads"]
+            if self.architecture == "mlp"
+            else ["mmoe", "towers"]
+        )
+        self.register_regularization_weights(
+            embedding_attr="embedding", include_modules=include_modules
+        )
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            loss=loss,
+            loss_params=loss_params,
+        )
 
     def forward(self, x):
         # Embed main and PC features separately so PC can gate hidden units

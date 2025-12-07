@@ -6,8 +6,6 @@ Checkpoint: edit on 29/11/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-from typing import Literal
-
 import torch.nn as nn
 
 from nextrec.loss.listwise import (
@@ -20,18 +18,18 @@ from nextrec.loss.listwise import (
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.loss.pointwise import (
     ClassBalancedFocalLoss,
-    CosineContrastiveLoss,
     FocalLoss,
     WeightedBCELoss,
 )
 
 
 VALID_TASK_TYPES = [
-    "binary",      
-    "multiclass", 
-    "multilabel", 
-    "regression",  
+    "binary",
+    "multiclass",
+    "multilabel",
+    "regression",
 ]
+
 
 def _build_cb_focal(kw):
     if "class_counts" not in kw:
@@ -80,6 +78,7 @@ def get_loss_fn(loss=None, **kw):
         return ApproxNDCGLoss(**kw)
 
     raise ValueError(f"[Loss Error] Unsupported loss: {loss}")
+
 
 def get_loss_kwargs(loss_params: dict | list[dict] | None, index: int = 0) -> dict:
     """

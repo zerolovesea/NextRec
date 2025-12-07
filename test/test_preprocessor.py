@@ -1,10 +1,8 @@
 import ast
-import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from nextrec.data.preprocessor import DataProcessor
 
@@ -13,7 +11,9 @@ def _build_processor():
     processor = DataProcessor()
     processor.add_numeric_feature("age", scaler="minmax")
     processor.add_sparse_feature("user_id", encode_method="label")
-    processor.add_sequence_feature("hist", encode_method="label", max_len=3, pad_value=0, separator=",")
+    processor.add_sequence_feature(
+        "hist", encode_method="label", max_len=3, pad_value=0, separator=","
+    )
     processor.add_target("label", target_type="binary")
     return processor
 

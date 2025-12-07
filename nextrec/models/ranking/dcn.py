@@ -15,21 +15,27 @@ from nextrec.basic.model import BaseModel
 from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
+
 class CrossNetwork(nn.Module):
     """Stacked Cross Layers from DCN (Wang et al., 2017)."""
 
     def __init__(self, input_dim, num_layers):
         super().__init__()
         self.num_layers = num_layers
-        self.w = torch.nn.ModuleList([torch.nn.Linear(input_dim, 1, bias=False) for _ in range(num_layers)])
-        self.b = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)])
+        self.w = torch.nn.ModuleList(
+            [torch.nn.Linear(input_dim, 1, bias=False) for _ in range(num_layers)]
+        )
+        self.b = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)]
+        )
 
     def forward(self, x):
         x0 = x
         for i in range(self.num_layers):
             xw = self.w[i](x)
             x = x0 * xw + self.b[i] + x
-        return x # [batch_size, input_dim]
+        return x  # [batch_size, input_dim]
+
 
 class DCN(BaseModel):
     @property
@@ -40,25 +46,27 @@ class DCN(BaseModel):
     def default_task(self):
         return "binary"
 
-    def __init__(self,
-                 dense_features: list[DenseFeature],
-                 sparse_features: list[SparseFeature],
-                 sequence_features: list[SequenceFeature],
-                 cross_num: int = 3,
-                 mlp_params: dict | None = None,
-                 target: list[str] = [],
-                 task: str | list[str] | None = None,
-                 optimizer: str = "adam",
-                 optimizer_params: dict = {},
-                 loss: str | nn.Module | None = "bce",
-                 loss_params: dict | list[dict] | None = None,
-                 device: str = 'cpu',
-                 embedding_l1_reg=1e-6,
-                 dense_l1_reg=1e-5,
-                 embedding_l2_reg=1e-5,
-                 dense_l2_reg=1e-4,
-                 **kwargs):
-        
+    def __init__(
+        self,
+        dense_features: list[DenseFeature],
+        sparse_features: list[SparseFeature],
+        sequence_features: list[SequenceFeature],
+        cross_num: int = 3,
+        mlp_params: dict | None = None,
+        target: list[str] = [],
+        task: str | list[str] | None = None,
+        optimizer: str = "adam",
+        optimizer_params: dict = {},
+        loss: str | nn.Module | None = "bce",
+        loss_params: dict | list[dict] | None = None,
+        device: str = "cpu",
+        embedding_l1_reg=1e-6,
+        dense_l1_reg=1e-5,
+        embedding_l2_reg=1e-5,
+        dense_l2_reg=1e-4,
+        **kwargs,
+    ):
+
         super(DCN, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
@@ -70,13 +78,13 @@ class DCN(BaseModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            **kwargs
+            **kwargs,
         )
 
         self.loss = loss
         if self.loss is None:
             self.loss = "bce"
-            
+
         # All features
         self.all_features = dense_features + sparse_features + sequence_features
 
@@ -84,20 +92,30 @@ class DCN(BaseModel):
         self.embedding = EmbeddingLayer(features=self.all_features)
 
         # Calculate input dimension
-        emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
-        dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
+        emb_dim_total = sum(
+            [
+                f.embedding_dim
+                for f in self.all_features
+                if not isinstance(f, DenseFeature)
+            ]
+        )
+        dense_input_dim = sum(
+            [getattr(f, "embedding_dim", 1) or 1 for f in dense_features]
+        )
         input_dim = emb_dim_total + dense_input_dim
-        
+
         # Cross Network
         self.cross_network = CrossNetwork(input_dim=input_dim, num_layers=cross_num)
-        
+
         # Deep Network (optional)
         if mlp_params is not None:
             self.use_dnn = True
             self.mlp = MLP(input_dim=input_dim, **mlp_params)
             deep_dim = self.mlp.output_dim
             # Final layer combines cross and deep
-            self.final_layer = nn.Linear(input_dim + deep_dim, 1)  # + deep_dim for MLP output
+            self.final_layer = nn.Linear(
+                input_dim + deep_dim, 1
+            )  # + deep_dim for MLP output
         else:
             self.use_dnn = False
             # Final layer only uses cross network output
@@ -107,8 +125,8 @@ class DCN(BaseModel):
 
         # Register regularization weights
         self.register_regularization_weights(
-            embedding_attr='embedding',
-            include_modules=['cross_network', 'mlp', 'final_layer']
+            embedding_attr="embedding",
+            include_modules=["cross_network", "mlp", "final_layer"],
         )
 
         self.compile(
@@ -121,18 +139,20 @@ class DCN(BaseModel):
     def forward(self, x):
         # Get all embeddings and flatten
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
-        
+
         # Cross Network
         cross_output = self.cross_network(input_flat)  # [B, input_dim]
-        
+
         if self.use_dnn:
             # Deep Network
             deep_output = self.mlp(input_flat)  # [B, 1]
             # Concatenate cross and deep
-            combined = torch.cat([cross_output, deep_output], dim=-1)  # [B, input_dim + 1]
+            combined = torch.cat(
+                [cross_output, deep_output], dim=-1
+            )  # [B, input_dim + 1]
         else:
             combined = cross_output
-        
+
         # Final prediction
         y = self.final_layer(combined)
         return self.prediction_layer(y)
