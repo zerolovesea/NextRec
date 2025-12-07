@@ -10,10 +10,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, List, Tuple, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from typing import Optional, Dict, List, Tuple
 
 def generate_ranking_data(
     n_samples: int = 10000,

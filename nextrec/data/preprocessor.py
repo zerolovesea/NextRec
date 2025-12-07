@@ -22,7 +22,12 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, Ma
 from nextrec.basic.features import FeatureSet
 from nextrec.basic.loggers import colorize
 from nextrec.basic.session import resolve_save_path
-from nextrec.utils.file import resolve_file_paths, iter_file_chunks, read_table, load_dataframes, default_output_dir
+from nextrec.utils.file import (
+    resolve_file_paths, 
+    iter_file_chunks, 
+    read_table, 
+    load_dataframes, 
+    default_output_dir)
 
 from nextrec.__version__ import __version__
 

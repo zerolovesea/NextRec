@@ -7,12 +7,12 @@ Author: Yang Zhou, zyaztec@gmail.com
 """
 from __future__ import annotations
 
-from itertools import combinations
-from collections import OrderedDict
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from itertools import combinations
+from collections import OrderedDict
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.utils.initializer import get_initializer

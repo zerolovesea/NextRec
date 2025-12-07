@@ -12,7 +12,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class CosineContrastiveLoss(nn.Module):
     """
     Contrastive loss using cosine similarity for positive/negative pairs.
@@ -38,7 +37,6 @@ class CosineContrastiveLoss(nn.Module):
             return loss.sum()
         return loss
 
-
 class WeightedBCELoss(nn.Module):
     """
     Binary cross entropy with controllable positive class weight.
@@ -63,7 +61,7 @@ class WeightedBCELoss(nn.Module):
         else:
             self.pos_weight = None
 
-    def _resolve_pos_weight(self, labels: torch.Tensor) -> torch.Tensor:
+    def resolve_pos_weight(self, labels: torch.Tensor) -> torch.Tensor:
         if self.pos_weight is not None:
             return self.pos_weight.to(device=labels.device)
 
@@ -77,7 +75,7 @@ class WeightedBCELoss(nn.Module):
 
     def forward(self, inputs: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         labels = labels.float()
-        current_pos_weight = self._resolve_pos_weight(labels)
+        current_pos_weight = self.resolve_pos_weight(labels)
         current_pos_weight = current_pos_weight.to(inputs.dtype)
 
         if self.logits:
@@ -95,7 +93,6 @@ class WeightedBCELoss(nn.Module):
             return loss.sum()
         else:
             return loss
-
 
 class FocalLoss(nn.Module):
     """
@@ -122,7 +119,7 @@ class FocalLoss(nn.Module):
             probs = log_probs.exp()
             targets_one_hot = F.one_hot(targets.long(), num_classes=inputs.size(1)).float()
 
-            alpha = self._get_alpha(inputs)
+            alpha = self.get_alpha(inputs)
             alpha_factor = targets_one_hot * alpha
             focal_weight = (1.0 - probs) ** self.gamma
             loss = torch.sum(alpha_factor * focal_weight * (-log_probs), dim=1)
@@ -136,7 +133,7 @@ class FocalLoss(nn.Module):
                 probs = torch.clamp(inputs, min=1e-6, max=1 - 1e-6)
 
             p_t = probs * targets + (1 - probs) * (1 - targets)
-            alpha_factor = self._get_binary_alpha(targets, inputs.device)
+            alpha_factor = self.get_binary_alpha(targets, inputs.device)
             focal_weight = (1.0 - p_t) ** self.gamma
             loss = alpha_factor * focal_weight * ce_loss
         if self.reduction == "mean":
@@ -145,7 +142,7 @@ class FocalLoss(nn.Module):
             return loss.sum()
         return loss
 
-    def _get_alpha(self, inputs: torch.Tensor) -> torch.Tensor:
+    def get_alpha(self, inputs: torch.Tensor) -> torch.Tensor:
         if self.alpha is None:
             return torch.ones_like(inputs)
         if isinstance(self.alpha, torch.Tensor):
@@ -153,7 +150,7 @@ class FocalLoss(nn.Module):
         alpha_tensor = torch.tensor(self.alpha, device=inputs.device, dtype=inputs.dtype)
         return alpha_tensor
 
-    def _get_binary_alpha(self, targets: torch.Tensor, device: torch.device) -> torch.Tensor:
+    def get_binary_alpha(self, targets: torch.Tensor, device: torch.device) -> torch.Tensor:
         if self.alpha is None:
             return torch.ones_like(targets)
         if isinstance(self.alpha, (float, int)):

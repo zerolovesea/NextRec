@@ -9,7 +9,6 @@ import torch
 import numpy as np
 from typing import Any
 
-
 def to_tensor(
     value: Any,
     dtype: torch.dtype,

@@ -38,7 +38,6 @@ def _build_cb_focal(kw):
         raise ValueError("class_balanced_focal requires class_counts")
     return ClassBalancedFocalLoss(**kw)
 
-
 def get_loss_fn(loss=None, **kw):
     if isinstance(loss, nn.Module):
         return loss

@@ -109,7 +109,6 @@ class FileDataset(FeatureSet, IterableDataset):
             batch["_already_batched"] = True
         return batch
 
-
 class RecDataLoader(FeatureSet):
     def __init__(self,
                  dense_features: list[DenseFeature] | None = None,
@@ -134,7 +133,7 @@ class RecDataLoader(FeatureSet):
         self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
     def create_dataloader(self,
-                         data: dict | pd.DataFrame | str | DataLoader,
+                         data: dict | pd.DataFrame | str | os.PathLike | list[str] | list[os.PathLike] | DataLoader,
                          batch_size: int = 32,
                          shuffle: bool = True,
                          load_full: bool = True,
@@ -159,6 +158,8 @@ class RecDataLoader(FeatureSet):
         if isinstance(data, DataLoader):
             return data
         elif isinstance(data, (str, os.PathLike)):
+            return self.create_from_path(path=data, batch_size=batch_size, shuffle=shuffle, load_full=load_full, chunk_size=chunk_size, num_workers=num_workers)
+        elif isinstance(data, list) and data and all(isinstance(p, (str, os.PathLike)) for p in data):
             return self.create_from_path(path=data, batch_size=batch_size, shuffle=shuffle, load_full=load_full, chunk_size=chunk_size, num_workers=num_workers)
         elif isinstance(data, (dict, pd.DataFrame)):
             return self.create_from_memory(data=data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, sampler=sampler)
@@ -185,13 +186,25 @@ class RecDataLoader(FeatureSet):
         return DataLoader(dataset, batch_size=batch_size, shuffle=False if sampler is not None else shuffle, sampler=sampler, collate_fn=collate_fn, num_workers=num_workers)
     
     def create_from_path(self,
-                         path: str,
+                         path: str | os.PathLike | list[str] | list[os.PathLike],
                          batch_size: int,
                          shuffle: bool,
                          load_full: bool,
                          chunk_size: int = 10000,
                          num_workers: int = 0) -> DataLoader:
-        file_paths, file_type = resolve_file_paths(str(Path(path)))
+        if isinstance(path, (str, os.PathLike)):
+            file_paths, file_type = resolve_file_paths(str(Path(path)))
+        else:
+            file_paths = [str(Path(p)) for p in path]
+            if not file_paths:
+                raise ValueError("[RecDataLoader Error] Empty file path list provided.")
+            suffixes = {Path(p).suffix.lower() for p in file_paths}
+            if len(suffixes) != 1:
+                raise ValueError("[RecDataLoader Error] Mixed file types in provided list; please use only CSV or only Parquet.")
+            suffix = suffixes.pop()
+            if suffix not in {".csv", ".parquet"}:
+                raise ValueError(f"[RecDataLoader Error] Unsupported file extension in list: {suffix}")
+            file_type = "csv" if suffix == ".csv" else "parquet"
         # Load full data into memory
         if load_full:
             dfs = []

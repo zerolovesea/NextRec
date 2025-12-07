@@ -9,7 +9,6 @@ Author: Yang Zhou, zyaztec@gmail.com
 import torch
 import torch.nn as nn
 
-
 class Dice(nn.Module):
     """
     Dice activation function from the paper:

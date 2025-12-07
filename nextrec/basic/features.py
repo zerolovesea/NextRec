@@ -5,6 +5,7 @@ Date: create on 27/10/2025
 Checkpoint: edit on 02/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
+
 import torch
 from nextrec.utils.embedding import get_auto_embedding_dim
 from nextrec.utils.feature import normalize_to_list

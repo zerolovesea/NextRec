@@ -2,14 +2,15 @@
 File I/O utilities for NextRec
 
 Date: create on 03/12/2025
+Checkpoint: edit on 06/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
-
+import yaml
 import pandas as pd
 import pyarrow.parquet as pq
+
 from pathlib import Path
 from typing import Generator
-
 
 def resolve_file_paths(path: str) -> tuple[list[str], str]:
     """
@@ -41,11 +42,16 @@ def resolve_file_paths(path: str) -> tuple[list[str], str]:
 
     raise ValueError(f"Invalid path: {path}")
 
-
-def read_table(file_path: str, file_type: str) -> pd.DataFrame:
-    if file_type == "csv":
-        return pd.read_csv(file_path)
-    return pd.read_parquet(file_path)
+def read_table(path: str | Path, data_format: str | None = None) -> pd.DataFrame:
+    data_path = Path(path)
+    fmt = data_format.lower() if data_format else data_path.suffix.lower().lstrip(".")
+    if data_path.is_dir() and not fmt:
+        fmt = "parquet"
+    if fmt in {"parquet", ""}:
+        return pd.read_parquet(data_path)
+    if fmt in {"csv", "txt"}:
+        return pd.read_csv(data_path)
+    raise ValueError(f"Unsupported data format: {data_path}")
 
 def load_dataframes(file_paths: list[str], file_type: str) -> list[pd.DataFrame]:
     return [read_table(fp, file_type) for fp in file_paths]
@@ -68,3 +74,7 @@ def default_output_dir(path: str) -> Path:
     if path_obj.is_file():
         return path_obj.parent / f"{path_obj.stem}_preprocessed"
     return path_obj.with_name(f"{path_obj.name}_preprocessed")
+
+def read_yaml(path: str | Path):
+    with open(path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file) or {}

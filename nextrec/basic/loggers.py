@@ -13,6 +13,7 @@ import json
 import copy
 import logging
 import numbers
+
 from typing import Mapping, Any
 from nextrec.basic.session import create_session, Session
 

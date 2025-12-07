@@ -10,7 +10,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class SampledSoftmaxLoss(nn.Module):
     """
     Softmax over one positive and multiple sampled negatives.
@@ -26,7 +25,6 @@ class SampledSoftmaxLoss(nn.Module):
         targets = torch.zeros(all_logits.size(0), dtype=torch.long, device=all_logits.device)
         loss = F.cross_entropy(all_logits, targets, reduction=self.reduction)
         return loss
-
 
 class InfoNCELoss(nn.Module):
     """
@@ -50,7 +48,6 @@ class InfoNCELoss(nn.Module):
         loss = F.cross_entropy(logits, labels, reduction=self.reduction)
         return loss
 
-
 class ListNetLoss(nn.Module):
     """
     ListNet loss using top-1 probability distribution.
@@ -72,7 +69,6 @@ class ListNetLoss(nn.Module):
         if self.reduction == "sum":
             return loss.sum()
         return loss
-
 
 class ListMLELoss(nn.Module):
     """
@@ -101,7 +97,6 @@ class ListMLELoss(nn.Module):
         if self.reduction == "sum":
             return loss
         return loss / batch_size
-
 
 class ApproxNDCGLoss(nn.Module):
     """

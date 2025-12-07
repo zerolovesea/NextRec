@@ -12,7 +12,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class BPRLoss(nn.Module):
     """
     Bayesian Personalized Ranking loss with support for multiple negatives.

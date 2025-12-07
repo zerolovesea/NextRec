@@ -2,14 +2,13 @@
 Device management utilities for NextRec
 
 Date: create on 03/12/2025
+Checkpoint: edit on 06/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
-import os
+
 import torch
 import platform
 import logging
-import multiprocessing
-
 
 def resolve_device() -> str:
     if torch.cuda.is_available():
