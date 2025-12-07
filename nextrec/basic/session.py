@@ -7,7 +7,7 @@ Author: Yang Zhou,zyaztec@gmail.com
 import os
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 __all__ = [
@@ -15,6 +15,7 @@ __all__ = [
     "resolve_save_path",
     "create_session",
 ]
+
 
 @dataclass(frozen=True)
 class Session:
@@ -35,7 +36,7 @@ class Session:
     @property
     def predictions_dir(self) -> Path:
         return self._ensure_dir(self.root / "predictions")
-    
+
     @property
     def processor_dir(self) -> Path:
         return self._ensure_dir(self.root / "processor")
@@ -59,6 +60,7 @@ class Session:
     def _ensure_dir(path: Path) -> Path:
         path.mkdir(parents=True, exist_ok=True)
         return path
+
 
 def create_session(experiment_id: str | Path | None = None) -> Session:
 
@@ -85,6 +87,7 @@ def create_session(experiment_id: str | Path | None = None) -> Session:
     root = session_path.resolve()
 
     return Session(experiment_id=exp_id, root=root, log_basename=log_basename)
+
 
 def resolve_save_path(
     path: str | os.PathLike | Path | None,
@@ -129,7 +132,11 @@ def resolve_save_path(
             base_dir = candidate
             file_stem = default_name
         else:
-            base_dir = candidate.parent if candidate.parent not in (Path("."), Path("")) else base_dir
+            base_dir = (
+                candidate.parent
+                if candidate.parent not in (Path("."), Path(""))
+                else base_dir
+            )
             file_stem = candidate.name or default_name
     else:
         file_stem = default_name

@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class CosineContrastiveLoss(nn.Module):
     """
     Contrastive loss using cosine similarity for positive/negative pairs.
@@ -37,6 +38,7 @@ class CosineContrastiveLoss(nn.Module):
             return loss.sum()
         return loss
 
+
 class WeightedBCELoss(nn.Module):
     """
     Binary cross entropy with controllable positive class weight.
@@ -44,6 +46,7 @@ class WeightedBCELoss(nn.Module):
     If `auto_balance=True` and `pos_weight` is None, the positive weight is
     computed from the batch as (#neg / #pos) for stable imbalance handling.
     """
+
     def __init__(
         self,
         pos_weight: float | torch.Tensor | None = None,
@@ -57,7 +60,10 @@ class WeightedBCELoss(nn.Module):
         self.auto_balance = auto_balance
 
         if pos_weight is not None:
-            self.register_buffer("pos_weight", torch.as_tensor(pos_weight, dtype=torch.float32),)
+            self.register_buffer(
+                "pos_weight",
+                torch.as_tensor(pos_weight, dtype=torch.float32),
+            )
         else:
             self.pos_weight = None
 
@@ -94,6 +100,7 @@ class WeightedBCELoss(nn.Module):
         else:
             return loss
 
+
 class FocalLoss(nn.Module):
     """
     Standard focal loss for binary or multi-class classification.
@@ -117,7 +124,9 @@ class FocalLoss(nn.Module):
         if inputs.dim() > 1 and inputs.size(1) > 1:
             log_probs = F.log_softmax(inputs, dim=1)
             probs = log_probs.exp()
-            targets_one_hot = F.one_hot(targets.long(), num_classes=inputs.size(1)).float()
+            targets_one_hot = F.one_hot(
+                targets.long(), num_classes=inputs.size(1)
+            ).float()
 
             alpha = self.get_alpha(inputs)
             alpha_factor = targets_one_hot * alpha
@@ -126,7 +135,9 @@ class FocalLoss(nn.Module):
         else:
             targets = targets.float()
             if self.logits:
-                ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+                ce_loss = F.binary_cross_entropy_with_logits(
+                    inputs, targets, reduction="none"
+                )
                 probs = torch.sigmoid(inputs)
             else:
                 ce_loss = F.binary_cross_entropy(inputs, targets, reduction="none")
@@ -147,22 +158,30 @@ class FocalLoss(nn.Module):
             return torch.ones_like(inputs)
         if isinstance(self.alpha, torch.Tensor):
             return self.alpha.to(inputs.device)
-        alpha_tensor = torch.tensor(self.alpha, device=inputs.device, dtype=inputs.dtype)
+        alpha_tensor = torch.tensor(
+            self.alpha, device=inputs.device, dtype=inputs.dtype
+        )
         return alpha_tensor
 
-    def get_binary_alpha(self, targets: torch.Tensor, device: torch.device) -> torch.Tensor:
+    def get_binary_alpha(
+        self, targets: torch.Tensor, device: torch.device
+    ) -> torch.Tensor:
         if self.alpha is None:
             return torch.ones_like(targets)
         if isinstance(self.alpha, (float, int)):
-            return torch.where(targets == 1, self.alpha, 1 - float(self.alpha)).to(device)
+            return torch.where(targets == 1, self.alpha, 1 - float(self.alpha)).to(
+                device
+            )
         alpha_tensor = torch.tensor(self.alpha, device=device, dtype=targets.dtype)
         return torch.where(targets == 1, alpha_tensor, 1 - alpha_tensor)
+
 
 class ClassBalancedFocalLoss(nn.Module):
     """
     Focal loss weighted by effective number of samples per class.
     Reference: "Class-Balanced Loss Based on Effective Number of Samples"
     """
+
     def __init__(
         self,
         class_counts: Sequence[int] | torch.Tensor,
@@ -180,7 +199,9 @@ class ClassBalancedFocalLoss(nn.Module):
         self.register_buffer("class_weights", weights)
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        focal = FocalLoss(gamma=self.gamma, alpha=self.class_weights, reduction="none", logits=True)
+        focal = FocalLoss(
+            gamma=self.gamma, alpha=self.class_weights, reduction="none", logits=True
+        )
         loss = focal(inputs, targets)
         if self.reduction == "mean":
             return loss.mean()

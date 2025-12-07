@@ -52,6 +52,7 @@ from nextrec.basic.model import BaseModel
 from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
+
 class CGCLayer(nn.Module):
     """
     CGC (Customized Gate Control) block used by PLE.
@@ -71,26 +72,61 @@ class CGCLayer(nn.Module):
         if num_tasks < 1:
             raise ValueError("num_tasks must be >= 1")
 
-        specific_params_list = self._normalize_specific_params(specific_expert_params, num_tasks)
+        specific_params_list = self._normalize_specific_params(
+            specific_expert_params, num_tasks
+        )
 
         self.output_dim = self._get_output_dim(shared_expert_params, input_dim)
-        specific_dims = [self._get_output_dim(params, input_dim) for params in specific_params_list]
+        specific_dims = [
+            self._get_output_dim(params, input_dim) for params in specific_params_list
+        ]
         dims_set = set(specific_dims + [self.output_dim])
         if len(dims_set) != 1:
-            raise ValueError(f"Shared/specific expert output dims must match, got {dims_set}")
+            raise ValueError(
+                f"Shared/specific expert output dims must match, got {dims_set}"
+            )
 
         # experts
-        self.shared_experts = nn.ModuleList([MLP(input_dim=input_dim, output_layer=False, **shared_expert_params,) for _ in range(num_shared_experts)])
+        self.shared_experts = nn.ModuleList(
+            [
+                MLP(
+                    input_dim=input_dim,
+                    output_layer=False,
+                    **shared_expert_params,
+                )
+                for _ in range(num_shared_experts)
+            ]
+        )
         self.specific_experts = nn.ModuleList()
         for params in specific_params_list:
-            task_experts = nn.ModuleList([MLP(input_dim=input_dim, output_layer=False, **params,) for _ in range(num_specific_experts)])
+            task_experts = nn.ModuleList(
+                [
+                    MLP(
+                        input_dim=input_dim,
+                        output_layer=False,
+                        **params,
+                    )
+                    for _ in range(num_specific_experts)
+                ]
+            )
             self.specific_experts.append(task_experts)
 
         # gates
         task_gate_expert_num = num_shared_experts + num_specific_experts
-        self.task_gates = nn.ModuleList([nn.Sequential(nn.Linear(input_dim, task_gate_expert_num), nn.Softmax(dim=1),) for _ in range(num_tasks)])
+        self.task_gates = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(input_dim, task_gate_expert_num),
+                    nn.Softmax(dim=1),
+                )
+                for _ in range(num_tasks)
+            ]
+        )
         shared_gate_expert_num = num_shared_experts + num_specific_experts * num_tasks
-        self.shared_gate = nn.Sequential(nn.Linear(input_dim, shared_gate_expert_num), nn.Softmax(dim=1),)
+        self.shared_gate = nn.Sequential(
+            nn.Linear(input_dim, shared_gate_expert_num),
+            nn.Softmax(dim=1),
+        )
 
         self.num_tasks = num_tasks
 
@@ -98,7 +134,9 @@ class CGCLayer(nn.Module):
         self, task_inputs: list[torch.Tensor], shared_input: torch.Tensor
     ) -> tuple[list[torch.Tensor], torch.Tensor]:
         if len(task_inputs) != self.num_tasks:
-            raise ValueError(f"Expected {self.num_tasks} task inputs, got {len(task_inputs)}")
+            raise ValueError(
+                f"Expected {self.num_tasks} task inputs, got {len(task_inputs)}"
+            )
 
         shared_outputs = [expert(shared_input) for expert in self.shared_experts]
         shared_stack = torch.stack(shared_outputs, dim=0)  # [num_shared, B, D]
@@ -108,7 +146,7 @@ class CGCLayer(nn.Module):
 
         for task_idx in range(self.num_tasks):
             task_input = task_inputs[task_idx]
-            task_specific_outputs = [expert(task_input) for expert in self.specific_experts[task_idx]] # type: ignore
+            task_specific_outputs = [expert(task_input) for expert in self.specific_experts[task_idx]]  # type: ignore
             all_specific_for_shared.extend(task_specific_outputs)
             specific_stack = torch.stack(task_specific_outputs, dim=0)
 
@@ -139,7 +177,9 @@ class CGCLayer(nn.Module):
     ) -> list[dict]:
         if isinstance(params, list):
             if len(params) != num_tasks:
-                raise ValueError(f"Length of specific_expert_params ({len(params)}) must match num_tasks ({num_tasks}).")
+                raise ValueError(
+                    f"Length of specific_expert_params ({len(params)}) must match num_tasks ({num_tasks})."
+                )
             return [p.copy() for p in params]
         return [params.copy() for _ in range(num_tasks)]
 
@@ -147,13 +187,13 @@ class CGCLayer(nn.Module):
 class PLE(BaseModel):
     """
     Progressive Layered Extraction
-    
+
     PLE is an advanced multi-task learning model that extends MMOE by introducing
     both task-specific experts and shared experts at each level. It uses a progressive
     routing mechanism where experts from level k feed into gates at level k+1.
     This design better captures task-specific and shared information progressively.
     """
-    
+
     @property
     def model_name(self):
         return "PLE"
@@ -162,32 +202,34 @@ class PLE(BaseModel):
     def default_task(self):
         num_tasks = getattr(self, "num_tasks", None)
         if num_tasks is not None and num_tasks > 0:
-            return ['binary'] * num_tasks
-        return ['binary']
-    
-    def __init__(self,
-                 dense_features: list[DenseFeature],
-                 sparse_features: list[SparseFeature],
-                 sequence_features: list[SequenceFeature],
-                 shared_expert_params: dict,
-                 specific_expert_params: dict | list[dict],
-                 num_shared_experts: int,
-                 num_specific_experts: int,
-                 num_levels: int,
-                 tower_params_list: list[dict],
-                 target: list[str],
-                 task: str | list[str] | None = None,
-                 optimizer: str = "adam",
-                 optimizer_params: dict | None = None,
-                 loss: str | nn.Module | list[str | nn.Module] | None = "bce",
-                 loss_params: dict | list[dict] | None = None,
-                 device: str = 'cpu',
-                 embedding_l1_reg=1e-6,
-                 dense_l1_reg=1e-5,
-                 embedding_l2_reg=1e-5,
-                 dense_l2_reg=1e-4,
-                 **kwargs):
-        
+            return ["binary"] * num_tasks
+        return ["binary"]
+
+    def __init__(
+        self,
+        dense_features: list[DenseFeature],
+        sparse_features: list[SparseFeature],
+        sequence_features: list[SequenceFeature],
+        shared_expert_params: dict,
+        specific_expert_params: dict | list[dict],
+        num_shared_experts: int,
+        num_specific_experts: int,
+        num_levels: int,
+        tower_params_list: list[dict],
+        target: list[str],
+        task: str | list[str] | None = None,
+        optimizer: str = "adam",
+        optimizer_params: dict | None = None,
+        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+        loss_params: dict | list[dict] | None = None,
+        device: str = "cpu",
+        embedding_l1_reg=1e-6,
+        dense_l1_reg=1e-5,
+        embedding_l2_reg=1e-5,
+        dense_l2_reg=1e-4,
+        **kwargs,
+    ):
+
         self.num_tasks = len(target)
 
         super(PLE, self).__init__(
@@ -201,7 +243,7 @@ class PLE(BaseModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            **kwargs
+            **kwargs,
         )
 
         self.loss = loss
@@ -215,7 +257,9 @@ class PLE(BaseModel):
         if optimizer_params is None:
             optimizer_params = {}
         if len(tower_params_list) != self.num_tasks:
-            raise ValueError(f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})")
+            raise ValueError(
+                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
+            )
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
 
@@ -224,13 +268,13 @@ class PLE(BaseModel):
         # emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
         # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
         # input_dim = emb_dim_total + dense_input_dim
-        
+
         # Get expert output dimension
-        if 'dims' in shared_expert_params and len(shared_expert_params['dims']) > 0:
-            expert_output_dim = shared_expert_params['dims'][-1]
+        if "dims" in shared_expert_params and len(shared_expert_params["dims"]) > 0:
+            expert_output_dim = shared_expert_params["dims"][-1]
         else:
             expert_output_dim = input_dim
-        
+
         # Build CGC layers
         self.cgc_layers = nn.ModuleList()
         for level in range(num_levels):
@@ -245,16 +289,25 @@ class PLE(BaseModel):
             )
             self.cgc_layers.append(cgc_layer)
             expert_output_dim = cgc_layer.output_dim
-        
+
         # Task-specific towers
         self.towers = nn.ModuleList()
         for tower_params in tower_params_list:
             tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
-        self.prediction_layer = PredictionLayer(task_type=self.default_task, task_dims=[1] * self.num_tasks)
+        self.prediction_layer = PredictionLayer(
+            task_type=self.default_task, task_dims=[1] * self.num_tasks
+        )
         # Register regularization weights
-        self.register_regularization_weights(embedding_attr='embedding', include_modules=['cgc_layers', 'towers'])
-        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=self.loss, loss_params=loss_params)
+        self.register_regularization_weights(
+            embedding_attr="embedding", include_modules=["cgc_layers", "towers"]
+        )
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            loss=self.loss,
+            loss_params=loss_params,
+        )
 
     def forward(self, x):
         # Get all embeddings and flatten

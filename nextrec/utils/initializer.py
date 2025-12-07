@@ -61,13 +61,19 @@ def get_initializer(
         elif init_type == "xavier_normal":
             nn.init.xavier_normal_(tensor, gain=gain)
         elif init_type == "kaiming_uniform":
-            nn.init.kaiming_uniform_(tensor, a=param.get("a", 0), nonlinearity=nonlinearity)
+            nn.init.kaiming_uniform_(
+                tensor, a=param.get("a", 0), nonlinearity=nonlinearity
+            )
         elif init_type == "kaiming_normal":
-            nn.init.kaiming_normal_(tensor, a=param.get("a", 0), nonlinearity=nonlinearity)
+            nn.init.kaiming_normal_(
+                tensor, a=param.get("a", 0), nonlinearity=nonlinearity
+            )
         elif init_type == "orthogonal":
             nn.init.orthogonal_(tensor, gain=gain)
         elif init_type == "normal":
-            nn.init.normal_(tensor, mean=param.get("mean", 0.0), std=param.get("std", 0.0001))
+            nn.init.normal_(
+                tensor, mean=param.get("mean", 0.0), std=param.get("std", 0.0001)
+            )
         elif init_type == "uniform":
             nn.init.uniform_(tensor, a=param.get("a", -0.05), b=param.get("b", 0.05))
         else:

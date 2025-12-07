@@ -6,10 +6,10 @@ NextRec supports a flexible training and prediction pipeline driven by configura
 After preparing the configuration YAML files for training and prediction, users can run the
 following script to execute the desired operations.
 
-Examples:   
+Examples:
     # Train a model
     nextrec --mode=train --train_config=tutorials/iflytek/scripts/masknet/train_config.yaml
-    
+
     # Run prediction
     nextrec --mode=predict --predict_config=tutorials/iflytek/scripts/masknet/predict_config.yaml
 
@@ -49,10 +49,11 @@ from nextrec.basic.loggers import setup_logger
 
 logger = logging.getLogger(__name__)
 
+
 def train_model(train_config_path: str) -> None:
     """
     Train a NextRec model using the provided configuration file.
-    
+
     configuration file must specify the below sections:
         - session: Session settings including id and artifact root
         - data: Data settings including path, format, target, validation split
@@ -89,8 +90,12 @@ def train_model(train_config_path: str) -> None:
     streaming_train_files: List[str] | None = None
     streaming_valid_files: List[str] | None = None
 
-    feature_cfg_path = resolve_path(cfg.get("feature_config", "feature_config.yaml"), config_dir)
-    model_cfg_path = resolve_path(cfg.get("model_config", "model_config.yaml"), config_dir)
+    feature_cfg_path = resolve_path(
+        cfg.get("feature_config", "feature_config.yaml"), config_dir
+    )
+    model_cfg_path = resolve_path(
+        cfg.get("model_config", "model_config.yaml"), config_dir
+    )
 
     feature_cfg = read_yaml(feature_cfg_path)
     model_cfg = read_yaml(model_cfg_path)
@@ -117,7 +122,9 @@ def train_model(train_config_path: str) -> None:
         model_cfg["params"].setdefault("feature_groups", feature_groups)
 
     dense_names, sparse_names, sequence_names = select_features(feature_cfg, df_columns)
-    used_columns = dense_names + sparse_names + sequence_names + grouped_columns + target
+    used_columns = (
+        dense_names + sparse_names + sequence_names + grouped_columns + target
+    )
 
     # keep order but drop duplicates
     seen = set()
@@ -128,7 +135,9 @@ def train_model(train_config_path: str) -> None:
             seen.add(col)
 
     processor = DataProcessor()
-    register_processor_features(processor, feature_cfg, dense_names, sparse_names, sequence_names)
+    register_processor_features(
+        processor, feature_cfg, dense_names, sparse_names, sequence_names
+    )
 
     if streaming:
         processor.fit(str(data_path), chunk_size=dataloader_chunk_size)
@@ -160,10 +169,14 @@ def train_model(train_config_path: str) -> None:
         elif streaming_valid_ratio is not None:
             ratio = float(streaming_valid_ratio)
             if not (0 < ratio < 1):
-                raise ValueError(f"[NextRec CLI Error] Valid_ratio must be between 0 and 1, current value is {streaming_valid_ratio}")
+                raise ValueError(
+                    f"[NextRec CLI Error] Valid_ratio must be between 0 and 1, current value is {streaming_valid_ratio}"
+                )
             total_files = len(file_paths)
             if total_files < 2:
-                raise ValueError("[NextRec CLI Error] Must provide val_path or increase the number of data files. At least 2 files are required for streaming validation split.")
+                raise ValueError(
+                    "[NextRec CLI Error] Must provide val_path or increase the number of data files. At least 2 files are required for streaming validation split."
+                )
             val_count = max(1, int(round(total_files * ratio)))
             if val_count >= total_files:
                 val_count = total_files - 1
@@ -198,7 +211,9 @@ def train_model(train_config_path: str) -> None:
         train_data = None  # type: ignore[assignment]
         valid_data = None
         if not val_data_path and not streaming_valid_files:
-            logger.info("流式训练模式，未指定验证集路径且未配置 valid_ratio，跳过验证集创建")
+            logger.info(
+                "流式训练模式，未指定验证集路径且未配置 valid_ratio，跳过验证集创建"
+            )
     else:
         # Split data using valid_ratio
         logger.info("使用 valid_ratio 切分数据: %s", data_cfg.get("valid_ratio", 0.2))
@@ -281,7 +296,9 @@ def train_model(train_config_path: str) -> None:
         valid_data=valid_loader,
         metrics=train_cfg.get("metrics", ["auc", "recall", "precision"]),
         epochs=train_cfg.get("epochs", 1),
-        batch_size=train_cfg.get("batch_size", dataloader_cfg.get("train_batch_size", 512)),
+        batch_size=train_cfg.get(
+            "batch_size", dataloader_cfg.get("train_batch_size", 512)
+        ),
         shuffle=train_cfg.get("shuffle", True),
     )
 
@@ -305,8 +322,12 @@ def predict_model(predict_config_path: str) -> None:
         processor_path = session_dir / "processor" / "processor.pkl"
 
     predict_cfg = cfg.get("predict", {}) or {}
-    model_cfg_path = resolve_path(cfg.get("model_config", "model_config.yaml"), config_dir)
-    feature_cfg_path = resolve_path(cfg.get("feature_config", "feature_config.yaml"), config_dir)
+    model_cfg_path = resolve_path(
+        cfg.get("model_config", "model_config.yaml"), config_dir
+    )
+    feature_cfg_path = resolve_path(
+        cfg.get("feature_config", "feature_config.yaml"), config_dir
+    )
 
     model_cfg = read_yaml(model_cfg_path)
     feature_cfg = read_yaml(feature_cfg_path)
@@ -324,16 +345,24 @@ def predict_model(predict_config_path: str) -> None:
     if checkpoint_base.is_dir():
         candidates = sorted(checkpoint_base.glob("*.model"))
         if not candidates:
-            raise FileNotFoundError(f"[NextRec CLI Error]: Unable to find model checkpoint: {checkpoint_base}")
+            raise FileNotFoundError(
+                f"[NextRec CLI Error]: Unable to find model checkpoint: {checkpoint_base}"
+            )
         model_file = candidates[-1]
         config_dir_for_features = checkpoint_base
     else:
-        model_file = checkpoint_base.with_suffix(".model") if checkpoint_base.suffix == "" else checkpoint_base
+        model_file = (
+            checkpoint_base.with_suffix(".model")
+            if checkpoint_base.suffix == ""
+            else checkpoint_base
+        )
         config_dir_for_features = model_file.parent
 
     features_config_path = config_dir_for_features / "features_config.pkl"
     if not features_config_path.exists():
-        raise FileNotFoundError(f"[NextRec CLI Error]: Unable to find features_config.pkl: {features_config_path}")
+        raise FileNotFoundError(
+            f"[NextRec CLI Error]: Unable to find features_config.pkl: {features_config_path}"
+        )
     with open(features_config_path, "rb") as f:
         features_config = pickle.load(f)
 
@@ -371,7 +400,9 @@ def predict_model(predict_config_path: str) -> None:
         device=predict_cfg.get("device", "cpu"),
     )
     model.id_columns = id_columns
-    model.load_model(model_file, map_location=predict_cfg.get("device", "cpu"), verbose=True)
+    model.load_model(
+        model_file, map_location=predict_cfg.get("device", "cpu"), verbose=True
+    )
 
     id_columns = []
     if predict_cfg.get("id_column"):

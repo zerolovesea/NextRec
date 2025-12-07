@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class SampledSoftmaxLoss(nn.Module):
     """
     Softmax over one positive and multiple sampled negatives.
@@ -19,12 +20,17 @@ class SampledSoftmaxLoss(nn.Module):
         super().__init__()
         self.reduction = reduction
 
-    def forward(self, pos_logits: torch.Tensor, neg_logits: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, pos_logits: torch.Tensor, neg_logits: torch.Tensor
+    ) -> torch.Tensor:
         pos_logits = pos_logits.unsqueeze(1)
         all_logits = torch.cat([pos_logits, neg_logits], dim=1)
-        targets = torch.zeros(all_logits.size(0), dtype=torch.long, device=all_logits.device)
+        targets = torch.zeros(
+            all_logits.size(0), dtype=torch.long, device=all_logits.device
+        )
         loss = F.cross_entropy(all_logits, targets, reduction=self.reduction)
         return loss
+
 
 class InfoNCELoss(nn.Module):
     """
@@ -48,6 +54,7 @@ class InfoNCELoss(nn.Module):
         loss = F.cross_entropy(logits, labels, reduction=self.reduction)
         return loss
 
+
 class ListNetLoss(nn.Module):
     """
     ListNet loss using top-1 probability distribution.
@@ -70,6 +77,7 @@ class ListNetLoss(nn.Module):
             return loss.sum()
         return loss
 
+
 class ListMLELoss(nn.Module):
     """
     ListMLE (Maximum Likelihood Estimation) loss.
@@ -83,7 +91,11 @@ class ListMLELoss(nn.Module):
     def forward(self, scores: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         sorted_labels, sorted_indices = torch.sort(labels, descending=True, dim=1)
         batch_size, list_size = scores.shape
-        batch_indices = torch.arange(batch_size, device=scores.device).unsqueeze(1).expand(-1, list_size)
+        batch_indices = (
+            torch.arange(batch_size, device=scores.device)
+            .unsqueeze(1)
+            .expand(-1, list_size)
+        )
         sorted_scores = scores[batch_indices, sorted_indices]
 
         loss = torch.tensor(0.0, device=scores.device)
@@ -97,6 +109,7 @@ class ListMLELoss(nn.Module):
         if self.reduction == "sum":
             return loss
         return loss / batch_size
+
 
 class ApproxNDCGLoss(nn.Module):
     """
@@ -134,19 +147,19 @@ class ApproxNDCGLoss(nn.Module):
         device = scores.device
 
         # diff[b, i, j] = (s_j - s_i) / T
-        scores_i = scores.unsqueeze(2)          # [B, L, 1]
-        scores_j = scores.unsqueeze(1)          # [B, 1, L]
+        scores_i = scores.unsqueeze(2)  # [B, L, 1]
+        scores_j = scores.unsqueeze(1)  # [B, 1, L]
         diff = (scores_j - scores_i) / self.temperature  # [B, L, L]
 
-        P_ji = torch.sigmoid(diff)             # [B, L, L]
+        P_ji = torch.sigmoid(diff)  # [B, L, L]
         eye = torch.eye(list_size, device=device).unsqueeze(0)  # [1, L, L]
         P_ji = P_ji * (1.0 - eye)
 
-        exp_rank = 1.0 + P_ji.sum(dim=-1)      # [B, L]
+        exp_rank = 1.0 + P_ji.sum(dim=-1)  # [B, L]
 
         discounts = 1.0 / torch.log2(exp_rank + 1.0)  # [B, L]
 
-        gains = torch.pow(2.0, labels) - 1.0   # [B, L]
+        gains = torch.pow(2.0, labels) - 1.0  # [B, L]
         approx_dcg = torch.sum(gains * discounts, dim=1)  # [B]
 
         ideal_dcg = self._ideal_dcg(labels, k)  # [B]

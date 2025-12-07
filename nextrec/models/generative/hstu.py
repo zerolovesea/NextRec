@@ -1,14 +1,14 @@
 """
 [Info: this version is not released yet, i need to more research on source code and paper]
 Date: create on 01/12/2025
-Checkpoint: edit on 01/12/2025 
+Checkpoint: edit on 01/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Meta AI. Generative Recommenders (HSTU encoder) — https://github.com/meta-recsys/generative-recommenders
 [2] Ma W, Li P, Chen C, et al. Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations. arXiv:2402.17152.
 
-Hierarchical Sequential Transduction Unit (HSTU) is the core encoder behind 
-Meta’s Generative Recommenders. It replaces softmax attention with lightweight 
+Hierarchical Sequential Transduction Unit (HSTU) is the core encoder behind
+Meta’s Generative Recommenders. It replaces softmax attention with lightweight
 pointwise activations, enabling extremely deep stacks on long behavior sequences.
 
 In each HSTU layer:
@@ -16,8 +16,8 @@ In each HSTU layer:
   (2) Softmax-free interactions combine QK^T with Relative Attention Bias (RAB) to encode distance
   (3) Aggregated context is modulated by U-gating and mapped back through an output projection
 
-Stacking layers yields an efficient causal encoder for next-item 
-generation. With a tied-embedding LM head, HSTU forms 
+Stacking layers yields an efficient causal encoder for next-item
+generation. With a tied-embedding LM head, HSTU forms
 a full generative recommendation model.
 
 Key Advantages:
@@ -75,7 +75,16 @@ def _relative_position_bucket(
     is_small = n < max_exact
 
     # when the distance is too far, do log scaling
-    large_val = max_exact + ((torch.log(n.float() / max_exact + 1e-6) / math.log(max_distance / max_exact)) * (num_buckets - max_exact)).long()
+    large_val = (
+        max_exact
+        + (
+            (
+                torch.log(n.float() / max_exact + 1e-6)
+                / math.log(max_distance / max_exact)
+            )
+            * (num_buckets - max_exact)
+        ).long()
+    )
     large_val = torch.clamp(large_val, max=num_buckets - 1)
 
     buckets = torch.where(is_small, n.long(), large_val)
@@ -104,10 +113,19 @@ class RelativePositionBias(nn.Module):
         # positions: [T]
         ctx = torch.arange(seq_len, device=device)[:, None]
         mem = torch.arange(seq_len, device=device)[None, :]
-        rel_pos = mem - ctx  # a matrix to describe all relative positions for each [i,j] pair, shape = [seq_len, seq_len]
-        buckets = _relative_position_bucket(rel_pos, num_buckets=self.num_buckets, max_distance=self.max_distance,)  # map to buckets
-        values = self.embedding(buckets) # embedding vector for each [i,j] pair, shape = [seq_len, seq_len, embedding_dim=num_heads]
-        return values.permute(2, 0, 1).unsqueeze(0) # [1, num_heads, seq_len, seq_len]
+        rel_pos = (
+            mem - ctx
+        )  # a matrix to describe all relative positions for each [i,j] pair, shape = [seq_len, seq_len]
+        buckets = _relative_position_bucket(
+            rel_pos,
+            num_buckets=self.num_buckets,
+            max_distance=self.max_distance,
+        )  # map to buckets
+        values = self.embedding(
+            buckets
+        )  # embedding vector for each [i,j] pair, shape = [seq_len, seq_len, embedding_dim=num_heads]
+        return values.permute(2, 0, 1).unsqueeze(0)  # [1, num_heads, seq_len, seq_len]
+
 
 class HSTUPointwiseAttention(nn.Module):
     """
@@ -123,16 +141,18 @@ class HSTUPointwiseAttention(nn.Module):
         d_model: int,
         num_heads: int,
         dropout: float = 0.1,
-        alpha: float | None = None
+        alpha: float | None = None,
     ):
         super().__init__()
         if d_model % num_heads != 0:
-            raise ValueError(f"[HSTUPointwiseAttention Error] d_model({d_model}) % num_heads({num_heads}) != 0")
+            raise ValueError(
+                f"[HSTUPointwiseAttention Error] d_model({d_model}) % num_heads({num_heads}) != 0"
+            )
 
         self.d_model = d_model
         self.num_heads = num_heads
         self.d_head = d_model // num_heads
-        self.alpha = alpha if alpha is not None else (self.d_head ** -0.5)
+        self.alpha = alpha if alpha is not None else (self.d_head**-0.5)
         # project input to 4 * d_model for U, V, Q, K
         self.in_proj = nn.Linear(d_model, 4 * d_model, bias=True)
         # project output back to d_model
@@ -150,9 +170,9 @@ class HSTUPointwiseAttention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None,      # [T, T] with 0 or -inf
+        attn_mask: Optional[torch.Tensor] = None,  # [T, T] with 0 or -inf
         key_padding_mask: Optional[torch.Tensor] = None,  # [B, T], True = pad
-        rab: Optional[torch.Tensor] = None,            # [1, H, T, T] or None
+        rab: Optional[torch.Tensor] = None,  # [1, H, T, T] or None
     ) -> torch.Tensor:
         B, T, D = x.shape
 
@@ -185,8 +205,8 @@ class HSTUPointwiseAttention(nn.Module):
         # padding mask: key_padding_mask is usually [B, T], True = pad
         if key_padding_mask is not None:
             # valid: 1 for non-pad, 0 for pad
-            valid = (~key_padding_mask).float()          # [B, T]
-            valid = valid.view(B, 1, 1, T)               # [B, 1, 1, T]
+            valid = (~key_padding_mask).float()  # [B, T]
+            valid = valid.view(B, 1, 1, T)  # [B, 1, 1, T]
             allowed = allowed * valid
             logits = logits.masked_fill(valid == 0, float("-inf"))
 
@@ -197,7 +217,7 @@ class HSTUPointwiseAttention(nn.Module):
 
         attn = attn / denom  # [B, H, T, T]
         AV = torch.matmul(attn, Vh)  # [B, H, T, d_head]
-        AV = AV.transpose(1, 2).contiguous().view(B, T, D) # reshape back to [B, T, D]
+        AV = AV.transpose(1, 2).contiguous().view(B, T, D)  # reshape back to [B, T, D]
         U_flat = Uh.transpose(1, 2).contiguous().view(B, T, D)
         y = self.out_proj(self.dropout(self.norm(AV) * U_flat))  # [B, T, D]
         return y
@@ -218,10 +238,20 @@ class HSTULayer(nn.Module):
         rab_max_distance: int = 128,
     ):
         super().__init__()
-        self.attn = HSTUPointwiseAttention(d_model=d_model, num_heads=num_heads, dropout=dropout)
+        self.attn = HSTUPointwiseAttention(
+            d_model=d_model, num_heads=num_heads, dropout=dropout
+        )
         self.dropout = nn.Dropout(dropout)
         self.use_rab_pos = use_rab_pos
-        self.rel_pos_bias = (RelativePositionBias(num_heads=num_heads, num_buckets=rab_num_buckets, max_distance=rab_max_distance) if use_rab_pos else None)
+        self.rel_pos_bias = (
+            RelativePositionBias(
+                num_heads=num_heads,
+                num_buckets=rab_num_buckets,
+                max_distance=rab_max_distance,
+            )
+            if use_rab_pos
+            else None
+        )
 
     def forward(
         self,
@@ -236,8 +266,10 @@ class HSTULayer(nn.Module):
         device = x.device
         rab = None
         if self.use_rab_pos:
-            rab = self.rel_pos_bias(seq_len=T, device=device) # [1, H, T, T]
-        out = self.attn(x=x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, rab=rab)
+            rab = self.rel_pos_bias(seq_len=T, device=device)  # [1, H, T, T]
+        out = self.attn(
+            x=x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, rab=rab
+        )
         return x + self.dropout(out)
 
 
@@ -272,7 +304,6 @@ class HSTU(BaseModel):
         use_rab_pos: bool = True,
         rab_num_buckets: int = 32,
         rab_max_distance: int = 128,
-
         tie_embeddings: bool = True,
         target: Optional[list[str] | str] = None,
         task: str | list[str] | None = None,
@@ -289,17 +320,25 @@ class HSTU(BaseModel):
         **kwargs,
     ):
         if not sequence_features:
-            raise ValueError("[HSTU Error] HSTU requires at least one SequenceFeature (user behavior history).")
+            raise ValueError(
+                "[HSTU Error] HSTU requires at least one SequenceFeature (user behavior history)."
+            )
 
         # demo version: use the first SequenceFeature as the main sequence
         self.history_feature = sequence_features[0]
 
-        hidden_dim = d_model or max(int(getattr(self.history_feature, "embedding_dim", 0) or 0), 32)
+        hidden_dim = d_model or max(
+            int(getattr(self.history_feature, "embedding_dim", 0) or 0), 32
+        )
         # Make hidden_dim divisible by num_heads
         if hidden_dim % num_heads != 0:
             hidden_dim = num_heads * math.ceil(hidden_dim / num_heads)
 
-        self.padding_idx = self.history_feature.padding_idx if self.history_feature.padding_idx is not None else 0
+        self.padding_idx = (
+            self.history_feature.padding_idx
+            if self.history_feature.padding_idx is not None
+            else 0
+        )
         self.vocab_size = self.history_feature.vocab_size
         self.max_seq_len = max_seq_len
 
@@ -327,8 +366,19 @@ class HSTU(BaseModel):
         self.input_dropout = nn.Dropout(dropout)
 
         # HSTU layers
-        self.layers = nn.ModuleList([HSTULayer(d_model=hidden_dim, num_heads=num_heads, dropout=dropout, use_rab_pos=use_rab_pos, 
-                                               rab_num_buckets=rab_num_buckets, rab_max_distance=rab_max_distance) for _ in range(num_layers)])
+        self.layers = nn.ModuleList(
+            [
+                HSTULayer(
+                    d_model=hidden_dim,
+                    num_heads=num_heads,
+                    dropout=dropout,
+                    use_rab_pos=use_rab_pos,
+                    rab_num_buckets=rab_num_buckets,
+                    rab_max_distance=rab_max_distance,
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
         self.final_norm = nn.LayerNorm(hidden_dim)
         self.lm_head = nn.Linear(hidden_dim, self.vocab_size, bias=False)
@@ -344,8 +394,17 @@ class HSTU(BaseModel):
         loss_params = loss_params or {}
         loss_params.setdefault("ignore_index", self.ignore_index)
 
-        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, scheduler=scheduler, scheduler_params=scheduler_params, loss="crossentropy", loss_params=loss_params)
-        self.register_regularization_weights(embedding_attr="token_embedding", include_modules=["layers", "lm_head"])
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            scheduler=scheduler,
+            scheduler_params=scheduler_params,
+            loss="crossentropy",
+            loss_params=loss_params,
+        )
+        self.register_regularization_weights(
+            embedding_attr="token_embedding", include_modules=["layers", "lm_head"]
+        )
 
     def _build_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         """
@@ -354,7 +413,7 @@ class HSTU(BaseModel):
         """
         if self.causal_mask.numel() == 0 or self.causal_mask.size(0) < seq_len:
             mask = torch.full((seq_len, seq_len), float("-inf"), device=device)
-            mask = torch.triu(mask, diagonal=1) 
+            mask = torch.triu(mask, diagonal=1)
             self.causal_mask = mask
         return self.causal_mask[:seq_len, :seq_len]
 
@@ -365,27 +424,31 @@ class HSTU(BaseModel):
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         seq = x[self.history_feature.name].long()  # [B, T_raw]
-        seq = self._trim_sequence(seq)            # [B, T]
+        seq = self._trim_sequence(seq)  # [B, T]
 
         B, T = seq.shape
         device = seq.device
         # position ids: [B, T]
         pos_ids = torch.arange(T, device=device).unsqueeze(0).expand(B, -1)
-        token_emb = self.token_embedding(seq)         # [B, T, D]
-        pos_emb = self.position_embedding(pos_ids)    # [B, T, D]
+        token_emb = self.token_embedding(seq)  # [B, T, D]
+        pos_emb = self.position_embedding(pos_ids)  # [B, T, D]
         hidden_states = self.input_dropout(token_emb + pos_emb)
 
         # padding mask：True = pad
-        padding_mask = seq.eq(self.padding_idx)       # [B, T]
+        padding_mask = seq.eq(self.padding_idx)  # [B, T]
         attn_mask = self._build_causal_mask(seq_len=T, device=device)  # [T, T]
 
         for layer in self.layers:
-            hidden_states = layer(x=hidden_states, attn_mask=attn_mask, key_padding_mask=padding_mask)
+            hidden_states = layer(
+                x=hidden_states, attn_mask=attn_mask, key_padding_mask=padding_mask
+            )
         hidden_states = self.final_norm(hidden_states)  # [B, T, D]
 
         valid_lengths = (~padding_mask).sum(dim=1)  # [B]
         last_index = (valid_lengths - 1).clamp(min=0)
-        last_hidden = hidden_states[torch.arange(B, device=device), last_index]  # [B, D]
+        last_hidden = hidden_states[
+            torch.arange(B, device=device), last_index
+        ]  # [B, D]
 
         logits = self.lm_head(last_hidden)  # [B, vocab_size]
         return logits
@@ -395,6 +458,8 @@ class HSTU(BaseModel):
         y_true: [B] or [B, 1], the id of the next item.
         """
         if y_true is None:
-            raise ValueError("[HSTU-compute_loss] Training requires y_true (next item id).")
+            raise ValueError(
+                "[HSTU-compute_loss] Training requires y_true (next item id)."
+            )
         labels = y_true.view(-1).long()
         return self.loss_fn[0](y_pred, labels)

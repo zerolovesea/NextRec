@@ -3,8 +3,8 @@ Date: create on 09/11/2025
 Author:
     Yang Zhou,zyaztec@gmail.com
 Reference:
-    [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions 
-        for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on 
+    [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions
+        for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on
         knowledge discovery & data mining. 2018: 1754-1763.
         (https://arxiv.org/abs/1803.05170)
 """
@@ -17,6 +17,7 @@ from nextrec.basic.model import BaseModel
 from nextrec.basic.layers import LR, EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
+
 class CIN(nn.Module):
     """Compressed Interaction Network from xDeepFM (Lian et al., 2018)."""
 
@@ -28,7 +29,16 @@ class CIN(nn.Module):
         prev_dim, fc_input_dim = input_dim, 0
         for i in range(self.num_layers):
             cross_layer_size = cin_size[i]
-            self.conv_layers.append(torch.nn.Conv1d(input_dim * prev_dim, cross_layer_size, 1, stride=1, dilation=1, bias=True))
+            self.conv_layers.append(
+                torch.nn.Conv1d(
+                    input_dim * prev_dim,
+                    cross_layer_size,
+                    1,
+                    stride=1,
+                    dilation=1,
+                    bias=True,
+                )
+            )
             if self.split_half and i != self.num_layers - 1:
                 cross_layer_size //= 2
             prev_dim = cross_layer_size
@@ -49,7 +59,8 @@ class CIN(nn.Module):
                 h = x
             xs.append(x)
         return self.fc(torch.sum(torch.cat(xs, dim=1), 2))
-    
+
+
 class xDeepFM(BaseModel):
     @property
     def model_name(self):
@@ -58,27 +69,29 @@ class xDeepFM(BaseModel):
     @property
     def default_task(self):
         return "binary"
-    
-    def __init__(self,
-                 dense_features: list[DenseFeature],
-                 sparse_features: list[SparseFeature],
-                 sequence_features: list[SequenceFeature],
-                 mlp_params: dict,
-                 cin_size: list[int] = [128, 128],
-                 split_half: bool = True,
-                 target: list[str] = [],
-                 task: str | list[str] | None = None,
-                 optimizer: str = "adam",
-                 optimizer_params: dict = {},
-                 loss: str | nn.Module | None = "bce",
-                 loss_params: dict | list[dict] | None = None,
-                 device: str = 'cpu',
-                 embedding_l1_reg=1e-6,
-                 dense_l1_reg=1e-5,
-                 embedding_l2_reg=1e-5,
-                 dense_l2_reg=1e-4,
-                 **kwargs):
-        
+
+    def __init__(
+        self,
+        dense_features: list[DenseFeature],
+        sparse_features: list[SparseFeature],
+        sequence_features: list[SequenceFeature],
+        mlp_params: dict,
+        cin_size: list[int] = [128, 128],
+        split_half: bool = True,
+        target: list[str] = [],
+        task: str | list[str] | None = None,
+        optimizer: str = "adam",
+        optimizer_params: dict = {},
+        loss: str | nn.Module | None = "bce",
+        loss_params: dict | list[dict] | None = None,
+        device: str = "cpu",
+        embedding_l1_reg=1e-6,
+        dense_l1_reg=1e-5,
+        embedding_l2_reg=1e-5,
+        dense_l2_reg=1e-4,
+        **kwargs,
+    ):
+
         super(xDeepFM, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
@@ -90,16 +103,16 @@ class xDeepFM(BaseModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            **kwargs
+            **kwargs,
         )
 
         self.loss = loss
         if self.loss is None:
             self.loss = "bce"
-            
+
         # Linear part and CIN part: use sparse and sequence features
         self.linear_features = sparse_features + sequence_features
-        
+
         # Deep part: use all features
         self.deep_features = dense_features + sparse_features + sequence_features
 
@@ -109,21 +122,28 @@ class xDeepFM(BaseModel):
         # Linear part
         linear_dim = sum([f.embedding_dim for f in self.linear_features])
         self.linear = LR(linear_dim)
-        
+
         # CIN part: Compressed Interaction Network
         num_fields = len(self.linear_features)
         self.cin = CIN(input_dim=num_fields, cin_size=cin_size, split_half=split_half)
-        
+
         # Deep part: DNN
-        deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
-        dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
+        deep_emb_dim_total = sum(
+            [
+                f.embedding_dim
+                for f in self.deep_features
+                if not isinstance(f, DenseFeature)
+            ]
+        )
+        dense_input_dim = sum(
+            [getattr(f, "embedding_dim", 1) or 1 for f in dense_features]
+        )
         self.mlp = MLP(input_dim=deep_emb_dim_total + dense_input_dim, **mlp_params)
         self.prediction_layer = PredictionLayer(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(
-            embedding_attr='embedding',
-            include_modules=['linear', 'cin', 'mlp']
+            embedding_attr="embedding", include_modules=["linear", "cin", "mlp"]
         )
 
         self.compile(
@@ -135,14 +155,16 @@ class xDeepFM(BaseModel):
 
     def forward(self, x):
         # Get embeddings for linear and CIN (sparse features only)
-        input_linear = self.embedding(x=x, features=self.linear_features, squeeze_dim=False)
-        
+        input_linear = self.embedding(
+            x=x, features=self.linear_features, squeeze_dim=False
+        )
+
         # Linear part
         y_linear = self.linear(input_linear.flatten(start_dim=1))
-        
+
         # CIN part
         y_cin = self.cin(input_linear)  # [B, 1]
-        
+
         # Deep part
         input_deep = self.embedding(x=x, features=self.deep_features, squeeze_dim=True)
         y_deep = self.mlp(input_deep)  # [B, 1]

@@ -9,15 +9,21 @@ import torch
 import numpy as np
 from typing import Any, Mapping
 
+
 def stack_section(batch: list[dict], section: str):
     entries = [item.get(section) for item in batch if item.get(section) is not None]
     if not entries:
         return None
     merged: dict = {}
     for name in entries[0]:  # type: ignore
-        tensors = [item[section][name] for item in batch if item.get(section) is not None and name in item[section]]
+        tensors = [
+            item[section][name]
+            for item in batch
+            if item.get(section) is not None and name in item[section]
+        ]
         merged[name] = torch.stack(tensors, dim=0)
     return merged
+
 
 def collate_fn(batch):
     """
@@ -28,7 +34,7 @@ def collate_fn(batch):
         "ids": {id_name: Tensor(B, ...)} or None,
     }
     Args: batch: List of samples from DataLoader
-        
+
     Returns: dict: Batched data in unified format
     """
     if not batch:
@@ -72,7 +78,9 @@ def collate_fn(batch):
 
 def batch_to_dict(batch_data: Any, include_ids: bool = True) -> dict:
     if not (isinstance(batch_data, Mapping) and "features" in batch_data):
-        raise TypeError("[BaseModel-batch_to_dict Error] Batch data must be a dict with 'features' produced by the current DataLoader.")
+        raise TypeError(
+            "[BaseModel-batch_to_dict Error] Batch data must be a dict with 'features' produced by the current DataLoader."
+        )
     return {
         "features": batch_data.get("features", {}),
         "labels": batch_data.get("labels"),

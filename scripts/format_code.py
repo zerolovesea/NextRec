@@ -16,7 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -80,11 +80,11 @@ def ensure_tools(should_install: bool) -> None:
         subprocess.check_call(cmd)
         return
 
-    # --no-install: check that both modules are importable
+    # --no-install: check that both commands are available
     missing: List[str] = []
-    for mod in ("ruff", "black"):
-        if importlib.util.find_spec(mod) is None:
-            missing.append(mod)
+    for tool in ("ruff", "black"):
+        if shutil.which(tool) is None:
+            missing.append(tool)
 
     if missing:
         print(
@@ -149,11 +149,23 @@ def chunked(seq: List[Path], size: int = 200) -> Iterable[List[Path]]:
         yield seq[i : i + size]
 
 
-def run_command(cmd: List[str]) -> None:
-    """Run a command and propagate non-zero exit codes."""
+def run_command(cmd: List[str], allow_failure: bool = False) -> int:
+    """Run a command and propagate non-zero exit codes.
+
+    Args:
+        cmd: The command to run.
+        allow_failure: If True, don't raise an exception on non-zero exit codes.
+
+    Returns:
+        The exit code of the command.
+    """
     # Print the command for debugging (optional, can be removed)
     print("+ " + " ".join(cmd))
-    subprocess.check_call(cmd)
+    if allow_failure:
+        return subprocess.call(cmd)
+    else:
+        subprocess.check_call(cmd)
+        return 0
 
 
 def main() -> None:
@@ -171,35 +183,48 @@ def main() -> None:
     py_files = get_non_ignored_py_files(repo_root, target_paths)
 
     if not py_files:
-        print("No non-ignored Python files found under:", ", ".join(map(str, target_paths)))
+        print(
+            "No non-ignored Python files found under:",
+            ", ".join(map(str, target_paths)),
+        )
         sys.exit(0)
 
     print(f"Found {len(py_files)} Python files to process.")
 
-    # ruff: lint + (optionally) fix
-    # black: format
-    # 用 python -m，避免 PATH 问题
+    exit_code = 0  # 用于 --check 模式的最终退出码
+
     for chunk in chunked(py_files):
         paths_str = [str(p) for p in chunk]
 
         if args.check:
-            # ruff: check only, show diff, non-zero if violations
             ruff_cmd = [sys.executable, "-m", "ruff", "check", "--diff", *paths_str]
-            # black: check only, show diff
             black_cmd = [sys.executable, "-m", "black", "--check", "--diff", *paths_str]
+
+            ruff_ret = run_command(ruff_cmd, allow_failure=True)
+            black_ret = run_command(black_cmd, allow_failure=True)
+
+            if ruff_ret != 0 or black_ret != 0:
+                exit_code = 1
         else:
-            # ruff: 自动修复（包括排序 import、删 unused 等）
             ruff_cmd = [sys.executable, "-m", "ruff", "check", "--fix", *paths_str]
-            # black: 真正写回文件
             black_cmd = [sys.executable, "-m", "black", *paths_str]
 
-        run_command(ruff_cmd)
-        run_command(black_cmd)
+            ruff_ret = run_command(ruff_cmd, allow_failure=True)
+            if ruff_ret != 0:
+                print(
+                    "Warning: ruff reported issues that could not be fully fixed. "
+                    "See output above for details.",
+                    file=sys.stderr,
+                )
+
+            run_command(black_cmd, allow_failure=False)
 
     if args.check:
         print("ruff + black check complete.")
     else:
         print("ruff + black formatting complete.")
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

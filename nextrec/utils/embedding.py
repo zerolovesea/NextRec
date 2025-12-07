@@ -8,6 +8,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 import numpy as np
 
+
 def get_auto_embedding_dim(num_classes: int) -> int:
     """
     Calculate the dim of embedding vector according to number of classes in the category.

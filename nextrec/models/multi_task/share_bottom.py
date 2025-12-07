@@ -56,28 +56,30 @@ class ShareBottom(BaseModel):
     def default_task(self):
         num_tasks = getattr(self, "num_tasks", None)
         if num_tasks is not None and num_tasks > 0:
-            return ['binary'] * num_tasks
-        return ['binary']
-    
-    def __init__(self,
-                 dense_features: list[DenseFeature],
-                 sparse_features: list[SparseFeature],
-                 sequence_features: list[SequenceFeature],
-                 bottom_params: dict,
-                 tower_params_list: list[dict],
-                 target: list[str],
-                 task: str | list[str] | None = None,
-                 optimizer: str = "adam",
-                 optimizer_params: dict = {},
-                 loss: str | nn.Module | list[str | nn.Module] | None = "bce",
-                 loss_params: dict | list[dict] | None = None,
-                 device: str = 'cpu',
-                 embedding_l1_reg=1e-6,
-                 dense_l1_reg=1e-5,
-                 embedding_l2_reg=1e-5,
-                 dense_l2_reg=1e-4,
-                 **kwargs):
-        
+            return ["binary"] * num_tasks
+        return ["binary"]
+
+    def __init__(
+        self,
+        dense_features: list[DenseFeature],
+        sparse_features: list[SparseFeature],
+        sequence_features: list[SequenceFeature],
+        bottom_params: dict,
+        tower_params_list: list[dict],
+        target: list[str],
+        task: str | list[str] | None = None,
+        optimizer: str = "adam",
+        optimizer_params: dict = {},
+        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+        loss_params: dict | list[dict] | None = None,
+        device: str = "cpu",
+        embedding_l1_reg=1e-6,
+        dense_l1_reg=1e-5,
+        embedding_l2_reg=1e-5,
+        dense_l2_reg=1e-4,
+        **kwargs,
+    ):
+
         self.num_tasks = len(target)
 
         super(ShareBottom, self).__init__(
@@ -91,7 +93,7 @@ class ShareBottom(BaseModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            **kwargs
+            **kwargs,
         )
 
         self.loss = loss
@@ -100,7 +102,9 @@ class ShareBottom(BaseModel):
         # Number of tasks
         self.num_tasks = len(target)
         if len(tower_params_list) != self.num_tasks:
-            raise ValueError(f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})")
+            raise ValueError(
+                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
+            )
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
         # Calculate input dimension
@@ -108,39 +112,48 @@ class ShareBottom(BaseModel):
         # emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
         # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
         # input_dim = emb_dim_total + dense_input_dim
-        
+
         # Shared bottom network
         self.bottom = MLP(input_dim=input_dim, output_layer=False, **bottom_params)
-        
+
         # Get bottom output dimension
-        if 'dims' in bottom_params and len(bottom_params['dims']) > 0:
-            bottom_output_dim = bottom_params['dims'][-1]
+        if "dims" in bottom_params and len(bottom_params["dims"]) > 0:
+            bottom_output_dim = bottom_params["dims"][-1]
         else:
             bottom_output_dim = input_dim
-        
+
         # Task-specific towers
         self.towers = nn.ModuleList()
         for tower_params in tower_params_list:
             tower = MLP(input_dim=bottom_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
-        self.prediction_layer = PredictionLayer(task_type=self.default_task, task_dims=[1] * self.num_tasks)
+        self.prediction_layer = PredictionLayer(
+            task_type=self.default_task, task_dims=[1] * self.num_tasks
+        )
         # Register regularization weights
-        self.register_regularization_weights(embedding_attr='embedding', include_modules=['bottom', 'towers'])
-        self.compile(optimizer=optimizer, optimizer_params=optimizer_params, loss=loss, loss_params=loss_params)
+        self.register_regularization_weights(
+            embedding_attr="embedding", include_modules=["bottom", "towers"]
+        )
+        self.compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            loss=loss,
+            loss_params=loss_params,
+        )
 
     def forward(self, x):
         # Get all embeddings and flatten
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
-        
+
         # Shared bottom
         bottom_output = self.bottom(input_flat)  # [B, bottom_dim]
-        
+
         # Task-specific towers
         task_outputs = []
         for tower in self.towers:
             tower_output = tower(bottom_output)  # [B, 1]
             task_outputs.append(tower_output)
-        
+
         # Stack outputs: [B, num_tasks]
         y = torch.cat(task_outputs, dim=1)
         return self.prediction_layer(y)

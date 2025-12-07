@@ -5,6 +5,7 @@ Author:
 Reference:
     DSSM v2 - DSSM with pairwise training using BPR loss
 """
+
 import torch
 import torch.nn as nn
 from typing import Literal
@@ -18,40 +19,48 @@ class DSSM_v2(BaseMatchModel):
     """
     DSSM with Pairwise Training
     """
+
     @property
     def model_name(self) -> str:
         return "DSSM_v2"
-    
-    def __init__(self,
-                 user_dense_features: list[DenseFeature] | None = None,
-                 user_sparse_features: list[SparseFeature] | None = None,
-                 user_sequence_features: list[SequenceFeature] | None = None,
-                 item_dense_features: list[DenseFeature] | None = None,
-                 item_sparse_features: list[SparseFeature] | None = None,
-                 item_sequence_features: list[SequenceFeature] | None = None,
-                 user_dnn_hidden_units: list[int] = [256, 128, 64],
-                 item_dnn_hidden_units: list[int] = [256, 128, 64],
-                 embedding_dim: int = 64,
-                 dnn_activation: str = 'relu',
-                 dnn_dropout: float = 0.0,
-                 training_mode: Literal['pointwise', 'pairwise', 'listwise'] = 'pairwise',
-                 num_negative_samples: int = 4,
-                 temperature: float = 1.0,
-                 similarity_metric: Literal['dot', 'cosine', 'euclidean'] = 'dot',
-                 device: str = 'cpu',
-                 embedding_l1_reg: float = 0.0,
-                 dense_l1_reg: float = 0.0,
-                 embedding_l2_reg: float = 0.0,
-                 dense_l2_reg: float = 0.0,
-                 early_stop_patience: int = 20,
-                 optimizer: str | torch.optim.Optimizer = "adam",
-                 optimizer_params: dict | None = None,
-                 scheduler: str | torch.optim.lr_scheduler._LRScheduler | type[torch.optim.lr_scheduler._LRScheduler] | None = None,
-                 scheduler_params: dict | None = None,
-                 loss: str | nn.Module | list[str | nn.Module] | None = "bce",
-                 loss_params: dict | list[dict] | None = None,
-                 **kwargs):
-        
+
+    def __init__(
+        self,
+        user_dense_features: list[DenseFeature] | None = None,
+        user_sparse_features: list[SparseFeature] | None = None,
+        user_sequence_features: list[SequenceFeature] | None = None,
+        item_dense_features: list[DenseFeature] | None = None,
+        item_sparse_features: list[SparseFeature] | None = None,
+        item_sequence_features: list[SequenceFeature] | None = None,
+        user_dnn_hidden_units: list[int] = [256, 128, 64],
+        item_dnn_hidden_units: list[int] = [256, 128, 64],
+        embedding_dim: int = 64,
+        dnn_activation: str = "relu",
+        dnn_dropout: float = 0.0,
+        training_mode: Literal["pointwise", "pairwise", "listwise"] = "pairwise",
+        num_negative_samples: int = 4,
+        temperature: float = 1.0,
+        similarity_metric: Literal["dot", "cosine", "euclidean"] = "dot",
+        device: str = "cpu",
+        embedding_l1_reg: float = 0.0,
+        dense_l1_reg: float = 0.0,
+        embedding_l2_reg: float = 0.0,
+        dense_l2_reg: float = 0.0,
+        early_stop_patience: int = 20,
+        optimizer: str | torch.optim.Optimizer = "adam",
+        optimizer_params: dict | None = None,
+        scheduler: (
+            str
+            | torch.optim.lr_scheduler._LRScheduler
+            | type[torch.optim.lr_scheduler._LRScheduler]
+            | None
+        ) = None,
+        scheduler_params: dict | None = None,
+        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+        loss_params: dict | list[dict] | None = None,
+        **kwargs,
+    ):
+
         super(DSSM_v2, self).__init__(
             user_dense_features=user_dense_features,
             user_sparse_features=user_sparse_features,
@@ -68,13 +77,13 @@ class DSSM_v2(BaseMatchModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            **kwargs
+            **kwargs,
         )
-        
+
         self.embedding_dim = embedding_dim
         self.user_dnn_hidden_units = user_dnn_hidden_units
         self.item_dnn_hidden_units = item_dnn_hidden_units
-        
+
         # User tower
         user_features = []
         if user_dense_features:
@@ -83,10 +92,10 @@ class DSSM_v2(BaseMatchModel):
             user_features.extend(user_sparse_features)
         if user_sequence_features:
             user_features.extend(user_sequence_features)
-        
+
         if len(user_features) > 0:
             self.user_embedding = EmbeddingLayer(user_features)
-            
+
             user_input_dim = 0
             for feat in user_dense_features or []:
                 user_input_dim += 1
@@ -94,16 +103,16 @@ class DSSM_v2(BaseMatchModel):
                 user_input_dim += feat.embedding_dim
             for feat in user_sequence_features or []:
                 user_input_dim += feat.embedding_dim
-            
+
             user_dnn_units = user_dnn_hidden_units + [embedding_dim]
             self.user_dnn = MLP(
                 input_dim=user_input_dim,
                 dims=user_dnn_units,
                 output_layer=False,
                 dropout=dnn_dropout,
-                activation=dnn_activation
+                activation=dnn_activation,
             )
-        
+
         # Item tower
         item_features = []
         if item_dense_features:
@@ -112,10 +121,10 @@ class DSSM_v2(BaseMatchModel):
             item_features.extend(item_sparse_features)
         if item_sequence_features:
             item_features.extend(item_sequence_features)
-        
+
         if len(item_features) > 0:
             self.item_embedding = EmbeddingLayer(item_features)
-            
+
             item_input_dim = 0
             for feat in item_dense_features or []:
                 item_input_dim += 1
@@ -123,25 +132,23 @@ class DSSM_v2(BaseMatchModel):
                 item_input_dim += feat.embedding_dim
             for feat in item_sequence_features or []:
                 item_input_dim += feat.embedding_dim
-            
+
             item_dnn_units = item_dnn_hidden_units + [embedding_dim]
             self.item_dnn = MLP(
                 input_dim=item_input_dim,
                 dims=item_dnn_units,
                 output_layer=False,
                 dropout=dnn_dropout,
-                activation=dnn_activation
+                activation=dnn_activation,
             )
-        
+
         self.register_regularization_weights(
-            embedding_attr='user_embedding',
-            include_modules=['user_dnn']
+            embedding_attr="user_embedding", include_modules=["user_dnn"]
         )
         self.register_regularization_weights(
-            embedding_attr='item_embedding',
-            include_modules=['item_dnn']
+            embedding_attr="item_embedding", include_modules=["item_dnn"]
         )
-        
+
         if optimizer_params is None:
             optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5}
 
@@ -155,25 +162,33 @@ class DSSM_v2(BaseMatchModel):
         )
 
         self.to(device)
-    
+
     def user_tower(self, user_input: dict) -> torch.Tensor:
         """User tower"""
-        all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
+        all_user_features = (
+            self.user_dense_features
+            + self.user_sparse_features
+            + self.user_sequence_features
+        )
         user_emb = self.user_embedding(user_input, all_user_features, squeeze_dim=True)
         user_emb = self.user_dnn(user_emb)
-        
+
         # Normalization for better pairwise training
         user_emb = torch.nn.functional.normalize(user_emb, p=2, dim=1)
-        
+
         return user_emb
-    
+
     def item_tower(self, item_input: dict) -> torch.Tensor:
         """Item tower"""
-        all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
+        all_item_features = (
+            self.item_dense_features
+            + self.item_sparse_features
+            + self.item_sequence_features
+        )
         item_emb = self.item_embedding(item_input, all_item_features, squeeze_dim=True)
         item_emb = self.item_dnn(item_emb)
-        
+
         # Normalization for better pairwise training
         item_emb = torch.nn.functional.normalize(item_emb, p=2, dim=1)
-        
+
         return item_emb
