@@ -61,10 +61,10 @@ class WideDeep(BaseModel):
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
         mlp_params: dict,
-        target: list[str] = [],
+        target: list[str] | str | None = None,
         task: str | list[str] | None = None,
         optimizer: str = "adam",
-        optimizer_params: dict = {},
+        optimizer_params: dict | None = None,
         loss: str | nn.Module | None = "bce",
         loss_params: dict | list[dict] | None = None,
         device: str = "cpu",
@@ -74,6 +74,12 @@ class WideDeep(BaseModel):
         dense_l2_reg=1e-4,
         **kwargs,
     ):
+
+        if target is None:
+            target = []
+        optimizer_params = optimizer_params or {}
+        if loss is None:
+            loss = "bce"
 
         super(WideDeep, self).__init__(
             dense_features=dense_features,
@@ -90,8 +96,6 @@ class WideDeep(BaseModel):
         )
 
         self.loss = loss
-        if self.loss is None:
-            self.loss = "bce"
 
         # Wide part: use all features for linear model
         self.wide_features = sparse_features + sequence_features

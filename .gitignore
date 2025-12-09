@@ -94,6 +94,7 @@ criteo/
 # Test coverage
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
 .tox/
 .hypothesis/

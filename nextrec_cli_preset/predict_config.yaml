@@ -1,0 +1,24 @@
+session:
+  id: nextrec-cli_tutorial          
+  artifact_root: nextrec_logs
+
+checkpoint_path: nextrec_logs/nextrec-cli_tutorial
+
+feature_config: nextrec_cli_preset/feature_config.yaml
+model_config: nextrec_cli_preset/model_configs/mmoe.yaml
+
+predict:
+  data_path: dataset/ctcvr_task.csv   
+  output_path: nextrec_logs/nextrec-cli_tutorial/predictions/pred_ctcvr_task.csv
+
+  id_column: user_id                 
+  batch_size: 512
+
+  chunk_size: 20000
+  save_format: csv
+
+  device: cpu                       
+  load_full: true                
+
+  num_workers: 6
+  preview_rows: 5

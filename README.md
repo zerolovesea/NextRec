@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.2-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.3-orange.svg)
 
 English | [中文文档](README_zh.md)
 
@@ -15,16 +15,28 @@ English | [中文文档](README_zh.md)
 
 </div>
 
+## Table of Contents
+
+- [Introduction](#introduction)
+- [Installation](#installation)
+- [Architecture](#architecture)
+- [5-Minute Quick Start](#5-minute-quick-start)
+- [CLI Usage](#cli-usage)
+- [Platform Compatibility](#platform-compatibility)
+- [Supported Models](#supported-models)
+- [Contributing](#contributing)
+
 ## Introduction
 
-NextRec is a modern recommendation framework built on PyTorch, delivering a unified experience for modeling, training, and evaluation. It follows a modular design with rich model implementations, data-processing utilities, and engineering-ready training components. NextRec focuses on large-scale industrial recall scenarios on Spark clusters, training on massive offline parquet features.
+NextRec is a modern recommendation system framework built on PyTorch, providing researchers and engineering teams with a fast modeling, training, and evaluation experience. The framework adopts a modular design with rich built-in model implementations, data processing tools, and engineering-ready training components, covering various recommendation scenarios. NextRec provides easy-to-use interfaces, command-line tools, and tutorials, enabling recommendation algorithm learners to quickly understand model architectures and train and infer models at the fastest speed.
 
 ## Why NextRec
 
-- **Unified feature engineering & data pipeline**: Dense/Sparse/Sequence feature definitions, persistent DataProcessor, and batch-optimized RecDataLoader, matching offline feature training/inference in industrial big-data settings.
-- **Multi-scenario coverage**: Ranking (CTR/CVR), retrieval, multi-task learning, and more marketing/rec models, with a continuously expanding model zoo.
-- **Developer-friendly experience**: Stream processing/training/inference for csv/parquet/pathlike data, plus GPU/MPS acceleration and visualization support.
-- **Efficient training & evaluation**: Standardized engine with optimizers, LR schedulers, early stopping, checkpoints, and detailed logging out of the box.
+- **Unified feature engineering & data pipeline**: NextRec provides Dense/Sparse/Sequence feature definitions, persistent DataProcessor, and batch-optimized RecDataLoader, matching the model training and inference process based on offline `parquet/csv` features in industrial big-data Spark/Hive scenarios.
+- **Multi-scenario recommendation capabilities**: Covers ranking (CTR/CVR), retrieval, multi-task learning and other recommendation/marketing models, with a continuously expanding model zoo.
+- **Developer-friendly experience**: Supports stream preprocessing/distributed training/inference for various data formats (`csv/parquet/pathlike`), GPU acceleration and visual metric monitoring, facilitating experiments for business algorithm engineers and recommendation algorithm learners.
+- **Flexible command-line tool**: Through configuring training and inference config files, start training and inference processes with one command `nextrec --mode=train --train_config=train_config.yaml`, facilitating rapid experiment iteration and agile deployment.
+- **Efficient training & evaluation**: NextRec's standardized training engine comes with various optimizers, learning rate schedulers, early stopping, model checkpoints, and detailed log management built-in, ready to use out of the box.
 
 ## Architecture
 
@@ -40,34 +52,36 @@ NextRec adopts a modular and low-coupling engineering design, enabling full-pipe
 
 You can quickly install the latest NextRec via `pip install nextrec`; Python 3.10+ is required.
 
+
 ## Tutorials
 
-See `tutorials/` for examples covering ranking, retrieval, multi-task learning, and data processing:
+We provide multiple examples in the `tutorials/` directory, covering ranking, retrieval, multi-task, and data processing scenarios:
 
-- [movielen_ranking_deepfm.py](/tutorials/movielen_ranking_deepfm.py) — DeepFM training on MovieLens 100k
-- [example_ranking_din.py](/tutorials/example_ranking_din.py) — DIN training on the e-commerce dataset
-- [example_multitask.py](/tutorials/example_multitask.py) — ESMM multi-task training on the e-commerce dataset
-- [movielen_match_dssm.py](/tutorials/example_match_dssm.py) — DSSM retrieval on MovieLens 100k
+- [movielen_ranking_deepfm.py](/tutorials/movielen_ranking_deepfm.py) — DeepFM model training example on MovieLens 100k dataset
+- [example_ranking_din.py](/tutorials/example_ranking_din.py) — DIN deep interest network training example on e-commerce dataset
+- [example_multitask.py](/tutorials/example_multitask.py) — ESMM multi-task learning training example on e-commerce dataset
+- [movielen_match_dssm.py](/tutorials/example_match_dssm.py) — DSSM retrieval model example trained on MovieLens 100k dataset
+- [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) — Quickly verify the availability of all ranking models
+- [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) — Quickly verify the availability of all multi-task models
+- [run_all_match_models.py](/tutorials/run_all_match_models.py) — Quickly verify the availability of all retrieval models
 
-To dive deeper, Jupyter notebooks are available:
+If you want to learn more details about the NextRec framework, we also provide Jupyter notebooks to help you understand:
 
-- [Hands on the NextRec framework](/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
-- [Using the data processor for preprocessing](/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
-
-> Current version [0.4.2]: the matching module is not fully polished yet and may have compatibility issues or unexpected errors. Please raise an issue if you run into problems.
+- [How to get started with the NextRec framework](/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
+- [How to use the data processor for data preprocessing](/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
 
 ## 5-Minute Quick Start
 
-We provide a detailed quick start and paired datasets to help you learn the framework. In `datasets/` you’ll find an e-commerce sample dataset like this:
+We provide a detailed quick start guide and paired datasets to help you become familiar with different features of the NextRec framework. We provide a test dataset from an e-commerce scenario in the `datasets/` path, with data examples as follows:
 
 | user_id | item_id | dense_0     | dense_1     | dense_2     | dense_3    | dense_4     | dense_5     | dense_6     | dense_7     | sparse_0 | sparse_1 | sparse_2 | sparse_3 | sparse_4 | sparse_5 | sparse_6 | sparse_7 | sparse_8 | sparse_9 | sequence_0                                               | sequence_1                                                | label |
 |--------|---------|-------------|-------------|-------------|------------|-------------|-------------|-------------|-------------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|-----------------------------------------------------------|-----------------------------------------------------------|-------|
 | 1      | 7817    | 0.14704075  | 0.31020382  | 0.77780896  | 0.944897   | 0.62315375  | 0.57124174  | 0.77009535  | 0.3211029   | 315      | 260      | 379      | 146      | 168      | 161      | 138      | 88       | 5        | 312      | [170,175,97,338,105,353,272,546,175,545,463,128,0,0,0]   | [368,414,820,405,548,63,327,0,0,0,0,0,0,0,0]              | 0     |
 | 1      | 3579    | 0.77811223  | 0.80359334  | 0.5185201   | 0.91091245 | 0.043562356 | 0.82142705  | 0.8803686   | 0.33748195 | 149      | 229      | 442      | 6        | 167      | 252      | 25       | 402      | 7        | 168      | [179,48,61,551,284,165,344,151,0,0,0,0,0,0,0]            | [814,0,0,0,0,0,0,0,0,0,0,0,0,0,0]                          | 1     |
 
-Below is a short example showing how to train a DIN model. DIN (Deep Interest Network) won Best Paper at KDD 2018 for CTR prediction. You can also run `python tutorials/example_ranking_din.py` directly.
+Next, we'll use a short example to show you how to train a DIN model using NextRec. DIN (Deep Interest Network) is from Alibaba's 2018 KDD Best Paper, used for CTR prediction scenarios. You can also directly execute `python tutorials/example_ranking_din.py` to run the training and inference code.
 
-After training, detailed logs are available under `nextrec_logs/din_tutorial`.
+After starting training, you can view detailed training logs in the `nextrec_logs/din_tutorial` path.
 
 ```python
 import pandas as pd
@@ -140,9 +154,25 @@ metrics = model.evaluate(
 )
 ```
 
+## CLI Usage
+
+NextRec provides a powerful command-line interface for model training and prediction using YAML configuration files. For detailed CLI documentation, see:
+
+- [NextRec CLI User Guide](/nextrec_cli_preset/NextRec-CLI.md) - Complete guide for using the CLI
+
+```bash
+# Train a model
+nextrec --mode=train --train_config=path/to/train_config.yaml
+
+# Run prediction
+nextrec --mode=predict --predict_config=path/to/predict_config.yaml
+```
+
+> As of version 0.4.3, NextRec CLI supports single-machine training; distributed training features are currently under development.
+
 ## Platform Compatibility
 
-The current version is 0.4.2. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.4.3. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -191,14 +221,13 @@ The current version is 0.4.2. All models and test code have been validated on th
 | [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-task Model | SIGIR 2018 | Supported |
 | [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | - | Supported |
 | [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold-start Modules for Large-scale Recommender Systems | 2021 | Supported |
-| [POSO-IFLYTEK](nextrec/models/multi_task/poso_iflytek.py) | POSO with PLE-style gating for sequential marketing tasks | - | Supported |
 
 ### Generative Models
 
 | Model | Paper | Year | Status |
 |-------|-------|------|--------|
 | [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | NeurIPS 2023 | In Progress |
-| [HSTU](nextrec/models/generative/hstu.py) | Hierarchical Sequential Transduction Units | - | In Progress |
+| [HSTU](nextrec/models/generative/hstu.py) | Hierarchical Sequential Transduction Units | - | Supported |
 
 ---
 
@@ -214,7 +243,7 @@ We welcome contributions of any form!
 4. Push your branch (`git push origin feature/AmazingFeature`)  
 5. Open a Pull Request  
 
-> Before submitting a PR, please run tests using `pytest test/ -v` or `python -m pytest` to ensure everything passes.
+> Before submitting a PR, please run `python test/run_tests.py` and `python scripts/format_code.py` to ensure all tests pass and code style is unified.
 
 ### Code Style
 

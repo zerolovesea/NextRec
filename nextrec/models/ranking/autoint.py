@@ -1,7 +1,7 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 24/11/2025
-Author: Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 09/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Song W, Shi C, Xiao Z, et al. Autoint: Automatic feature interaction learning via
 self-attentive neural networks[C]//Proceedings of the 28th ACM international conference

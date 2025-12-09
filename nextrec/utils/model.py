@@ -20,3 +20,25 @@ def get_mlp_output_dim(params: dict, fallback: int) -> int:
     if dims:
         return dims[-1]
     return fallback
+
+
+def select_features(
+    available_features: list,
+    names: list[str],
+    param_name: str,
+) -> list:
+    if not names:
+        return []
+
+    if len(names) != len(set(names)):
+        raise ValueError(f"{param_name} contains duplicate feature names: {names}")
+
+    feature_map = {feat.name: feat for feat in available_features}
+    missing = [name for name in names if name not in feature_map]
+    if missing:
+        raise ValueError(
+            f"{param_name} contains unknown feature names {missing}. "
+            f"Available features: {list(feature_map)}"
+        )
+
+    return [feature_map[name] for name in names]

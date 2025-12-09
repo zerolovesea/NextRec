@@ -76,12 +76,12 @@ class xDeepFM(BaseModel):
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
         mlp_params: dict,
-        cin_size: list[int] = [128, 128],
+        cin_size: list[int] | None = None,
         split_half: bool = True,
-        target: list[str] = [],
+        target: list[str] | str | None = None,
         task: str | list[str] | None = None,
         optimizer: str = "adam",
-        optimizer_params: dict = {},
+        optimizer_params: dict | None = None,
         loss: str | nn.Module | None = "bce",
         loss_params: dict | list[dict] | None = None,
         device: str = "cpu",
@@ -91,6 +91,13 @@ class xDeepFM(BaseModel):
         dense_l2_reg=1e-4,
         **kwargs,
     ):
+
+        cin_size = cin_size or [128, 128]
+        if target is None:
+            target = []
+        optimizer_params = optimizer_params or {}
+        if loss is None:
+            loss = "bce"
 
         super(xDeepFM, self).__init__(
             dense_features=dense_features,
@@ -107,8 +114,6 @@ class xDeepFM(BaseModel):
         )
 
         self.loss = loss
-        if self.loss is None:
-            self.loss = "bce"
 
         # Linear part and CIN part: use sparse and sequence features
         self.linear_features = sparse_features + sequence_features

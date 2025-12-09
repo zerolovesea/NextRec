@@ -61,6 +61,19 @@ def train_model(
                 )
                 for f in dense_features
             ]
+        elif model_name == "PNN":
+            from nextrec.basic.features import DenseFeature
+
+            embedding_dim = sparse_features[0].embedding_dim if sparse_features else 16
+            adjusted_dense_features = [
+                DenseFeature(
+                    name=f.name,
+                    embedding_dim=embedding_dim,
+                    input_dim=f.input_dim,
+                    use_embedding=True,
+                )
+                for f in dense_features
+            ]
         else:
             adjusted_dense_features = dense_features
 
@@ -132,6 +145,9 @@ def main():
     }
     results = {}
 
+    behavior_feature_name = sequence_features[0].name if sequence_features else None
+    candidate_feature_name = "item_id"
+
     models_to_train = [
         (FM, "FM", {}),
         (DeepFM, "DeepFM", {"mlp_params": mlp_params}),
@@ -149,7 +165,15 @@ def main():
             },
         ),
         (AFM, "AFM", {"attention_dim": 64, "attention_dropout": 0.2}),
-        (PNN, "PNN", {"mlp_params": mlp_params, "product_type": "inner"}),
+        (
+            PNN,
+            "PNN",
+            {
+                "mlp_params": mlp_params,
+                "product_type": "inner",  # set to "outer" to use outer-product kernel
+                "outer_product_dim": 64,
+            },
+        ),
         (
             FiBiNET,
             "FiBiNET",
@@ -166,6 +190,8 @@ def main():
                 "mlp_params": mlp_params,
                 "attention_hidden_units": [80, 40],
                 "attention_activation": "sigmoid",
+                "behavior_feature_name": behavior_feature_name,
+                "candidate_feature_name": candidate_feature_name,
             },
         ),
         (
@@ -175,6 +201,12 @@ def main():
                 "mlp_params": mlp_params,
                 "gru_hidden_size": 32,
                 "attention_hidden_units": [80, 40],
+                # DIEN-specific required args match synthetic data columns
+                "behavior_feature_name": behavior_feature_name,  # first generated sequence
+                "candidate_feature_name": candidate_feature_name,  # candidate item id
+                # optional negative behavior sequence for auxiliary loss
+                "use_negsampling": True,
+                "neg_behavior_feature_name": "sequence_1",  # second generated sequence as negatives
             },
         ),
         (
@@ -182,7 +214,7 @@ def main():
             "MaskNet",
             {
                 "mlp_params": mlp_params,
-                "model_type": "parallel",
+                "architecture": "parallel",
                 "num_blocks": 3,
                 "mask_hidden_dim": 64,
                 "block_hidden_dim": 256,

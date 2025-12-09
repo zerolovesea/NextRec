@@ -8,10 +8,10 @@ following script to execute the desired operations.
 
 Examples:
     # Train a model
-    nextrec --mode=train --train_config=tutorials/iflytek/scripts/masknet/train_config.yaml
+    nextrec --mode=train --train_config=nextrec_cli_preset/train_config.yaml
 
     # Run prediction
-    nextrec --mode=predict --predict_config=tutorials/iflytek/scripts/masknet/predict_config.yaml
+    nextrec --mode=predict --predict_config=nextrec_cli_preset/predict_config.yaml
 
 Date: create on 06/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
@@ -33,7 +33,6 @@ from nextrec.data.preprocessor import DataProcessor
 from nextrec.utils.config import (
     build_feature_objects,
     build_model_instance,
-    extract_feature_groups,
     register_processor_features,
     resolve_path,
     select_features,
@@ -115,16 +114,13 @@ def train_model(train_config_path: str) -> None:
         df = read_table(data_path, data_cfg.get("format"))
         df_columns = list(df.columns)
 
-    # for some models have independent feature groups, we need to extract them here
-    feature_groups, grouped_columns = extract_feature_groups(feature_cfg, df_columns)
-    if feature_groups:
-        model_cfg.setdefault("params", {})
-        model_cfg["params"].setdefault("feature_groups", feature_groups)
-
     dense_names, sparse_names, sequence_names = select_features(feature_cfg, df_columns)
-    used_columns = (
-        dense_names + sparse_names + sequence_names + grouped_columns + target
-    )
+
+    # Extract id_column from data config for GAUC metrics
+    id_column = data_cfg.get("id_column") or data_cfg.get("user_id_column")
+    id_columns = [id_column] if id_column else []
+
+    used_columns = dense_names + sparse_names + sequence_names + target + id_columns
 
     # keep order but drop duplicates
     seen = set()
@@ -183,17 +179,16 @@ def train_model(train_config_path: str) -> None:
             streaming_valid_files = file_paths[-val_count:]
             streaming_train_files = file_paths[:-val_count]
             logger.info(
-                "使用 valid_ratio=%.3f 切分文件: 训练 %d 个文件, 验证 %d 个文件",
-                ratio,
-                len(streaming_train_files),
-                len(streaming_valid_files),
+                f"Split files for streaming training and validation using valid_ratio={ratio:.3f}: training {len(streaming_train_files)} files, validation {len(streaming_valid_files)} files"
             )
     train_data: Dict[str, Any]
     valid_data: Dict[str, Any] | None
 
     if val_data_path and not streaming:
         # Use specified validation dataset path
-        logger.info("使用指定的验证集路径: %s", val_data_path)
+        logger.info(
+            f"Validation using specified validation dataset path: {val_data_path}"
+        )
         val_data_resolved = resolve_path(val_data_path, config_dir)
         val_df = read_table(val_data_resolved, data_cfg.get("format"))
         val_df = val_df[unique_used_columns]
@@ -206,17 +201,21 @@ def train_model(train_config_path: str) -> None:
         valid_data = valid_data_result
         train_size = len(list(train_data.values())[0])
         valid_size = len(list(valid_data.values())[0])
-        logger.info("训练集样本数: %s, 验证集样本数: %s", train_size, valid_size)
+        logger.info(
+            f"Sample count - Training set: {train_size}, Validation set: {valid_size}"
+        )
     elif streaming:
         train_data = None  # type: ignore[assignment]
         valid_data = None
         if not val_data_path and not streaming_valid_files:
             logger.info(
-                "流式训练模式，未指定验证集路径且未配置 valid_ratio，跳过验证集创建"
+                "Streaming training mode: No validation dataset path specified and valid_ratio not configured, skipping validation dataset creation"
             )
     else:
         # Split data using valid_ratio
-        logger.info("使用 valid_ratio 切分数据: %s", data_cfg.get("valid_ratio", 0.2))
+        logger.info(
+            f"Splitting data using valid_ratio: {data_cfg.get('valid_ratio', 0.2)}"
+        )
         if not isinstance(processed, dict):
             raise TypeError("Processed data must be a dictionary for splitting")
         train_data, valid_data = split_dict_random(
@@ -230,6 +229,7 @@ def train_model(train_config_path: str) -> None:
         sparse_features=sparse_features,
         sequence_features=sequence_features,
         target=target,
+        id_columns=id_columns,
         processor=processor if streaming else None,
     )
     if streaming:
@@ -240,6 +240,7 @@ def train_model(train_config_path: str) -> None:
             shuffle=dataloader_cfg.get("train_shuffle", True),
             load_full=False,
             chunk_size=dataloader_chunk_size,
+            num_workers=dataloader_cfg.get("num_workers", 0),
         )
         valid_loader = None
         if val_data_path:
@@ -250,6 +251,7 @@ def train_model(train_config_path: str) -> None:
                 shuffle=dataloader_cfg.get("valid_shuffle", False),
                 load_full=False,
                 chunk_size=dataloader_chunk_size,
+                num_workers=dataloader_cfg.get("num_workers", 0),
             )
         elif streaming_valid_files:
             valid_loader = dataloader.create_dataloader(
@@ -258,17 +260,20 @@ def train_model(train_config_path: str) -> None:
                 shuffle=dataloader_cfg.get("valid_shuffle", False),
                 load_full=False,
                 chunk_size=dataloader_chunk_size,
+                num_workers=dataloader_cfg.get("num_workers", 0),
             )
     else:
         train_loader = dataloader.create_dataloader(
             data=train_data,
             batch_size=dataloader_cfg.get("train_batch_size", 512),
             shuffle=dataloader_cfg.get("train_shuffle", True),
+            num_workers=dataloader_cfg.get("num_workers", 0),
         )
         valid_loader = dataloader.create_dataloader(
             data=valid_data,
             batch_size=dataloader_cfg.get("valid_batch_size", 512),
             shuffle=dataloader_cfg.get("valid_shuffle", False),
+            num_workers=dataloader_cfg.get("num_workers", 0),
         )
 
     model_cfg.setdefault("session_id", session_id)
@@ -300,6 +305,9 @@ def train_model(train_config_path: str) -> None:
             "batch_size", dataloader_cfg.get("train_batch_size", 512)
         ),
         shuffle=train_cfg.get("shuffle", True),
+        num_workers=dataloader_cfg.get("num_workers", 0),
+        user_id_column=id_column,
+        tensorboard=False,
     )
 
 
@@ -325,18 +333,14 @@ def predict_model(predict_config_path: str) -> None:
     model_cfg_path = resolve_path(
         cfg.get("model_config", "model_config.yaml"), config_dir
     )
-    feature_cfg_path = resolve_path(
-        cfg.get("feature_config", "feature_config.yaml"), config_dir
-    )
+    # feature_cfg_path = resolve_path(
+    #     cfg.get("feature_config", "feature_config.yaml"), config_dir
+    # )
 
     model_cfg = read_yaml(model_cfg_path)
-    feature_cfg = read_yaml(feature_cfg_path)
+    # feature_cfg = read_yaml(feature_cfg_path)
     model_cfg.setdefault("session_id", session_id)
-    feature_groups_raw = feature_cfg.get("feature_groups") or {}
     model_cfg.setdefault("params", {})
-
-    # attach feature_groups in predict phase to avoid missing bindings
-    model_cfg["params"]["feature_groups"] = feature_groups_raw
 
     processor = DataProcessor.load(processor_path)
 
@@ -382,13 +386,6 @@ def predict_model(predict_config_path: str) -> None:
     )
     if target_override:
         target_cols = normalize_to_list(target_override)
-
-    # Recompute feature_groups with available feature names to drive bindings
-    feature_group_names = [f.name for f in all_features if hasattr(f, "name")]
-    parsed_feature_groups, _ = extract_feature_groups(feature_cfg, feature_group_names)
-    if parsed_feature_groups:
-        model_cfg.setdefault("params", {})
-        model_cfg["params"]["feature_groups"] = parsed_feature_groups
 
     model = build_model_instance(
         model_cfg=model_cfg,
@@ -440,6 +437,7 @@ def predict_model(predict_config_path: str) -> None:
         return_dataframe=False,
         save_path=output_path,
         save_format=predict_cfg.get("save_format", "csv"),
+        num_workers=predict_cfg.get("num_workers", 0),
     )
     duration = time.time() - start
     logger.info(f"Prediction completed, results saved to: {output_path}")
@@ -448,7 +446,7 @@ def predict_model(predict_config_path: str) -> None:
     preview_rows = predict_cfg.get("preview_rows", 0)
     if preview_rows > 0:
         try:
-            preview = pd.read_csv(output_path, nrows=preview_rows)
+            preview = pd.read_csv(output_path, nrows=preview_rows, low_memory=False)
             logger.info(f"Output preview:\n{preview}")
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Failed to read output preview: {exc}")
@@ -472,25 +470,21 @@ Examples:
         "--mode",
         choices=["train", "predict"],
         required=True,
-        help="运行模式：train 或 predict",
+        help="Running mode: train or predict",
     )
-    parser.add_argument("--train_config", help="训练配置文件路径")
-    parser.add_argument("--predict_config", help="预测配置文件路径")
-    parser.add_argument(
-        "--config",
-        help="通用配置文件路径（已废弃，建议使用 --train_config 或 --predict_config）",
-    )
+    parser.add_argument("--train_config", help="Training configuration file path")
+    parser.add_argument("--predict_config", help="Prediction configuration file path")
     args = parser.parse_args()
 
     if args.mode == "train":
-        config_path = args.train_config or args.config
+        config_path = args.train_config
         if not config_path:
-            parser.error("train 模式需要提供 --train_config")
+            parser.error("[NextRec CLI Error] train mode requires --train_config")
         train_model(config_path)
     else:
-        config_path = args.predict_config or args.config
+        config_path = args.predict_config
         if not config_path:
-            parser.error("predict 模式需要提供 --predict_config")
+            parser.error("[NextRec CLI Error] predict mode requires --predict_config")
         predict_model(config_path)
 
 

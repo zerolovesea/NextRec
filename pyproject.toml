@@ -1,6 +1,6 @@
 [project]
 name = "nextrec"
-version = "0.4.2"
+version = "0.4.3"
 description = "A comprehensive recommendation library with match, ranking, and multi-task learning models"
 readme = "README.md"
 requires-python = ">=3.10"

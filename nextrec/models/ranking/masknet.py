@@ -166,7 +166,7 @@ class MaskNet(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
-        model_type: str = "parallel",  # "serial" or "parallel"
+        architecture: str = "parallel",  # "serial" or "parallel"
         num_blocks: int = 3,
         mask_hidden_dim: int = 64,
         block_hidden_dim: int = 256,
@@ -232,11 +232,11 @@ class MaskNet(BaseModel):
                 )
 
         self.v_emb_dim = self.num_fields * self.embedding_dim
-        self.model_type = model_type.lower()
-        assert self.model_type in (
+        self.architecture = architecture.lower()
+        assert self.architecture in (
             "serial",
             "parallel",
-        ), "model_type must be either 'serial' or 'parallel'."
+        ), "architecture must be either 'serial' or 'parallel'."
 
         self.num_blocks = max(1, num_blocks)
         self.block_hidden_dim = block_hidden_dim
@@ -244,7 +244,7 @@ class MaskNet(BaseModel):
             nn.Dropout(block_dropout) if block_dropout > 0 else nn.Identity()
         )
 
-        if self.model_type == "serial":
+        if self.architecture == "serial":
             self.first_block = MaskBlockOnEmbedding(
                 num_fields=self.num_fields,
                 embedding_dim=self.embedding_dim,
@@ -284,7 +284,7 @@ class MaskNet(BaseModel):
             self.output_layer = None
         self.prediction_layer = PredictionLayer(task_type=self.task)
 
-        if self.model_type == "serial":
+        if self.architecture == "serial":
             self.register_regularization_weights(
                 embedding_attr="embedding",
                 include_modules=["mask_blocks", "output_layer"],
@@ -306,7 +306,7 @@ class MaskNet(BaseModel):
         B = field_emb.size(0)
         v_emb_flat = field_emb.view(B, -1)  # flattened embeddings
 
-        if self.model_type == "parallel":
+        if self.architecture == "parallel":
             block_outputs = []
             for block in self.mask_blocks:
                 h = block(field_emb, v_emb_flat)  # [B, block_hidden_dim]

@@ -60,7 +60,8 @@ def read_table(path: str | Path, data_format: str | None = None) -> pd.DataFrame
     if fmt in {"parquet", ""}:
         return pd.read_parquet(data_path)
     if fmt in {"csv", "txt"}:
-        return pd.read_csv(data_path)
+        # Use low_memory=False to avoid mixed-type DtypeWarning on wide CSVs
+        return pd.read_csv(data_path, low_memory=False)
     raise ValueError(f"Unsupported data format: {data_path}")
 
 
