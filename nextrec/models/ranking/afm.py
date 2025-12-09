@@ -1,7 +1,7 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 06/12/2025
-Author: Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 09/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Xiao J, Ye H, He X, et al. Attentional factorization machines: Learning the weight of
 feature interactions via attention networks[C]//IJCAI. 2017: 3119-3125.
@@ -55,15 +55,15 @@ class AFM(BaseModel):
 
     def __init__(
         self,
-        dense_features: list[DenseFeature] | list = [],
-        sparse_features: list[SparseFeature] | list = [],
-        sequence_features: list[SequenceFeature] | list = [],
+        dense_features: list[DenseFeature] | None = None,
+        sparse_features: list[SparseFeature] | None = None,
+        sequence_features: list[SequenceFeature] | None = None,
         attention_dim: int = 32,
         attention_dropout: float = 0.0,
-        target: list[str] | list = [],
+        target: list[str] | str | None = None,
         task: str | list[str] | None = None,
         optimizer: str = "adam",
-        optimizer_params: dict = {},
+        optimizer_params: dict | None = None,
         loss: str | nn.Module | None = "bce",
         loss_params: dict | list[dict] | None = None,
         device: str = "cpu",
@@ -73,6 +73,13 @@ class AFM(BaseModel):
         dense_l2_reg=1e-4,
         **kwargs,
     ):
+
+        dense_features = dense_features or []
+        sparse_features = sparse_features or []
+        sequence_features = sequence_features or []
+        optimizer_params = optimizer_params or {}
+        if loss is None:
+            loss = "bce"
 
         super(AFM, self).__init__(
             dense_features=dense_features,
@@ -87,13 +94,6 @@ class AFM(BaseModel):
             dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
-
-        if target is None:
-            target = []
-        if optimizer_params is None:
-            optimizer_params = {}
-        if loss is None:
-            loss = "bce"
 
         self.fm_features = sparse_features + sequence_features
         if len(self.fm_features) < 2:

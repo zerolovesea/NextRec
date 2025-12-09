@@ -51,6 +51,7 @@ import torch.nn as nn
 from nextrec.basic.model import BaseModel
 from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.utils.model import get_mlp_output_dim
 
 
 class CGCLayer(nn.Module):
@@ -72,13 +73,13 @@ class CGCLayer(nn.Module):
         if num_tasks < 1:
             raise ValueError("num_tasks must be >= 1")
 
-        specific_params_list = self._normalize_specific_params(
+        specific_params_list = self.normalize_specific_params(
             specific_expert_params, num_tasks
         )
 
-        self.output_dim = self._get_output_dim(shared_expert_params, input_dim)
+        self.output_dim = get_mlp_output_dim(shared_expert_params, input_dim)
         specific_dims = [
-            self._get_output_dim(params, input_dim) for params in specific_params_list
+            get_mlp_output_dim(params, input_dim) for params in specific_params_list
         ]
         dims_set = set(specific_dims + [self.output_dim])
         if len(dims_set) != 1:
@@ -165,14 +166,7 @@ class CGCLayer(nn.Module):
         return new_task_fea, new_shared
 
     @staticmethod
-    def _get_output_dim(params: dict, fallback: int) -> int:
-        dims = params.get("dims")
-        if dims:
-            return dims[-1]
-        return fallback
-
-    @staticmethod
-    def _normalize_specific_params(
+    def normalize_specific_params(
         params: dict | list[dict], num_tasks: int
     ) -> list[dict]:
         if isinstance(params, list):
@@ -232,12 +226,24 @@ class PLE(BaseModel):
 
         self.num_tasks = len(target)
 
+        resolved_task = task
+        if resolved_task is None:
+            resolved_task = self.default_task
+        elif isinstance(resolved_task, str):
+            resolved_task = [resolved_task] * self.num_tasks
+        elif len(resolved_task) == 1 and self.num_tasks > 1:
+            resolved_task = resolved_task * self.num_tasks
+        elif len(resolved_task) != self.num_tasks:
+            raise ValueError(
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+            )
+
         super(PLE, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=task or self.default_task,
+            task=resolved_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,

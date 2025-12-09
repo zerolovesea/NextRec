@@ -46,7 +46,8 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.activation import activation_layer
 from nextrec.basic.model import BaseModel
-from nextrec.utils.model import merge_features
+
+from nextrec.utils.model import select_features
 
 
 class POSOGate(nn.Module):
@@ -295,15 +296,18 @@ class POSO(BaseModel):
 
     def __init__(
         self,
-        main_dense_features: list[DenseFeature] | None,
-        main_sparse_features: list[SparseFeature] | None,
-        main_sequence_features: list[SequenceFeature] | None,
-        pc_dense_features: list[DenseFeature] | None,
-        pc_sparse_features: list[SparseFeature] | None,
-        pc_sequence_features: list[SequenceFeature] | None,
+        dense_features: list[DenseFeature] | None,
+        sparse_features: list[SparseFeature] | None,
+        sequence_features: list[SequenceFeature] | None,
+        main_dense_features: list[str] | None,
+        main_sparse_features: list[str] | None,
+        main_sequence_features: list[str] | None,
+        pc_dense_features: list[str] | None,
+        pc_sparse_features: list[str] | None,
+        pc_sequence_features: list[str] | None,
         tower_params_list: list[dict],
         target: list[str],
-        task: str | list[str] | None = None,
+        task: str | list[str] = "binary",
         architecture: str = "mlp",
         # POSO gating defaults
         gate_hidden_dim: int = 32,
@@ -329,40 +333,32 @@ class POSO(BaseModel):
         dense_l2_reg: float = 1e-4,
         **kwargs,
     ):
-        # Keep explicit copies of main and PC features
-        self.main_dense_features = list(main_dense_features or [])
-        self.main_sparse_features = list(main_sparse_features or [])
-        self.main_sequence_features = list(main_sequence_features or [])
-        self.pc_dense_features = list(pc_dense_features or [])
-        self.pc_sparse_features = list(pc_sparse_features or [])
-        self.pc_sequence_features = list(pc_sequence_features or [])
         self.num_tasks = len(target)
 
-        if (
-            not self.pc_dense_features
-            and not self.pc_sparse_features
-            and not self.pc_sequence_features
-        ):
+        # Normalize task to match num_tasks
+        resolved_task = task
+        if resolved_task is None:
+            resolved_task = self.default_task
+        elif isinstance(resolved_task, str):
+            resolved_task = [resolved_task] * self.num_tasks
+        elif len(resolved_task) == 1 and self.num_tasks > 1:
+            resolved_task = resolved_task * self.num_tasks
+        elif len(resolved_task) != self.num_tasks:
             raise ValueError(
-                "POSO requires at least one PC feature for personalization."
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
             )
 
-        dense_features = merge_features(
-            self.main_dense_features, self.pc_dense_features
-        )
-        sparse_features = merge_features(
-            self.main_sparse_features, self.pc_sparse_features
-        )
-        sequence_features = merge_features(
-            self.main_sequence_features, self.pc_sequence_features
-        )
+        if len(tower_params_list) != self.num_tasks:
+            raise ValueError(
+                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
+            )
 
         super().__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=task or self.default_task,
+            task=resolved_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -371,14 +367,42 @@ class POSO(BaseModel):
             **kwargs,
         )
 
-        self.loss = loss if loss is not None else "bce"
+        self.main_dense_feature_names = list(main_dense_features or [])
+        self.main_sparse_feature_names = list(main_sparse_features or [])
+        self.main_sequence_feature_names = list(main_sequence_features or [])
+        self.pc_dense_feature_names = list(pc_dense_features or [])
+        self.pc_sparse_feature_names = list(pc_sparse_features or [])
+        self.pc_sequence_feature_names = list(pc_sequence_features or [])
+
+        if loss is None:
+            self.loss = "bce"
+        self.loss = loss
+
         optimizer_params = optimizer_params or {}
 
-        self.num_tasks = len(target)
-        if len(tower_params_list) != self.num_tasks:
-            raise ValueError(
-                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
-            )
+        self.main_dense_features = select_features(
+            self.dense_features, self.main_dense_feature_names, "main_dense_features"
+        )
+        self.main_sparse_features = select_features(
+            self.sparse_features, self.main_sparse_feature_names, "main_sparse_features"
+        )
+        self.main_sequence_features = select_features(
+            self.sequence_features,
+            self.main_sequence_feature_names,
+            "main_sequence_features",
+        )
+
+        self.pc_dense_features = select_features(
+            self.dense_features, self.pc_dense_feature_names, "pc_dense_features"
+        )
+        self.pc_sparse_features = select_features(
+            self.sparse_features, self.pc_sparse_feature_names, "pc_sparse_features"
+        )
+        self.pc_sequence_features = select_features(
+            self.sequence_features,
+            self.pc_sequence_feature_names,
+            "pc_sequence_features",
+        )
 
         self.main_features = (
             self.main_dense_features
@@ -388,6 +412,13 @@ class POSO(BaseModel):
         self.pc_features = (
             self.pc_dense_features + self.pc_sparse_features + self.pc_sequence_features
         )
+
+        if not self.main_features:
+            raise ValueError("POSO requires at least one main feature.")
+        if not self.pc_features:
+            raise ValueError(
+                "POSO requires at least one PC feature for personalization."
+            )
 
         self.embedding = EmbeddingLayer(features=self.all_features)
         self.main_input_dim = self.embedding.get_input_dim(self.main_features)

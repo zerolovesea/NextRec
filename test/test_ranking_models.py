@@ -307,6 +307,8 @@ class TestDIN:
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
             mlp_params=mlp_params,
             attention_hidden_units=[80, 40],
             attention_activation="sigmoid",
@@ -341,6 +343,8 @@ class TestDIN:
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
             mlp_params=mlp_params,
             attention_hidden_units=[64, 32],
             attention_activation="sigmoid",
@@ -386,6 +390,8 @@ class TestDIN:
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
             mlp_params=mlp_params,
             attention_hidden_units=[32],
             attention_activation="sigmoid",
@@ -431,6 +437,8 @@ class TestDIN:
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
             mlp_params=mlp_params,
             attention_hidden_units=[32],
             attention_activation=attention_activation,
@@ -501,6 +509,8 @@ class TestRankingModelsComparison:
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            behavior_feature_name="seq1",
+            candidate_feature_name="sparse1",
             mlp_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
             attention_hidden_units=[16],
             target=["label"],
@@ -1103,6 +1113,8 @@ class TestDIEN:
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
             gru_hidden_size=32,
             attention_hidden_units=[80, 40],
             mlp_params={"dims": [256, 128, 64], "dropout": 0.2, "activation": "relu"},
@@ -1130,6 +1142,8 @@ class TestDIEN:
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
             gru_hidden_size=32,
             attention_hidden_units=[64, 32],
             mlp_params={"dims": [128, 64], "dropout": 0.0, "activation": "relu"},
@@ -1153,6 +1167,60 @@ class TestDIEN:
         assert_no_nan_or_inf(output, "DIEN output")
 
         logger.info("DIEN forward pass successful")
+
+    def test_dien_neg_sampling_aux_loss(
+        self, dien_features, device, batch_size, set_random_seed
+    ):
+        """Test DIEN negative sampling path with auxiliary loss"""
+        dense_features, sparse_features, base_sequence_features = dien_features
+
+        # Add negative behavior sequence for auxiliary loss
+        neg_behavior_feature = SequenceFeature(
+            name="neg_behavior_sequence",
+            vocab_size=5000,
+            max_len=30,
+            embedding_dim=32,
+            padding_idx=0,
+        )
+        sequence_features = base_sequence_features + [neg_behavior_feature]
+
+        model = DIEN(
+            dense_features=dense_features,
+            sparse_features=sparse_features,
+            sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
+            neg_behavior_feature_name="neg_behavior_sequence",
+            use_negsampling=True,
+            gru_hidden_size=32,
+            attention_hidden_units=[64, 32],
+            mlp_params={"dims": [64], "dropout": 0.0, "activation": "relu"},
+            target=["label"],
+            device=device,
+        )
+
+        data = {
+            "price": torch.randn(batch_size, 1).to(device),
+            "age": torch.randn(batch_size, 1).to(device),
+            "user_id": torch.randint(1, 1000, (batch_size,)).to(device),
+            "gender": torch.randint(1, 3, (batch_size,)).to(device),
+            "candidate_item": torch.randint(1, 5000, (batch_size,)).to(device),
+            "behavior_sequence": torch.randint(1, 5000, (batch_size, 30)).to(
+                device
+            ),  # avoid all padding
+            "neg_behavior_sequence": torch.randint(1, 5000, (batch_size, 30)).to(
+                device
+            ),
+        }
+
+        model.train()
+        output = model(data)
+        assert_model_output_shape(output, (batch_size,), "DIEN neg-sampling output")
+
+        aux_loss = model.compute_auxiliary_loss()
+        assert torch.isfinite(aux_loss).all(), "Auxiliary loss contains NaN/Inf"
+        assert aux_loss.item() >= 0.0
+        logger.info("DIEN negative sampling auxiliary loss path successful")
 
 
 class TestFiBiNET:

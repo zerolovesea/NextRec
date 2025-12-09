@@ -69,7 +69,7 @@ class ShareBottom(BaseModel):
         target: list[str],
         task: str | list[str] | None = None,
         optimizer: str = "adam",
-        optimizer_params: dict = {},
+        optimizer_params: dict | None = None,
         loss: str | nn.Module | list[str | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         device: str = "cpu",
@@ -80,14 +80,28 @@ class ShareBottom(BaseModel):
         **kwargs,
     ):
 
+        optimizer_params = optimizer_params or {}
+
         self.num_tasks = len(target)
+
+        resolved_task = task
+        if resolved_task is None:
+            resolved_task = self.default_task
+        elif isinstance(resolved_task, str):
+            resolved_task = [resolved_task] * self.num_tasks
+        elif len(resolved_task) == 1 and self.num_tasks > 1:
+            resolved_task = resolved_task * self.num_tasks
+        elif len(resolved_task) != self.num_tasks:
+            raise ValueError(
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+            )
 
         super(ShareBottom, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=task or self.default_task,
+            task=resolved_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,

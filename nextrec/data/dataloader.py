@@ -322,7 +322,7 @@ class RecDataLoader(FeatureSet):
                 except OSError:
                     pass
                 try:
-                    df = read_table(file_path, file_type=file_type)
+                    df = read_table(file_path, data_format=file_type)
                     dfs.append(df)
                 except MemoryError as exc:
                     raise MemoryError(

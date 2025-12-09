@@ -28,9 +28,15 @@ def resolve_path(path_str: str | Path, base_dir: Path) -> Path:
     path = Path(path_str).expanduser()
     if path.is_absolute():
         return path
-    if path.exists():
-        return path.resolve()
-    return (base_dir / path).resolve()
+    # Prefer resolving relative to current working directory when the path (or its parent)
+    # already exists there; otherwise fall back to the config file's directory.
+    cwd_path = (Path.cwd() / path).resolve()
+    if cwd_path.exists() or cwd_path.parent.exists():
+        return cwd_path
+    base_dir_path = (base_dir / path).resolve()
+    if base_dir_path.exists() or base_dir_path.parent.exists():
+        return base_dir_path
+    return cwd_path
 
 
 def select_features(

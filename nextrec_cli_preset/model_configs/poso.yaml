@@ -1,0 +1,38 @@
+model: poso
+
+feature_bindings:
+  main_dense_features: [user_active_days_7, user_ctr, item_price, item_popularity, time_since_last_click]
+  main_sparse_features: [item, gender, city, device, channel, age_bucket]
+  main_sequence_features: [hist_item_seq]
+  pc_sparse_features: [user_id]
+
+params:
+  architecture: mmoe  # mlp or mmoe
+
+  num_experts: 6
+  expert_hidden_dims: [192, 96]
+  expert_activation: relu
+  expert_dropout: 0.1
+  expert_gate_hidden_dim: 32
+  expert_gate_scale_factor: 2.0
+  gate_use_softmax: true
+
+  gate_hidden_dim: 32
+  gate_scale_factor: 2.0
+  gate_activation: relu
+  gate_use_bias: true
+
+  tower_params_list:
+    - dims: [128, 64]
+      activation: relu
+      dropout: 0.2
+      use_norm: true
+      norm_type: batch_norm
+    - dims: [160, 80]
+      activation: relu
+      dropout: 0.2
+
+  embedding_l1_reg: 1.e-6
+  embedding_l2_reg: 1.e-5     
+  dense_l1_reg: 1.e-6
+  dense_l2_reg: 1.e-4

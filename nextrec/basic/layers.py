@@ -51,11 +51,11 @@ class PredictionLayer(nn.Module):
 
         # slice offsets per task
         start = 0
-        self._task_slices: list[tuple[int, int]] = []
+        self.task_slices: list[tuple[int, int]] = []
         for dim in self.task_dims:
             if dim < 1:
                 raise ValueError("Each task dimension must be >= 1.")
-            self._task_slices.append((start, start + dim))
+            self.task_slices.append((start, start + dim))
             start += dim
         if use_bias:
             self.bias = nn.Parameter(torch.zeros(self.total_dim))
@@ -71,7 +71,7 @@ class PredictionLayer(nn.Module):
             )
         logits = x if self.bias is None else x + self.bias
         outputs = []
-        for task_type, (start, end) in zip(self.task_types, self._task_slices):
+        for task_type, (start, end) in zip(self.task_types, self.task_slices):
             task_logits = logits[..., start:end]  # logits for the current task
             if self.return_logits:
                 outputs.append(task_logits)
@@ -367,20 +367,29 @@ class MLP(nn.Module):
         dims: list[int] | None = None,
         dropout: float = 0.0,
         activation: str = "relu",
+        use_norm: bool = True,
+        norm_type: str = "layer_norm",
     ):
         super().__init__()
         if dims is None:
             dims = []
         layers = []
         current_dim = input_dim
-
         for i_dim in dims:
             layers.append(nn.Linear(current_dim, i_dim))
-            layers.append(nn.BatchNorm1d(i_dim))
+            if use_norm:
+                if norm_type == "batch_norm":
+                    # **IMPORTANT** be careful when using BatchNorm1d in distributed training, nextrec does not support sync batch norm now
+                    layers.append(nn.BatchNorm1d(i_dim))
+                elif norm_type == "layer_norm":
+                    layers.append(nn.LayerNorm(i_dim))
+                else:
+                    raise ValueError(f"Unsupported norm_type: {norm_type}")
+
             layers.append(activation_layer(activation))
             layers.append(nn.Dropout(p=dropout))
             current_dim = i_dim
-
+        # output layer
         if output_layer:
             layers.append(nn.Linear(current_dim, 1))
             self.output_dim = 1
@@ -471,6 +480,21 @@ class BiLinearInteractionLayer(nn.Module):
         return torch.cat(bilinear_list, dim=1)
 
 
+class HadamardInteractionLayer(nn.Module):
+    """Hadamard interaction layer for Deep-FiBiNET (0 case in 01/11)."""
+
+    def __init__(self, num_fields: int):
+        super().__init__()
+        self.num_fields = num_fields
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [B, F, D]
+        feature_emb = torch.split(x, 1, dim=1)  # list of F tensors [B,1,D]
+
+        hadamard_list = [v_i * v_j for (v_i, v_j) in combinations(feature_emb, 2)]
+        return torch.cat(hadamard_list, dim=1)  # [B, num_pairs, D]
+
+
 class MultiHeadSelfAttention(nn.Module):
     def __init__(
         self,
@@ -542,7 +566,7 @@ class AttentionPoolingLayer(nn.Module):
         embedding_dim: int,
         hidden_units: list = [80, 40],
         activation: str = "sigmoid",
-        use_softmax: bool = True,
+        use_softmax: bool = False,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
@@ -553,7 +577,7 @@ class AttentionPoolingLayer(nn.Module):
         layers = []
         for hidden_unit in hidden_units:
             layers.append(nn.Linear(input_dim, hidden_unit))
-            layers.append(activation_layer(activation))
+            layers.append(activation_layer(activation, emb_size=hidden_unit))
             input_dim = hidden_unit
         layers.append(nn.Linear(input_dim, 1))
         self.attention_net = nn.Sequential(*layers)

@@ -1,0 +1,45 @@
+session:
+  id: nextrec-cli_tutorial
+  artifact_root: nextrec_logs
+
+data:
+  path: dataset/ctcvr_task.csv
+  format: csv  
+  target: ['click', 'conversion']                    # for single task, use string: 'conversion'
+  id_column: user_id                                 # For GAUC calculation, comment this line if no id column
+  valid_ratio: 0.2
+  # val_path: /path/to/your/validation/dataset
+  random_state: 2024
+  streaming: false  
+
+feature_config: nextrec_cli_preset/feature_config.yaml
+model_config: nextrec_cli_preset/model_configs/mmoe.yaml
+
+dataloader:
+  train_batch_size: 512
+  train_shuffle: true
+  valid_batch_size: 512
+  valid_shuffle: false
+  num_workers: 6
+
+train:
+  optimizer: adam
+  optimizer_params:
+    lr: 0.0001    
+    weight_decay: 0.0001
+  loss: ['weighted_bce', 'weighted_bce']                # for single task, use string: 'weighted_bce' or 'bce'
+  loss_params:                                          # specify pos_weight for each task, must match number of tasks
+    - pos_weight: 1.5 
+      logits: false    
+    - pos_weight: 20.0  
+      logits: false    
+  loss_weights: [1.0, 2.0]                              # specify loss weight for each task, must match number of tasks
+  metrics:
+    - auc
+    - gauc
+    - recall
+    - precision
+  epochs: 5 
+  batch_size: 512
+  shuffle: true
+  device: cpu

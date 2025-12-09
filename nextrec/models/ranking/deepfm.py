@@ -61,14 +61,14 @@ class DeepFM(BaseModel):
 
     def __init__(
         self,
-        dense_features: list[DenseFeature] | list = [],
-        sparse_features: list[SparseFeature] | list = [],
-        sequence_features: list[SequenceFeature] | list = [],
-        mlp_params: dict = {},
-        target: list[str] | str = [],
+        dense_features: list[DenseFeature] | None = None,
+        sparse_features: list[SparseFeature] | None = None,
+        sequence_features: list[SequenceFeature] | None = None,
+        mlp_params: dict | None = None,
+        target: list[str] | str | None = None,
         task: str | list[str] | None = None,
         optimizer: str = "adam",
-        optimizer_params: dict = {},
+        optimizer_params: dict | None = None,
         loss: str | nn.Module | None = "bce",
         loss_params: dict | list[dict] | None = None,
         device: str = "cpu",
@@ -78,6 +78,14 @@ class DeepFM(BaseModel):
         dense_l2_reg=1e-4,
         **kwargs,
     ):
+
+        dense_features = dense_features or []
+        sparse_features = sparse_features or []
+        sequence_features = sequence_features or []
+        mlp_params = mlp_params or {}
+        optimizer_params = optimizer_params or {}
+        if loss is None:
+            loss = "bce"
 
         super(DeepFM, self).__init__(
             dense_features=dense_features,
@@ -94,9 +102,6 @@ class DeepFM(BaseModel):
         )
 
         self.loss = loss
-        if self.loss is None:
-            self.loss = "bce"
-
         self.fm_features = sparse_features + sequence_features
         self.deep_features = dense_features + sparse_features + sequence_features
         self.embedding = EmbeddingLayer(features=self.deep_features)

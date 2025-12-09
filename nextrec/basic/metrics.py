@@ -260,7 +260,7 @@ def compute_mrr_at_k(
         order = np.argsort(scores)[::-1]
         k_user = min(k, idx.size)
         topk = order[:k_user]
-        ranked_labels = labels[order]
+        ranked_labels = labels[topk]
         rr = 0.0
         for rank, lab in enumerate(ranked_labels[:k_user], start=1):
             if lab > 0:
@@ -612,6 +612,7 @@ def evaluate_metrics(
                     if task_type in ["binary", "multilabel"]:
                         should_compute = metric_lower in {
                             "auc",
+                            "gauc",
                             "ks",
                             "logloss",
                             "accuracy",

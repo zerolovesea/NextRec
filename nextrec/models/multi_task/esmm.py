@@ -76,10 +76,10 @@ class ESMM(BaseModel):
         sequence_features: list[SequenceFeature],
         ctr_params: dict,
         cvr_params: dict,
-        target: list[str] = ["ctr", "ctcvr"],  # Note: ctcvr = ctr * cvr
+        target: list[str] | None = None,  # Note: ctcvr = ctr * cvr
         task: list[str] | None = None,
         optimizer: str = "adam",
-        optimizer_params: dict = {},
+        optimizer_params: dict | None = None,
         loss: str | nn.Module | list[str | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         device: str = "cpu",
@@ -90,19 +90,36 @@ class ESMM(BaseModel):
         **kwargs,
     ):
 
-        # ESMM requires exactly 2 targets: ctr and ctcvr
+        target = target or ["ctr", "ctcvr"]
+        optimizer_params = optimizer_params or {}
+        if loss is None:
+            loss = "bce"
+
         if len(target) != 2:
             raise ValueError(
                 f"ESMM requires exactly 2 targets (ctr and ctcvr), got {len(target)}"
             )
+
+        self.num_tasks = len(target)
+        resolved_task = task
+        if resolved_task is None:
+            resolved_task = self.default_task
+        elif isinstance(resolved_task, str):
+            resolved_task = [resolved_task] * self.num_tasks
+        elif len(resolved_task) == 1 and self.num_tasks > 1:
+            resolved_task = resolved_task * self.num_tasks
+        elif len(resolved_task) != self.num_tasks:
+            raise ValueError(
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+            )
+        # resolved_task is now guaranteed to be a list[str]
 
         super(ESMM, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=task
-            or self.default_task,  # Both CTR and CTCVR are binary classification
+            task=resolved_task,  # Both CTR and CTCVR are binary classification
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -112,19 +129,9 @@ class ESMM(BaseModel):
         )
 
         self.loss = loss
-        if self.loss is None:
-            self.loss = "bce"
 
-        # All features
-        self.all_features = dense_features + sparse_features + sequence_features
-        # Shared embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
-        input_dim = (
-            self.embedding.input_dim
-        )  # Calculate input dimension, better way than below
-        # emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
-        # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
-        # input_dim = emb_dim_total + dense_input_dim
+        input_dim = self.embedding.input_dim
 
         # CTR tower
         self.ctr_tower = MLP(input_dim=input_dim, output_layer=True, **ctr_params)

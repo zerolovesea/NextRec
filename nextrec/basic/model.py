@@ -455,7 +455,7 @@ class BaseModel(FeatureSet, nn.Module):
         if hasattr(
             self, "prediction_layer"
         ):  # we need to use registered task_slices for multi-task and multi-class
-            slices = self.prediction_layer._task_slices  # type: ignore
+            slices = self.prediction_layer.task_slices  # type: ignore
         else:
             slices = [(i, i + 1) for i in range(self.nums_task)]
         task_losses = []
@@ -1369,7 +1369,7 @@ class BaseModel(FeatureSet, nn.Module):
         pred_columns: list[str] = []
         if self.target_columns:
             for name in self.target_columns[:num_outputs]:
-                pred_columns.append(f"{name}_pred")
+                pred_columns.append(f"{name}")
         while len(pred_columns) < num_outputs:
             pred_columns.append(f"pred_{len(pred_columns)}")
         if include_ids and predict_id_columns:
@@ -1496,7 +1496,7 @@ class BaseModel(FeatureSet, nn.Module):
                     pred_columns = []
                     if self.target_columns:
                         for name in self.target_columns[:num_outputs]:
-                            pred_columns.append(f"{name}_pred")
+                            pred_columns.append(f"{name}")
                     while len(pred_columns) < num_outputs:
                         pred_columns.append(f"pred_{len(pred_columns)}")
 

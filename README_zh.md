@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.2-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.3-orange.svg)
 
 [English Version](README.md) | 中文文档
 
@@ -15,15 +15,27 @@
 
 </div>
 
+## 目录
+
+- [简介](#简介)
+- [安装](#安装)
+- [架构](#架构)
+- [5分钟快速上手](#5分钟快速上手)
+- [命令行工具](#命令行工具)
+- [兼容平台](#兼容平台)
+- [支持模型](#支持模型)
+- [贡献指南](#贡献指南)
+
 ## 简介
 
-NextRec 是一个基于 PyTorch 构建的现代推荐系统框架,为研究人员与工程团队提供统一的建模、训练与评估体验。框架采用模块化设计,内置丰富的模型实现、数据处理工具和工程化训练组件,可快速覆盖多种推荐场景,主要面向Spark集群下,基于大数据量parquet离线特征训练的工业推荐召回算法场景。
+NextRec是一个基于 PyTorch 构建的现代推荐系统框架，为研究人员与工程团队提供快速的建模、训练与评估体验。框架采用模块化设计，内置丰富的模型实现、数据处理工具和工程化训练组件，覆盖多种推荐场景。NextRec提供了易上手的接口，命令行工具及教程，推荐算法学习者能以最快速度了解模型架构并训练和推理模型。
 
 ## Why NextRec
 
-- **统一的特征工程与数据流水线**：NextRec框架提供了 Dense/Sparse/Sequence 特征定义、可持久化的 DataProcessor、批处理优化的 RecDataLoader，符合工业大数据场景下，基于离线特征的模型训练推理流程。
+- **统一的特征工程与数据流水线**：NextRec框架提供了 Dense/Sparse/Sequence 特征定义、可持久化的 DataProcessor、批处理优化的 RecDataLoader，符合工业大数据Spark/Hive场景下，基于离线`parquet/csv`特征的模型训练推理流程。
 - **多场景推荐能力**：同时覆盖排序（CTR/CVR）、召回、多任务学习等推荐/营销模型，并且持续扩充模型库中。
-- **友好的工程体验**：NextRec框架支持各种格式数据(csv/parquet/pathlike)的流式处理/训练/推理，并支持 GPU/MPS 加速与可视化监控。
+- **友好的工程体验**：支持各种格式数据(`csv/parquet/pathlike`)的流式预处理/分布式训练/推理，GPU加速与可视化指标监控，方便业务算法工程师和推荐算法学习者进行实验。
+- **灵活的命令行工具**：通过配置训练配置文件和推理配置文件，通过`nextrec --mode=train --train_config=train_config.yaml` 一键启动训练和推理进程，方便快速实验迭代和敏捷部署。
 - **高效训练与评估**：NextRec框架的标准化训练引擎内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理，开箱即用。
 
 ## 架构
@@ -48,13 +60,14 @@ NextRec采用模块化、低耦合的工程设计，使得推荐系统从数据�
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) - 电商数据集上的DIN 深度兴趣网络训练示例
 - [example_multitask.py](/tutorials/example_multitask.py) - 电商数据集上的ESMM多任务学习训练示例
 - [movielen_match_dssm.py](/tutorials/example_match_dssm.py) - 基于movielen 100k数据集训练的 DSSM 召回模型示例
+- [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) - 快速校验所有排序模型的可用性
+- [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) - 快速校验所有多任务模型的可用性
+- [run_all_match_models.py](/tutorials/run_all_match_models.py) - 快速校验所有召回模型的可用性
 
 如果想了解更多NextRec框架的细节，我们还提供了Jupyter notebook来帮助你了解：
 
 - [如何上手NextRec框架](/tutorials/notebooks/zh/Hands%20on%20nextrec.ipynb)
 - [如何使用数据处理器进行数据预处理](/tutorials/notebooks/zh/Hands%20on%20dataprocessor.ipynb)
-
-> 当前版本[0.4.2]，召回模型模块尚不完善，可能存在一些兼容性问题或意外报错，如果遇到问题，欢迎开发者在Issue区提出问题。
 
 ## 5分钟快速上手
 
@@ -138,9 +151,26 @@ metrics = model.evaluate(
     user_id_column='user_id'
 )
 ```
+
+## 命令行工具
+
+NextRec 提供了强大的命令行界面，支持通过 YAML 配置文件进行模型训练和预测。详细的 CLI 文档请参见：
+
+- [NextRec CLI 使用指南](/nextrec_cli_preset/NextRec-CLI_zh.md) - 完整的 CLI 使用文档
+
+```bash
+# 训练模型
+nextrec --mode=train --train_config=path/to/train_config.yaml
+
+# 运行预测
+nextrec --mode=predict --predict_config=path/to/predict_config.yaml
+```
+
+> 截止当前版本0.4.3，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+
 ## 兼容平台
 
-当前最新版本为0.4.2，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.4.3，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -187,14 +217,13 @@ metrics = model.evaluate(
 | [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-Task Model | SIGIR 2018 | 已支持 |
 | [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | - | 已支持 |
 | [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold-start Modules for Large-scale Recommender Systems | 2021 | 已支持 |
-| [POSO-IFLYTEK](nextrec/models/multi_task/poso_iflytek.py) | POSO with PLE-style gating for sequential marketing tasks | - | 已支持 |
 
 ### 生成式模型
 
 | 模型 | 论文 | 年份 | 状态 |
 |------|------|------|------|
 | [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | NeurIPS 2023 | 开发中 |
-| [HSTU](nextrec/models/generative/hstu.py) | Hierarchical Sequential Transduction Units | - | 开发中 |
+| [HSTU](nextrec/models/generative/hstu.py) | Hierarchical Sequential Transduction Units | - | 已支持 |
 
 ---
 
@@ -210,7 +239,7 @@ metrics = model.evaluate(
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 创建 Pull Request
 
-> 在提交 PR 之前，请运行 `python test/run_tests.py` 确保所有测试通过。
+> 在提交 PR 之前，请运行 `python test/run_tests.py` 和 `python scripts/format_code.py` 确保所有测试通过并统一代码风格。
 
 ### 代码规范
 

@@ -73,16 +73,16 @@ class MMOE(BaseModel):
 
     def __init__(
         self,
-        dense_features: list[DenseFeature] = [],
-        sparse_features: list[SparseFeature] = [],
-        sequence_features: list[SequenceFeature] = [],
-        expert_params: dict = {},
+        dense_features: list[DenseFeature] | None = None,
+        sparse_features: list[SparseFeature] | None = None,
+        sequence_features: list[SequenceFeature] | None = None,
+        expert_params: dict | None = None,
         num_experts: int = 3,
-        tower_params_list: list[dict] = [],
-        target: list[str] = [],
-        task: str | list[str] | None = None,
+        tower_params_list: list[dict] | None = None,
+        target: list[str] | str | None = None,
+        task: str | list[str] = "binary",
         optimizer: str = "adam",
-        optimizer_params: dict = {},
+        optimizer_params: dict | None = None,
         loss: str | nn.Module | list[str | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         device: str = "cpu",
@@ -93,14 +93,39 @@ class MMOE(BaseModel):
         **kwargs,
     ):
 
-        self.num_tasks = len(target)
+        dense_features = dense_features or []
+        sparse_features = sparse_features or []
+        sequence_features = sequence_features or []
+        expert_params = expert_params or {}
+        tower_params_list = tower_params_list or []
+        optimizer_params = optimizer_params or {}
+        if loss is None:
+            loss = "bce"
+        if target is None:
+            target = []
+        elif isinstance(target, str):
+            target = [target]
+
+        self.num_tasks = len(target) if target else 1
+
+        resolved_task = task
+        if resolved_task is None:
+            resolved_task = self.default_task
+        elif isinstance(resolved_task, str):
+            resolved_task = [resolved_task] * self.num_tasks
+        elif len(resolved_task) == 1 and self.num_tasks > 1:
+            resolved_task = resolved_task * self.num_tasks
+        elif len(resolved_task) != self.num_tasks:
+            raise ValueError(
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+            )
 
         super(MMOE, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=task or self.default_task,
+            task=resolved_task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
@@ -110,8 +135,6 @@ class MMOE(BaseModel):
         )
 
         self.loss = loss
-        if self.loss is None:
-            self.loss = "bce"
 
         # Number of tasks and experts
         self.num_tasks = len(target)
@@ -122,12 +145,8 @@ class MMOE(BaseModel):
                 f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
             )
 
-        self.all_features = dense_features + sparse_features + sequence_features
         self.embedding = EmbeddingLayer(features=self.all_features)
         input_dim = self.embedding.input_dim
-        # emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
-        # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
-        # input_dim = emb_dim_total + dense_input_dim
 
         # Expert networks (shared by all tasks)
         self.experts = nn.ModuleList()
@@ -162,7 +181,7 @@ class MMOE(BaseModel):
         self.compile(
             optimizer=optimizer,
             optimizer_params=optimizer_params,
-            loss=loss,
+            loss=self.loss,
             loss_params=loss_params,
         )
 

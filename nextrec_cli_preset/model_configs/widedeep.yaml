@@ -1,0 +1,12 @@
+model: widedeep
+
+params:
+  mlp_params:
+    dims: [256, 128, 64]
+    activation: relu
+    dropout: 0.2
+
+  embedding_l1_reg: 1.e-6
+  embedding_l2_reg: 1.e-5     
+  dense_l1_reg: 1.e-6
+  dense_l2_reg: 1.e-4
