@@ -5,7 +5,7 @@ Date: create on 13/11/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-from typing import Any, Dict, Set, 
+from typing import Any, Dict, Set
 
 import torch.nn as nn
 
