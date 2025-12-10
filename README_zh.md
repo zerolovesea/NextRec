@@ -28,29 +28,35 @@
 
 ## 简介
 
-NextRec是一个基于 PyTorch 构建的现代推荐系统框架，为研究人员与工程团队提供快速的建模、训练与评估体验。框架采用模块化设计，内置丰富的模型实现、数据处理工具和工程化训练组件，覆盖多种推荐场景。NextRec提供了易上手的接口，命令行工具及教程，推荐算法学习者能以最快速度了解模型架构并训练和推理模型。
+NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究与工程团队提供快速的建模、训练与评估流程。框架内置丰富的模型实现、数据处理工具和工程化训练组件，覆盖多种推荐场景。此外提供了易上手的接口，命令行工具及教程，推荐算法学习者能以最快速度了解模型架构，复现学术论文并进行训练和部署。
 
 ## Why NextRec
 
-- **统一的特征工程与数据流水线**：NextRec框架提供了 Dense/Sparse/Sequence 特征定义、可持久化的 DataProcessor、批处理优化的 RecDataLoader，符合工业大数据Spark/Hive场景下，基于离线`parquet/csv`特征的模型训练推理流程。
-- **多场景推荐能力**：同时覆盖排序（CTR/CVR）、召回、多任务学习等推荐/营销模型，并且持续扩充模型库中。
-- **友好的工程体验**：支持各种格式数据(`csv/parquet/pathlike`)的流式预处理/分布式训练/推理，GPU加速与可视化指标监控，方便业务算法工程师和推荐算法学习者进行实验。
-- **灵活的命令行工具**：通过配置训练配置文件和推理配置文件，通过`nextrec --mode=train --train_config=train_config.yaml` 一键启动训练和推理进程，方便快速实验迭代和敏捷部署。
-- **高效训练与评估**：NextRec框架的标准化训练引擎内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理，开箱即用。
+- **统一的特征工程与数据流水线**：NextRec框架提供了统一的特征定义、可持久化的数据处理、并对批处理进行了优化，符合工业大数据Spark/Hive场景下，基于离线特征的模型训练推理流程。
+- **多场景推荐能力**：覆盖排序（CTR/CVR）、召回、多任务学习、生成式召回等推荐/营销模型，持续跟进业界进展。
+- **友好的工程体验**：支持各种格式数据(`csv/parquet/pathlike`)的流式预处理/分布式训练/推理，GPU加速与可视化指标监控，方便业务算法工程师和推荐算法学习者快速复现实验。
+- **灵活的命令行工具**：支持通过命令行和配置文件，一键启动训练和推理进程，方便快速实验迭代和敏捷部署。
+- **高效训练与评估**：内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理，开箱即用。
 
 ## 架构
 
-NextRec采用模块化、低耦合的工程设计，使得推荐系统从数据处理 → 模型构建 → 训练评估 → 推理部署 全链路都具备复用性与可扩展性。其中的核心组件包括：Feature Spec驱动的Embedding架构；模型基类BaseModel；独立Layer模块；支持训练和推理的统一的DataLoader；开箱即用的模型库。
+NextRec采用模块化工程设计，核心组件包括：Feature Spec驱动的Embedding架构；模型基类BaseModel；独立Layer模块；支持训练和推理的统一的DataLoader；开箱即用的模型库等。
 
 ![NextRec架构](assets/nextrec_diagram_zh.png)
 
-> 项目的架构借鉴了一些优秀的开源推荐算法库，其中最初版的layer层借鉴了DataWhaleChina社区的[torch-rechub](https://github.com/datawhalechina/torch-rechub)，现已替换为了自有实现。torch-rechub在开发架构和模型实现上相对成熟，本人也参与了其中一小部分的维护，欢迎感兴趣的开发者前往了解。
+> 项目的架构借鉴了一些优秀的开源推荐算法库，例如DataWhaleChina社区的[torch-rechub](https://github.com/datawhalechina/torch-rechub)。torch-rechub在开发架构和模型实现上相对成熟，本人也参与了其中一小部分的维护，欢迎感兴趣的开发者前往了解。
 
 ---
 
 ## 安装
 
-你可以通过`pip install nextrec`快速安装NextRec的最新版本，环境要求为Python 3.10+。
+开发者可以通过`pip install nextrec`快速安装NextRec的最新版本，环境要求为Python 3.10+。如果需要执行示例代码，则需要先拉取仓库：
+
+```bash
+git clone https://github.com/zerolovesea/NextRec.git
+cd NextRec/
+pip install nextrec # or pip install -e .
+```
 
 ## 示例代码
 
@@ -60,6 +66,7 @@ NextRec采用模块化、低耦合的工程设计，使得推荐系统从数据�
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) - 电商数据集上的DIN 深度兴趣网络训练示例
 - [example_multitask.py](/tutorials/example_multitask.py) - 电商数据集上的ESMM多任务学习训练示例
 - [movielen_match_dssm.py](/tutorials/example_match_dssm.py) - 基于movielen 100k数据集训练的 DSSM 召回模型示例
+
 - [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) - 快速校验所有排序模型的可用性
 - [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) - 快速校验所有多任务模型的可用性
 - [run_all_match_models.py](/tutorials/run_all_match_models.py) - 快速校验所有召回模型的可用性
@@ -78,7 +85,7 @@ NextRec采用模块化、低耦合的工程设计，使得推荐系统从数据�
 | 1      | 7817    | 0.14704075  | 0.31020382  | 0.77780896  | 0.944897   | 0.62315375  | 0.57124174  | 0.77009535  | 0.3211029   | 315      | 260      | 379      | 146      | 168      | 161      | 138      | 88       | 5        | 312      | [170,175,97,338,105,353,272,546,175,545,463,128,0,0,0]   | [368,414,820,405,548,63,327,0,0,0,0,0,0,0,0]              | 0     |
 | 1      | 3579    | 0.77811223  | 0.80359334  | 0.5185201   | 0.91091245 | 0.043562356 | 0.82142705  | 0.8803686   | 0.33748195 | 149      | 229      | 442      | 6        | 167      | 252      | 25       | 402      | 7        | 168      | [179,48,61,551,284,165,344,151,0,0,0,0,0,0,0]            | [814,0,0,0,0,0,0,0,0,0,0,0,0,0,0]                          | 1     |
 
-接下来我们将用一个简短的示例，展示如何使用NextRec训练一个DIN模型。DIN(Deep Interest Network)来自于阿里妈妈2018年KDD最佳论文模型，用于CTR预估场景。你也可以直接执行`python tutorials/example_ranking_din.py`来执行训练推理代码。
+接下来我们将用一个简短的示例，展示如何使用NextRec训练一个DIN(Deep Interest Network)模型。您也可以直接执行`python tutorials/example_ranking_din.py`来执行训练推理代码。
 
 开始训练以后，你可以在`nextrec_logs/din_tutorial`路径下查看详细的训练日志。
 
@@ -157,6 +164,7 @@ metrics = model.evaluate(
 NextRec 提供了强大的命令行界面，支持通过 YAML 配置文件进行模型训练和预测。详细的 CLI 文档请参见：
 
 - [NextRec CLI 使用指南](/nextrec_cli_preset/NextRec-CLI_zh.md) - 完整的 CLI 使用文档
+- [NextRec CLI 配置文件示例](/nextrec_cli_preset/) - CLI 使用配置文件示例
 
 ```bash
 # 训练模型

@@ -1,12 +1,54 @@
 """
 Date: create on 09/11/2025
 Author:
-    Yang Zhou,zyaztec@gmail.com
+Yang Zhou,zyaztec@gmail.com
 Reference:
-    [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions
-        for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on
-        knowledge discovery & data mining. 2018: 1754-1763.
-        (https://arxiv.org/abs/1803.05170)
+[1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions
+for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on
+knowledge discovery & data mining. 2018: 1754-1763.
+(https://arxiv.org/abs/1803.05170)
+
+xDeepFM is a CTR prediction model that unifies explicit and implicit
+feature interaction learning. It extends DeepFM by adding the
+Compressed Interaction Network (CIN) to explicitly model high-order
+interactions at the vector-wise level, while an MLP captures implicit
+non-linear crosses. A linear term retains first-order signals, and all
+three parts are learned jointly end-to-end.
+
+In the forward pass:
+  (1) Embedding Layer: transforms sparse/sequence fields into dense vectors
+  (2) Linear Part: captures first-order contributions of sparse/sequence fields
+  (3) CIN: explicitly builds higher-order feature crosses via convolution over
+      outer products of field embeddings, with optional split-half connections
+  (4) Deep Part (MLP): models implicit, non-linear interactions across all fields
+  (5) Combination: sums outputs from linear, CIN, and deep branches before the
+      task-specific prediction layer
+
+Key Advantages:
+- Jointly learns first-order, explicit high-order, and implicit interactions
+- CIN offers interpretable vector-wise crosses with controlled complexity
+- Deep branch enhances representation power for non-linear patterns
+- End-to-end optimization eliminates heavy manual feature engineering
+- Flexible design supports both sparse and sequence features
+
+xDeepFM 是一个 CTR 预估模型，将显式与隐式的特征交互学习统一到同一框架。
+在 DeepFM 的基础上，额外引入了 CIN（Compressed Interaction Network）
+显式建模高阶向量级交互，同时 MLP 负责隐式非线性交互，线性部分保留一阶信号，
+三者联合训练。
+
+前向流程：
+  (1) 嵌入层：将稀疏/序列特征映射为稠密向量
+  (2) 线性部分：建模稀疏/序列特征的一阶贡献
+  (3) CIN：通过对字段嵌入做外积并卷积，显式捕获高阶交叉，可选 split-half 以控参
+  (4) 深层部分（MLP）：对所有特征进行隐式非线性交互建模
+  (5) 融合：线性、CIN、MLP 输出求和后进入任务预测层
+
+主要优点：
+- 同时学习一阶、显式高阶、隐式交互
+- CIN 提供可解释的向量级交叉并可控复杂度
+- 深层分支提升非线性表达能力
+- 端到端训练降低人工特征工程需求
+- 兼容稀疏与序列特征的建模
 """
 
 import torch
