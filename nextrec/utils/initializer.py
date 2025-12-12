@@ -37,7 +37,7 @@ def resolve_gain(activation: str, param: Dict[str, Any]) -> float:
         return param["gain"]
     nonlinearity = resolve_nonlinearity(activation)
     try:
-        return nn.init.calculate_gain(nonlinearity, param.get("param")) # type: ignore
+        return nn.init.calculate_gain(nonlinearity, param.get("param"))  # type: ignore
     except ValueError:
         return 1.0
 
@@ -58,11 +58,11 @@ def get_initializer(
             nn.init.xavier_normal_(tensor, gain=gain)
         elif init_type == "kaiming_uniform":
             nn.init.kaiming_uniform_(
-                tensor, a=param.get("a", 0), nonlinearity=nonlinearity # type: ignore
+                tensor, a=param.get("a", 0), nonlinearity=nonlinearity  # type: ignore
             )
         elif init_type == "kaiming_normal":
             nn.init.kaiming_normal_(
-                tensor, a=param.get("a", 0), nonlinearity=nonlinearity # type: ignore
+                tensor, a=param.get("a", 0), nonlinearity=nonlinearity  # type: ignore
             )
         elif init_type == "orthogonal":
             nn.init.orthogonal_(tensor, gain=gain)

@@ -8,6 +8,7 @@ Date: create on 06/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
+import torch
 import numpy as np
 import pandas as pd
 from typing import Optional, Dict, List, Tuple
@@ -529,3 +530,21 @@ def generate_distributed_ranking_data(
         },
         use_simple_names=False,
     )
+
+
+def generate_synthetic_embeddings(num_samples=1000, embedding_dim=768):
+    """
+    Generate synthetic multimodal embeddings for demonstration.
+
+    In practice, you would load real embeddings from:
+    - Image embeddings (e.g., from ResNet, ViT)
+    - Text embeddings (e.g., from BERT, GPT)
+    - Audio embeddings (e.g., from wav2vec)
+    """
+    # Generate random embeddings
+    embeddings = torch.randn(num_samples, embedding_dim)
+
+    # Create item IDs
+    item_ids = torch.arange(num_samples)
+
+    return item_ids, embeddings

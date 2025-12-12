@@ -185,8 +185,8 @@ predict:
 #### Parameter Description
 
 - `checkpoint_path`: Path to trained model
-  - Can be directory (automatically selects latest `.model` file)
-  - Can be specific model file: `path/to/model.model`
+  - Can be directory (automatically selects latest `.pt` file)
+  - Can be specific model file: `path/to/model.pt`
 - `processor_path`: Data processor path (optional)
   - If not specified, will look for `processor.pkl` under `checkpoint_path`
 - `targets`: Target column name (optional)
@@ -861,8 +861,8 @@ nextrec_logs/
 └── my_session/
     ├── processor.pkl              # Data processor
     ├── features_config.pkl        # Feature configuration
-    ├── model_epoch_1.model        # Model checkpoint
-    ├── model_epoch_2.model
+    ├── model_epoch_1.pt        # Model checkpoint
+    ├── model_epoch_2.pt
     └── runs.log               # Training log
 ```
 

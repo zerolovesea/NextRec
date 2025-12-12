@@ -25,9 +25,7 @@ def get_column_data(data: dict | pd.DataFrame, name: str):
         raise KeyError(f"Unsupported data type for extracting column {name}")
 
 
-def split_dict_random(
-    data_dict: dict, test_size: float = 0.2, random_state: int | None = None
-):
+def split_dict_random(data_dict, test_size=0.2, random_state=None):
 
     lengths = [len(v) for v in data_dict.values()]
     if len(set(lengths)) != 1:

@@ -17,6 +17,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
+import pandas as pd
+import torch
+
 from nextrec.utils.feature import normalize_to_list
 
 if TYPE_CHECKING:
@@ -126,7 +129,6 @@ def build_feature_objects(
         sparse_names: List of sparse feature names
         sequence_names: List of sequence feature names
     """
-    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
     dense_cfg = feature_cfg.get("dense", {}) or {}
     sparse_cfg = feature_cfg.get("sparse", {}) or {}
@@ -500,3 +502,38 @@ def build_model_instance(
             init_kwargs["session_id"] = model_cfg.get("session_id")
 
     return model_cls(**init_kwargs)
+
+
+def build_user_histories(
+    df: pd.DataFrame,
+    semantic_ids: torch.Tensor,
+    codebook_size: int,
+    log_time_column: str = "log_time",
+    seq_len: int = 6,
+) -> tuple[torch.Tensor, torch.Tensor, int]:
+    """
+    Build (history, next_item) pairs per user using log_time ordering.
+    """
+    df_with_ids = df.copy().reset_index(drop=True)
+    df_with_ids["log_time"] = pd.to_datetime(df_with_ids[log_time_column])
+    df_with_ids["semantic_token"] = semantic_ids[:, 0].long() + 1  # 0 reserved for pad
+
+    histories = []
+    labels = []
+    for _, user_df in df_with_ids.sort_values(["user_id", "log_time"]).groupby(
+        "user_id"
+    ):
+        tokens = torch.tensor(user_df["semantic_token"].tolist(), dtype=torch.long)
+        for i in range(1, len(tokens)):
+            start = max(0, i - seq_len)
+            hist = tokens[start:i]
+            if len(hist) < seq_len:
+                pad = torch.zeros(seq_len - len(hist), dtype=torch.long)
+                hist = torch.cat([pad, hist], dim=0)
+            histories.append(hist)
+            labels.append(tokens[i])
+
+    history_tensor = torch.stack(histories) if histories else torch.zeros(0, seq_len)
+    label_tensor = torch.tensor(labels, dtype=torch.long) if labels else torch.zeros(0)
+    vocab_size = codebook_size + 1  # +1 for padding token
+    return history_tensor, label_tensor, vocab_size

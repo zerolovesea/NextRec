@@ -45,10 +45,6 @@ jobs:
       run: |
         python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
         python -c "import nextrec; print('NextRec imported successfully')"
-
-    - name: Format codebase
-      run: |
-        python scripts/format_code.py
                 
     - name: Run tutorial multi-task models
       run: |

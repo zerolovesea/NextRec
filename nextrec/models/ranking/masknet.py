@@ -172,7 +172,7 @@ class MaskNet(BaseModel):
         block_hidden_dim: int = 256,
         block_dropout: float = 0.0,
         mlp_params: dict | None = None,
-        target: list[str] | None = None,
+        target: list[str] | str | None = None,
         task: str | list[str] | None = None,
         optimizer: str = "adam",
         optimizer_params: dict | None = None,

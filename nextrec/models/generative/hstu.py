@@ -1,7 +1,7 @@
 """
 [Info: this version is not released yet, i need to more research on source code and paper]
 Date: create on 01/12/2025
-Checkpoint: edit on 01/12/2025
+Checkpoint: edit on 11/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Meta AI. Generative Recommenders (HSTU encoder) — https://github.com/meta-recsys/generative-recommenders
@@ -55,10 +55,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nextrec.basic.model import BaseModel
+from nextrec.basic.layers import RMSNorm, EmbeddingLayer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 
+from nextrec.utils.model import select_features
 
-def _relative_position_bucket(
+
+def relative_position_bucket(
     relative_position: torch.Tensor,
     num_buckets: int = 32,
     max_distance: int = 128,
@@ -116,7 +119,7 @@ class RelativePositionBias(nn.Module):
         rel_pos = (
             mem - ctx
         )  # a matrix to describe all relative positions for each [i,j] pair, shape = [seq_len, seq_len]
-        buckets = _relative_position_bucket(
+        buckets = relative_position_bucket(
             rel_pos,
             num_buckets=self.num_buckets,
             max_distance=self.max_distance,
@@ -138,39 +141,40 @@ class HSTUPointwiseAttention(nn.Module):
 
     def __init__(
         self,
-        d_model: int,
+        hidden_dim: int,
         num_heads: int,
         dropout: float = 0.1,
         alpha: float | None = None,
+        use_rms_norm: bool = False,
     ):
         super().__init__()
-        if d_model % num_heads != 0:
+        if hidden_dim % num_heads != 0:
             raise ValueError(
-                f"[HSTUPointwiseAttention Error] d_model({d_model}) % num_heads({num_heads}) != 0"
+                f"[HSTUPointwiseAttention Error] hidden_dim({hidden_dim}) % num_heads({num_heads}) != 0"
             )
 
-        self.d_model = d_model
+        self.hidden_dim = hidden_dim
         self.num_heads = num_heads
-        self.d_head = d_model // num_heads
-        self.alpha = alpha if alpha is not None else (self.d_head**-0.5)
-        # project input to 4 * d_model for U, V, Q, K
-        self.in_proj = nn.Linear(d_model, 4 * d_model, bias=True)
-        # project output back to d_model
-        self.out_proj = nn.Linear(d_model, d_model, bias=True)
+        self.head_dim = hidden_dim // num_heads
+        self.alpha = alpha if alpha is not None else (self.head_dim**-0.5)
+        # project input to 4 * hidden_dim for U, V, Q, K
+        self.in_proj = nn.Linear(hidden_dim, 4 * hidden_dim, bias=True)
+        # project output back to hidden_dim
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=True)
         self.dropout = nn.Dropout(dropout)
-        self.norm = nn.LayerNorm(d_model)
+        self.norm = RMSNorm(hidden_dim) if use_rms_norm else nn.LayerNorm(hidden_dim)
 
-    def _reshape_heads(self, x: torch.Tensor) -> torch.Tensor:
+    def reshape_heads(self, x: torch.Tensor) -> torch.Tensor:
         """
-        [B, T, D] -> [B, H, T, d_head]
+        [B, T, D] -> [B, H, T, head_dim]
         """
         B, T, D = x.shape
-        return x.view(B, T, self.num_heads, self.d_head).transpose(1, 2)
+        return x.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
 
     def forward(
         self,
         x: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None,  # [T, T] with 0 or -inf
+        attention_mask: Optional[torch.Tensor] = None,  # [T, T] with 0 or -inf
         key_padding_mask: Optional[torch.Tensor] = None,  # [B, T], True = pad
         rab: Optional[torch.Tensor] = None,  # [1, H, T, T] or None
     ) -> torch.Tensor:
@@ -180,10 +184,10 @@ class HSTUPointwiseAttention(nn.Module):
         h = F.silu(self.in_proj(x))  # [B, T, 4D]
         U, V, Q, K = h.chunk(4, dim=-1)  # each [B, T, D]
 
-        Qh = self._reshape_heads(Q)  # [B, H, T, d_head]
-        Kh = self._reshape_heads(K)  # [B, H, T, d_head]
-        Vh = self._reshape_heads(V)  # [B, H, T, d_head]
-        Uh = self._reshape_heads(U)  # [B, H, T, d_head]
+        Qh = self.reshape_heads(Q)  # [B, H, T, d_head]
+        Kh = self.reshape_heads(K)  # [B, H, T, d_head]
+        Vh = self.reshape_heads(V)  # [B, H, T, d_head]
+        Uh = self.reshape_heads(U)  # [B, H, T, d_head]
 
         # attention logits: QK^T (without 1/sqrt(d) and softmax)
         logits = torch.matmul(Qh, Kh.transpose(-2, -1)) * self.alpha  # [B, H, T, T]
@@ -197,10 +201,10 @@ class HSTUPointwiseAttention(nn.Module):
         # 1 indicates that the (query i, key j) pair is a valid attention pair; 0 indicates it is masked out
         allowed = torch.ones_like(logits, dtype=torch.float)  # [B, H, T, T]
 
-        # causal mask: attn_mask is usually an upper triangular matrix of -inf with shape [T, T]
-        if attn_mask is not None:
-            allowed = allowed * (attn_mask.view(1, 1, T, T) == 0).float()
-            logits = logits + attn_mask.view(1, 1, T, T)
+        # causal mask: attention_mask is usually an upper triangular matrix of -inf with shape [T, T]
+        if attention_mask is not None:
+            allowed = allowed * (attention_mask.view(1, 1, T, T) == 0).float()
+            logits = logits + attention_mask.view(1, 1, T, T)
 
         # padding mask: key_padding_mask is usually [B, T], True = pad
         if key_padding_mask is not None:
@@ -211,12 +215,15 @@ class HSTUPointwiseAttention(nn.Module):
             logits = logits.masked_fill(valid == 0, float("-inf"))
 
         # Eq.(2): A(X)V(X) = φ2(QK^T + rab) V(X) / N
-        attn = F.silu(logits)  # [B, H, T, T]
+        # Note: F.silu(-inf) = nan, so we need to handle -inf values carefully
+        # Replace -inf with a very negative value before silu to avoid nan
+        logits_safe = logits.masked_fill(torch.isinf(logits) & (logits < 0), -1e9)
+        attention = F.silu(logits_safe)  # [B, H, T, T]
         denom = allowed.sum(dim=-1, keepdim=True)  # [B, H, T, 1]
         denom = denom.clamp(min=1.0)
 
-        attn = attn / denom  # [B, H, T, T]
-        AV = torch.matmul(attn, Vh)  # [B, H, T, d_head]
+        attention = attention / denom  # [B, H, T, T]
+        AV = torch.matmul(attention, Vh)  # [B, H, T, head_dim]
         AV = AV.transpose(1, 2).contiguous().view(B, T, D)  # reshape back to [B, T, D]
         U_flat = Uh.transpose(1, 2).contiguous().view(B, T, D)
         y = self.out_proj(self.dropout(self.norm(AV) * U_flat))  # [B, T, D]
@@ -230,16 +237,20 @@ class HSTULayer(nn.Module):
 
     def __init__(
         self,
-        d_model: int,
+        hidden_dim: int,
         num_heads: int,
         dropout: float = 0.1,
         use_rab_pos: bool = True,
         rab_num_buckets: int = 32,
         rab_max_distance: int = 128,
+        use_rms_norm: bool = False,
     ):
         super().__init__()
-        self.attn = HSTUPointwiseAttention(
-            d_model=d_model, num_heads=num_heads, dropout=dropout
+        self.attention = HSTUPointwiseAttention(
+            hidden_dim=hidden_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            use_rms_norm=use_rms_norm,
         )
         self.dropout = nn.Dropout(dropout)
         self.use_rab_pos = use_rab_pos
@@ -256,7 +267,7 @@ class HSTULayer(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        attn_mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         key_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
@@ -267,8 +278,11 @@ class HSTULayer(nn.Module):
         rab = None
         if self.use_rab_pos:
             rab = self.rel_pos_bias(seq_len=T, device=device)  # [1, H, T, T]
-        out = self.attn(
-            x=x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, rab=rab
+        out = self.attention(
+            x=x,
+            attention_mask=attention_mask,
+            key_padding_mask=key_padding_mask,
+            rab=rab,
         )
         return x + self.dropout(out)
 
@@ -295,7 +309,8 @@ class HSTU(BaseModel):
         sequence_features: list[SequenceFeature],
         dense_features: Optional[list[DenseFeature]] = None,
         sparse_features: Optional[list[SparseFeature]] = None,
-        d_model: Optional[int] = None,
+        item_history: str = "item_history",
+        hidden_dim: Optional[int] = None,
         num_heads: int = 8,
         num_layers: int = 4,
         max_seq_len: int = 200,
@@ -304,6 +319,8 @@ class HSTU(BaseModel):
         use_rab_pos: bool = True,
         rab_num_buckets: int = 32,
         rab_max_distance: int = 128,
+        # Normalization settings
+        use_rms_norm: bool = False,
         tie_embeddings: bool = True,
         target: Optional[list[str] | str] = None,
         task: str | list[str] | None = None,
@@ -324,22 +341,23 @@ class HSTU(BaseModel):
                 "[HSTU Error] HSTU requires at least one SequenceFeature (user behavior history)."
             )
 
-        # demo version: use the first SequenceFeature as the main sequence
-        self.history_feature = sequence_features[0]
+        self.item_history_feature = select_features(
+            sequence_features, [item_history], "item_history"
+        )[0]
 
-        hidden_dim = d_model or max(
-            int(getattr(self.history_feature, "embedding_dim", 0) or 0), 32
+        self.hidden_dim = hidden_dim or max(
+            int(getattr(self.item_history_feature, "embedding_dim", 0) or 0), 32
         )
         # Make hidden_dim divisible by num_heads
-        if hidden_dim % num_heads != 0:
-            hidden_dim = num_heads * math.ceil(hidden_dim / num_heads)
+        if self.hidden_dim % num_heads != 0:
+            self.hidden_dim = num_heads * math.ceil(self.hidden_dim / num_heads)
 
         self.padding_idx = (
-            self.history_feature.padding_idx
-            if self.history_feature.padding_idx is not None
+            self.item_history_feature.padding_idx
+            if self.item_history_feature.padding_idx is not None
             else 0
         )
-        self.vocab_size = self.history_feature.vocab_size
+        self.vocab_size = self.item_history_feature.vocab_size
         self.max_seq_len = max_seq_len
 
         super().__init__(
@@ -356,32 +374,51 @@ class HSTU(BaseModel):
             **kwargs,
         )
 
+        # Optional contextual encoders (user/item attributes, real-time context, etc.)
+        self.context_features = [
+            feat
+            for feat in self.all_features
+            if feat.name != self.item_history_feature.name
+        ]
+        self.context_embedding = (
+            EmbeddingLayer(self.context_features) if self.context_features else None
+        )
+        self.context_proj = (
+            nn.Linear(self.context_embedding.output_dim, self.hidden_dim)
+            if self.context_embedding is not None
+            else None
+        )
+        self.context_dropout = nn.Dropout(dropout) if self.context_embedding else None
+
         # token & position embedding (paper usually includes pos embedding / RAB in encoder)
         self.token_embedding = nn.Embedding(
             num_embeddings=self.vocab_size,
-            embedding_dim=hidden_dim,
+            embedding_dim=self.hidden_dim,
             padding_idx=self.padding_idx,
         )
-        self.position_embedding = nn.Embedding(max_seq_len, hidden_dim)
+        self.position_embedding = nn.Embedding(max_seq_len, self.hidden_dim)
         self.input_dropout = nn.Dropout(dropout)
 
         # HSTU layers
         self.layers = nn.ModuleList(
             [
                 HSTULayer(
-                    d_model=hidden_dim,
+                    hidden_dim=self.hidden_dim,
                     num_heads=num_heads,
                     dropout=dropout,
                     use_rab_pos=use_rab_pos,
                     rab_num_buckets=rab_num_buckets,
                     rab_max_distance=rab_max_distance,
+                    use_rms_norm=use_rms_norm,
                 )
                 for _ in range(num_layers)
             ]
         )
 
-        self.final_norm = nn.LayerNorm(hidden_dim)
-        self.lm_head = nn.Linear(hidden_dim, self.vocab_size, bias=False)
+        self.final_norm = (
+            RMSNorm(self.hidden_dim) if use_rms_norm else nn.LayerNorm(self.hidden_dim)
+        )
+        self.lm_head = nn.Linear(self.hidden_dim, self.vocab_size, bias=False)
         if tie_embeddings:
             self.lm_head.weight = self.token_embedding.weight
 
@@ -403,10 +440,11 @@ class HSTU(BaseModel):
             loss_params=loss_params,
         )
         self.register_regularization_weights(
-            embedding_attr="token_embedding", include_modules=["layers", "lm_head"]
+            embedding_attr="token_embedding",
+            include_modules=["layers", "lm_head", "context_proj"],
         )
 
-    def _build_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
+    def build_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         """
         build causal mask of shape [T, T]: upper triangle is -inf, others are 0.
         This will be added to the logits to simulate causal structure.
@@ -417,14 +455,14 @@ class HSTU(BaseModel):
             self.causal_mask = mask
         return self.causal_mask[:seq_len, :seq_len]
 
-    def _trim_sequence(self, seq: torch.Tensor) -> torch.Tensor:
+    def trim_sequence(self, seq: torch.Tensor) -> torch.Tensor:
         if seq.size(1) <= self.max_seq_len:
             return seq
         return seq[:, -self.max_seq_len :]
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
-        seq = x[self.history_feature.name].long()  # [B, T_raw]
-        seq = self._trim_sequence(seq)  # [B, T]
+        seq = x[self.item_history_feature.name].long()  # [B, T_raw]
+        seq = self.trim_sequence(seq)  # [B, T]
 
         B, T = seq.shape
         device = seq.device
@@ -436,19 +474,34 @@ class HSTU(BaseModel):
 
         # padding mask：True = pad
         padding_mask = seq.eq(self.padding_idx)  # [B, T]
-        attn_mask = self._build_causal_mask(seq_len=T, device=device)  # [T, T]
+        attention_mask = self.build_causal_mask(seq_len=T, device=device)  # [T, T]
 
         for layer in self.layers:
             hidden_states = layer(
-                x=hidden_states, attn_mask=attn_mask, key_padding_mask=padding_mask
+                x=hidden_states,
+                attention_mask=attention_mask,
+                key_padding_mask=padding_mask,
             )
         hidden_states = self.final_norm(hidden_states)  # [B, T, D]
 
         valid_lengths = (~padding_mask).sum(dim=1)  # [B]
         last_index = (valid_lengths - 1).clamp(min=0)
+
+        # For sequences with no valid tokens, we use position 0's hidden state
+        # In production, these sequences should be filtered out before inference
         last_hidden = hidden_states[
             torch.arange(B, device=device), last_index
         ]  # [B, D]
+
+        if self.context_embedding is not None and self.context_proj is not None:
+            context_repr = self.context_embedding(
+                x, self.context_features, squeeze_dim=True
+            )  # [B, D_ctx]
+            context_repr = self.context_proj(context_repr)  # [B, D]
+            if self.context_dropout is not None:
+                context_repr = self.context_dropout(context_repr)
+            # fuse contextual signal into the autoregressive token summary
+            last_hidden = last_hidden + context_repr
 
         logits = self.lm_head(last_hidden)  # [B, vocab_size]
         return logits
