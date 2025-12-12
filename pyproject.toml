@@ -24,6 +24,7 @@ dependencies = [
     "torchvision>=0.15.0",
     "tqdm>=4.65.0",
     "PyYAML>=6.0",
+    "transformers>=4.38.0",
 
     # macos
     "numpy>=1.24.0; sys_platform == 'darwin'",
