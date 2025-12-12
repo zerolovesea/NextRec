@@ -861,8 +861,8 @@ nextrec_logs/
 └── my_session/
     ├── processor.pkl              # 数据处理器
     ├── features_config.pkl        # 特征配置
-    ├── model_epoch_1.model        # 模型检查点
-    ├── model_epoch_2.model
+    ├── model_epoch_1.pt        # 模型检查点
+    ├── model_epoch_2.pt
     └── runs.log               # 训练日志
 ```
 

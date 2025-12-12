@@ -496,12 +496,18 @@ class HadamardInteractionLayer(nn.Module):
 
 
 class MultiHeadSelfAttention(nn.Module):
+    """
+    Multi-Head Self-Attention layer with Flash Attention support.
+    Uses PyTorch 2.0+ scaled_dot_product_attention when available for better performance.
+    """
+
     def __init__(
         self,
         embedding_dim: int,
         num_heads: int = 2,
         dropout: float = 0.0,
         use_residual: bool = True,
+        use_layer_norm: bool = False,
     ):
         super().__init__()
         if embedding_dim % num_heads != 0:
@@ -512,45 +518,100 @@ class MultiHeadSelfAttention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = embedding_dim // num_heads
         self.use_residual = use_residual
+        self.dropout_rate = dropout
+
         self.W_Q = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.W_K = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.W_V = nn.Linear(embedding_dim, embedding_dim, bias=False)
+        self.W_O = nn.Linear(embedding_dim, embedding_dim, bias=False)
+
         if self.use_residual:
             self.W_Res = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.dropout = nn.Dropout(dropout)
+        if use_layer_norm:
+            self.layer_norm = nn.LayerNorm(embedding_dim)
+        else:
+            self.layer_norm = None
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size, num_fields, _ = x.shape
-        Q = self.W_Q(x)  # [batch_size, num_fields, embedding_dim]
+        self.dropout = nn.Dropout(dropout)
+        # Check if Flash Attention is available
+        self.use_flash_attention = hasattr(F, "scaled_dot_product_attention")
+
+    def forward(
+        self, x: torch.Tensor, attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """
+        Args:
+            x: [batch_size, seq_len, embedding_dim]
+            attention_mask: [batch_size, seq_len] or [batch_size, seq_len, seq_len], boolean mask where True indicates valid positions
+        Returns:
+            output: [batch_size, seq_len, embedding_dim]
+        """
+        batch_size, seq_len, _ = x.shape
+        Q = self.W_Q(x)  # [batch_size, seq_len, embedding_dim]
         K = self.W_K(x)
         V = self.W_V(x)
-        # Split into multiple heads: [batch_size, num_heads, num_fields, head_dim]
-        Q = Q.view(batch_size, num_fields, self.num_heads, self.head_dim).transpose(
-            1, 2
-        )
-        K = K.view(batch_size, num_fields, self.num_heads, self.head_dim).transpose(
-            1, 2
-        )
-        V = V.view(batch_size, num_fields, self.num_heads, self.head_dim).transpose(
-            1, 2
-        )
-        # Attention scores
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim**0.5)
-        attention_weights = F.softmax(scores, dim=-1)
-        attention_weights = self.dropout(attention_weights)
-        attention_output = torch.matmul(
-            attention_weights, V
-        )  # [batch_size, num_heads, num_fields, head_dim]
+
+        # Split into multiple heads: [batch_size, num_heads, seq_len, head_dim]
+        Q = Q.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        K = K.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        V = V.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        if self.use_flash_attention:
+            # Use PyTorch 2.0+ Flash Attention
+            if attention_mask is not None:
+                # Convert mask to [batch_size, 1, seq_len, seq_len] format
+                if attention_mask.dim() == 2:
+                    # [B, L] -> [B, 1, 1, L]
+                    attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+                elif attention_mask.dim() == 3:
+                    # [B, L, L] -> [B, 1, L, L]
+                    attention_mask = attention_mask.unsqueeze(1)
+            attention_output = F.scaled_dot_product_attention(
+                Q,
+                K,
+                V,
+                attn_mask=attention_mask,
+                dropout_p=self.dropout_rate if self.training else 0.0,
+            )
+            # Handle potential NaN values
+            attention_output = torch.nan_to_num(attention_output, nan=0.0)
+        else:
+            # Fallback to standard attention
+            scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim**0.5)
+
+            if attention_mask is not None:
+                # Process mask for standard attention
+                if attention_mask.dim() == 2:
+                    # [B, L] -> [B, 1, 1, L]
+                    attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+                elif attention_mask.dim() == 3:
+                    # [B, L, L] -> [B, 1, L, L]
+                    attention_mask = attention_mask.unsqueeze(1)
+                scores = scores.masked_fill(~attention_mask, float("-1e9"))
+
+            attention_weights = F.softmax(scores, dim=-1)
+            attention_weights = self.dropout(attention_weights)
+            attention_output = torch.matmul(
+                attention_weights, V
+            )  # [batch_size, num_heads, seq_len, head_dim]
+
         # Concatenate heads
         attention_output = attention_output.transpose(1, 2).contiguous()
         attention_output = attention_output.view(
-            batch_size, num_fields, self.embedding_dim
+            batch_size, seq_len, self.embedding_dim
         )
+
+        # Output projection
+        output = self.W_O(attention_output)
+
         # Residual connection
         if self.use_residual:
-            output = attention_output + self.W_Res(x)
-        else:
-            output = attention_output
+            output = output + self.W_Res(x)
+
+        # Layer normalization
+        if self.layer_norm is not None:
+            output = self.layer_norm(output)
+
         output = F.relu(output)
         return output
 
@@ -653,3 +714,21 @@ class AttentionPoolingLayer(nn.Module):
         # Weighted sum over keys: (B, L, 1) * (B, L, D) -> (B, D)
         output = torch.sum(attention_weights * keys, dim=1)
         return output
+
+
+class RMSNorm(torch.nn.Module):
+    """
+    Root Mean Square Layer Normalization.
+    Reference: https://arxiv.org/abs/1910.07467
+    """
+
+    def __init__(self, hidden_size: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = torch.nn.Parameter(torch.ones(hidden_size))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # RMS(x) = sqrt(mean(x^2) + eps)
+        variance = torch.mean(x**2, dim=-1, keepdim=True)
+        x_normalized = x * torch.rsqrt(variance + self.eps)
+        return self.weight * x_normalized

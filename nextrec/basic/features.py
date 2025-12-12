@@ -33,6 +33,8 @@ class SequenceFeature(BaseFeature):
         l1_reg: float = 0.0,
         l2_reg: float = 1e-5,
         trainable: bool = True,
+        pretrained_weight: torch.Tensor | None = None,
+        freeze_pretrained: bool = False,
     ):
         self.name = name
         self.vocab_size = vocab_size
@@ -47,6 +49,8 @@ class SequenceFeature(BaseFeature):
         self.l1_reg = l1_reg
         self.l2_reg = l2_reg
         self.trainable = trainable
+        self.pretrained_weight = pretrained_weight
+        self.freeze_pretrained = freeze_pretrained
 
 
 class SparseFeature(BaseFeature):

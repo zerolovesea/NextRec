@@ -126,11 +126,9 @@ class BaseModel(FeatureSet, nn.Module):
         self.session = create_session(session_id)
         self.session_path = self.session.root  # pwd/session_id, path for this session
         self.checkpoint_path = os.path.join(
-            self.session_path, self.model_name + "_checkpoint.model"
-        )  # example: pwd/session_id/DeepFM_checkpoint.model
-        self.best_path = os.path.join(
-            self.session_path, self.model_name + "_best.model"
-        )
+            self.session_path, self.model_name + "_checkpoint.pt"
+        )  # example: pwd/session_id/DeepFM_checkpoint.pt
+        self.best_path = os.path.join(self.session_path, self.model_name + "_best.pt")
         self.features_config_path = os.path.join(
             self.session_path, "features_config.pkl"
         )
@@ -1563,7 +1561,7 @@ class BaseModel(FeatureSet, nn.Module):
             path=save_path,
             default_dir=self.session_path,
             default_name=self.model_name,
-            suffix=".model",
+            suffix=".pt",
             add_timestamp=add_timestamp,
         )
         model_path = Path(target_path)
@@ -1603,16 +1601,16 @@ class BaseModel(FeatureSet, nn.Module):
         self.to(self.device)
         base_path = Path(save_path)
         if base_path.is_dir():
-            model_files = sorted(base_path.glob("*.model"))
+            model_files = sorted(base_path.glob("*.pt"))
             if not model_files:
                 raise FileNotFoundError(
-                    f"[BaseModel-load-model Error] No *.model file found in directory: {base_path}"
+                    f"[BaseModel-load-model Error] No *.pt file found in directory: {base_path}"
                 )
             model_path = model_files[-1]
             config_dir = base_path
         else:
             model_path = (
-                base_path.with_suffix(".model") if base_path.suffix == "" else base_path
+                base_path.with_suffix(".pt") if base_path.suffix == "" else base_path
             )
             config_dir = model_path.parent
         if not model_path.exists():
@@ -1665,21 +1663,21 @@ class BaseModel(FeatureSet, nn.Module):
     ) -> "BaseModel":
         """
         Load a model from a checkpoint path. The checkpoint path should contain:
-        a .model file and a features_config.pkl file.
+        a .pt file and a features_config.pkl file.
         """
         base_path = Path(checkpoint_path)
         verbose = kwargs.pop("verbose", True)
         if base_path.is_dir():
-            model_candidates = sorted(base_path.glob("*.model"))
+            model_candidates = sorted(base_path.glob("*.pt"))
             if not model_candidates:
                 raise FileNotFoundError(
-                    f"[BaseModel-from-checkpoint Error] No *.model file found under: {base_path}"
+                    f"[BaseModel-from-checkpoint Error] No *.pt file found under: {base_path}"
                 )
             model_file = model_candidates[-1]
             config_dir = base_path
         else:
             model_file = (
-                base_path.with_suffix(".model") if base_path.suffix == "" else base_path
+                base_path.with_suffix(".pt") if base_path.suffix == "" else base_path
             )
             config_dir = model_file.parent
         features_config_path = config_dir / "features_config.pkl"

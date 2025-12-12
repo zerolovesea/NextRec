@@ -44,6 +44,11 @@ TASK_DEFAULT_METRICS = {
     + [f"recall@{k}" for k in (5, 10, 20)]
     + [f"ndcg@{k}" for k in (5, 10, 20)]
     + [f"mrr@{k}" for k in (5, 10, 20)],
+    # generative/multiclass next-item prediction defaults
+    "multiclass": ["accuracy"]
+    + [f"hitrate@{k}" for k in (1, 5, 10)]
+    + [f"recall@{k}" for k in (1, 5, 10)]
+    + [f"mrr@{k}" for k in (1, 5, 10)],
 }
 
 
@@ -156,6 +161,51 @@ def group_indices_by_user(user_ids: np.ndarray, n_samples: int) -> list[np.ndarr
     unique_users = np.unique(user_ids)
     groups = [np.where(user_ids == u)[0] for u in unique_users]
     return groups
+
+
+def normalize_multiclass_inputs(
+    y_true: np.ndarray, y_pred: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Normalize multiclass inputs to consistent shapes.
+
+    y_true: [N] of class ids
+    y_pred: [N, C] of logits/probabilities
+    """
+    labels = np.asarray(y_true).reshape(-1)
+    scores = np.asarray(y_pred)
+    if scores.ndim == 1:
+        scores = scores.reshape(scores.shape[0], -1)
+    if scores.shape[0] != labels.shape[0]:
+        raise ValueError(
+            f"[Metric Warning] y_true length {labels.shape[0]} != y_pred batch {scores.shape[0]} for multiclass metrics."
+        )
+    return labels.astype(int), scores
+
+
+def multiclass_topk_hit_rate(y_true: np.ndarray, y_pred: np.ndarray, k: int) -> float:
+    labels, scores = normalize_multiclass_inputs(y_true, y_pred)
+    if scores.shape[1] == 0:
+        return 0.0
+    k = min(k, scores.shape[1])
+    topk_idx = np.argpartition(-scores, kth=k - 1, axis=1)[:, :k]
+    hits = (topk_idx == labels[:, None]).any(axis=1)
+    return float(hits.mean()) if hits.size > 0 else 0.0
+
+
+def multiclass_mrr_at_k(y_true: np.ndarray, y_pred: np.ndarray, k: int) -> float:
+    labels, scores = normalize_multiclass_inputs(y_true, y_pred)
+    if scores.shape[1] == 0:
+        return 0.0
+    k = min(k, scores.shape[1])
+    # full sort for stable ranks
+    topk_idx = np.argsort(-scores, axis=1)[:, :k]
+    ranks = np.full(labels.shape, fill_value=k + 1, dtype=np.float32)
+    for idx in range(k):
+        match = topk_idx[:, idx] == labels
+        ranks[match] = idx + 1
+    reciprocals = np.where(ranks <= k, 1.0 / ranks, 0.0)
+    return float(reciprocals.mean()) if reciprocals.size > 0 else 0.0
 
 
 def compute_precision_at_k(
@@ -463,8 +513,28 @@ def compute_single_metric(
 ) -> float:
     """Compute a single metric given true and predicted values."""
     y_p_binary = (y_pred > 0.5).astype(int)
+    metric_lower = metric.lower()
+    is_multiclass = task_type == "multiclass" and y_pred.ndim >= 2
+    if is_multiclass:
+        # Dedicated path for multiclass logits (e.g., next-item prediction)
+        labels, scores = normalize_multiclass_inputs(y_true, y_pred)
+        if metric_lower in ("accuracy", "acc"):
+            preds = scores.argmax(axis=1)
+            return float((preds == labels).mean())
+        if metric_lower.startswith("hitrate@") or metric_lower.startswith("hr@"):
+            k_str = metric_lower.split("@")[1]
+            k = int(k_str)
+            return multiclass_topk_hit_rate(labels, scores, k)
+        if metric_lower.startswith("recall@"):
+            k = int(metric_lower.split("@")[1])
+            return multiclass_topk_hit_rate(labels, scores, k)
+        if metric_lower.startswith("mrr@"):
+            k = int(metric_lower.split("@")[1])
+            return multiclass_mrr_at_k(labels, scores, k)
+        # fall back to accuracy if unsupported metric is requested
+        preds = scores.argmax(axis=1)
+        return float((preds == labels).mean())
     try:
-        metric_lower = metric.lower()
         if metric_lower.startswith("recall@"):
             k = int(metric_lower.split("@")[1])
             return compute_recall_at_k(y_true, y_pred, user_ids, k)  # type: ignore

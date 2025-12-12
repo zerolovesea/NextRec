@@ -108,7 +108,6 @@ print("Prediction")
 predictions: pd.DataFrame = model.predict(
     valid_df, batch_size=512, return_dataframe=True
 )
-preview = predictions.head(5)
 
 print(f"Prediction shape: {predictions.shape}")
 print(f"Prediction sample: {predictions[:10]}")

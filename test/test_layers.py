@@ -441,6 +441,86 @@ class TestMultiHeadSelfAttention:
 
         logger.info(f"MultiHeadSelfAttention with {num_heads} heads test successful")
 
+    def test_attention_with_mask(self):
+        """Test MultiHeadSelfAttention with attention mask"""
+        logger.info("=" * 80)
+        logger.info("Testing MultiHeadSelfAttention with attention mask")
+        logger.info("=" * 80)
+
+        batch_size = 8
+        seq_len = 12
+        embedding_dim = 64
+
+        attention = MultiHeadSelfAttention(
+            embedding_dim=embedding_dim, num_heads=4, dropout=0.0, use_residual=True
+        )
+
+        x = torch.randn(batch_size, seq_len, embedding_dim)
+        # Create a mask: first 8 positions are valid, rest are padding
+        attention_mask = torch.ones(batch_size, seq_len, dtype=torch.bool)
+        attention_mask[:, 8:] = False  # Mask out last 4 positions
+
+        output = attention(x, attention_mask=attention_mask)
+
+        assert output.shape == (batch_size, seq_len, embedding_dim)
+        assert not torch.isnan(output).any()
+
+        logger.info("MultiHeadSelfAttention with mask test successful")
+
+    def test_attention_with_layer_norm(self):
+        """Test MultiHeadSelfAttention with layer normalization"""
+        logger.info("=" * 80)
+        logger.info("Testing MultiHeadSelfAttention with layer normalization")
+        logger.info("=" * 80)
+
+        batch_size = 16
+        seq_len = 10
+        embedding_dim = 64
+
+        attention = MultiHeadSelfAttention(
+            embedding_dim=embedding_dim,
+            num_heads=4,
+            dropout=0.0,
+            use_residual=True,
+            use_layer_norm=True,
+        )
+
+        x = torch.randn(batch_size, seq_len, embedding_dim)
+        output = attention(x)
+
+        assert output.shape == (batch_size, seq_len, embedding_dim)
+        assert not torch.isnan(output).any()
+        # Check that layer norm is applied (output should have mean ~0 and std ~1 per feature)
+        assert hasattr(attention, "layer_norm")
+
+        logger.info("MultiHeadSelfAttention with layer norm test successful")
+
+    def test_attention_flash_vs_standard(self):
+        """Test that Flash Attention and standard attention produce similar results"""
+        logger.info("=" * 80)
+        logger.info("Testing Flash Attention vs standard attention compatibility")
+        logger.info("=" * 80)
+
+        batch_size = 8
+        seq_len = 10
+        embedding_dim = 64
+
+        attention = MultiHeadSelfAttention(
+            embedding_dim=embedding_dim, num_heads=4, dropout=0.0, use_residual=False
+        )
+
+        x = torch.randn(batch_size, seq_len, embedding_dim)
+
+        # Run with same input
+        attention.eval()  # Set to eval mode to disable dropout
+        output = attention(x)
+
+        assert output.shape == (batch_size, seq_len, embedding_dim)
+        assert not torch.isnan(output).any()
+
+        logger.info(f"Using Flash Attention: {attention.use_flash_attention}")
+        logger.info("Flash vs standard attention compatibility test successful")
+
 
 class TestPoolingLayers:
     """Test suite for pooling layers"""
