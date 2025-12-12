@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--no-install",
-        action="store_false",
+        action="store_true",
         help="Skip automatic pip installs; expect ruff/black to already exist.",
     )
     parser.add_argument(
