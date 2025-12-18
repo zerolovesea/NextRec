@@ -62,7 +62,7 @@ def select_features(
 
 
 def register_processor_features(
-    processor: DataProcessor,
+    processor: "DataProcessor",
     feature_cfg: Dict[str, Any],
     dense_names: List[str],
     sparse_names: List[str],
@@ -129,6 +129,7 @@ def build_feature_objects(
         sparse_names: List of sparse feature names
         sequence_names: List of sequence feature names
     """
+    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
     dense_cfg = feature_cfg.get("dense", {}) or {}
     sparse_cfg = feature_cfg.get("sparse", {}) or {}
@@ -360,9 +361,9 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
 def build_model_instance(
     model_cfg: Dict[str, Any],
     model_cfg_path: Path,
-    dense_features: List[DenseFeature],
-    sparse_features: List[SparseFeature],
-    sequence_features: List[SequenceFeature],
+    dense_features: List["DenseFeature"],
+    sparse_features: List["SparseFeature"],
+    sequence_features: List["SequenceFeature"],
     target: List[str],
     device: str,
 ) -> Any:

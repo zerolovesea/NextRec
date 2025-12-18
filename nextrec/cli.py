@@ -14,9 +14,11 @@ Examples:
     nextrec --mode=predict --predict_config=nextrec_cli_preset/predict_config.yaml
 
 Date: create on 06/12/2025
+Checkpoint: edit on 18/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
+import sys
 import argparse
 import logging
 import pickle
@@ -43,6 +45,10 @@ from nextrec.utils.file import (
     read_table,
     read_yaml,
     resolve_file_paths,
+)
+from nextrec.utils.cli_utils import (
+    get_nextrec_version,
+    log_startup_info,
 )
 from nextrec.basic.loggers import setup_logger
 
@@ -71,6 +77,9 @@ def train_model(train_config_path: str) -> None:
     artifact_root = Path(session_cfg.get("artifact_root", "nextrec_logs"))
     session_dir = artifact_root / session_id
     setup_logger(session_id=session_id)
+    logger.info(
+        f"[NextRec CLI] Training start | version={get_nextrec_version()} | session_id={session_id} | artifacts={session_dir.resolve()}"
+    )
 
     processor_path = session_dir / "processor.pkl"
     processor_path = Path(processor_path)
@@ -324,6 +333,9 @@ def predict_model(predict_config_path: str) -> None:
     artifact_root = Path(session_cfg.get("artifact_root", "nextrec_logs"))
     session_dir = Path(cfg.get("checkpoint_path") or (artifact_root / session_id))
     setup_logger(session_id=session_id)
+    logger.info(
+        f"[NextRec CLI] Predict start | version={get_nextrec_version()} | session_id={session_id} | checkpoint={session_dir.resolve()}"
+    )
 
     processor_path = Path(session_dir / "processor.pkl")
     if not processor_path.exists():
@@ -454,6 +466,13 @@ def predict_model(predict_config_path: str) -> None:
 
 def main() -> None:
     """Parse CLI arguments and dispatch to train or predict mode."""
+
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        root.addHandler(handler)
+
     parser = argparse.ArgumentParser(
         description="NextRec: Training and Prediction Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -466,25 +485,32 @@ Examples:
   nextrec --mode=predict --predict_config=configs/predict_config.yaml
         """,
     )
+
     parser.add_argument(
         "--mode",
         choices=["train", "predict"],
-        required=True,
         help="Running mode: train or predict",
     )
     parser.add_argument("--train_config", help="Training configuration file path")
     parser.add_argument("--predict_config", help="Prediction configuration file path")
     args = parser.parse_args()
 
+    logger.info(get_nextrec_version())
+
+    if not args.mode:
+        parser.error("[NextRec CLI Error] --mode is required (train|predict)")
+
     if args.mode == "train":
         config_path = args.train_config
         if not config_path:
             parser.error("[NextRec CLI Error] train mode requires --train_config")
+        log_startup_info(logger, mode="train", config_path=config_path)
         train_model(config_path)
     else:
         config_path = args.predict_config
         if not config_path:
             parser.error("[NextRec CLI Error] predict mode requires --predict_config")
+        log_startup_info(logger, mode="predict", config_path=config_path)
         predict_model(config_path)
 
 
