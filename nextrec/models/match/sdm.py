@@ -1,10 +1,10 @@
 """
 Date: create on 09/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 18/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-    [1] Ying H, Zhuang F, Zhang F, et al. Sequential recommender system based on hierarchical attention networks[C]
-        //IJCAI. 2018: 3926-3932.
+[1] Ying H, Zhuang F, Zhang F, et al. Sequential recommender system based on hierarchical attention networks[C]
+//IJCAI. 2018: 3926-3932.
 """
 
 import torch
@@ -84,6 +84,7 @@ class SDM(BaseMatchModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
+            early_stop_patience=early_stop_patience,
             **kwargs,
         )
 

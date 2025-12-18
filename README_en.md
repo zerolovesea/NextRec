@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.6-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.7-orange.svg)
 
 English | [中文文档](README.md)
 
@@ -34,8 +34,8 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 ## Why NextRec
 
-- **Unified feature engineering & data pipeline**: NextRec provide unified Dense/Sparse/Sequence feature definitions, DataProcessor, and batch-optimized RecDataLoader, matching offline feature training/inference in industrial big-data settings.
 - **Multi-scenario coverage**: Ranking (CTR/CVR), retrieval, multi-task learning, and more marketing/rec models, with a continuously expanding model zoo.
+- **Unified feature engineering & data pipeline**: NextRec provide unified Dense/Sparse/Sequence feature definitions, DataProcessor, and batch-optimized RecDataLoader, matching offline feature training/inference in industrial big-data settings.
 - **Developer-friendly experience**: `Stream processing/distributed training/inference` for `csv/parquet/pathlike` data, plus GPU/MPS acceleration and visualization support.
 - **Flexible CLI tooling**: Start training and inference via command line and config files for rapid experiment iteration and agile deployment.
 - **Efficient training & evaluation**: Standardized engine with optimizers, LR schedulers, early stopping, checkpoints, and detailed logging out of the box.
@@ -51,13 +51,10 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 ## Architecture
 
-NextRec adopts a modular design, enabling full-pipeline reusability and scalability across data processing → model construction → training & evaluation → inference & deployment. Its core components include: a Feature-Spec-driven Embedding architecture, the BaseModel abstraction, a set of independent reusable Layers, a unified DataLoader for both training and inference, and a ready-to-use Model Zoo.
+NextRec adopts a modular engineering design. The core components include: a unified feature-driven BaseModel architecture; independent Layer modules; a unified DataLoader supporting both training and inference; the NextCLI command-line tool, and more.
 
-![NextRec Architecture](assets/nextrec_diagram_en.png)
+![NextRec Architecture](assets/nextrec_diagram.png)
 
-> The project borrows ideas from excellent open-source rec libraries, for example: [torch-rechub](https://github.com/datawhalechina/torch-rechub). torch-rechub remains mature in architecture and models; the author contributed a bit there—feel free to check it out.
-
----
 
 ## Installation
 
@@ -189,11 +186,11 @@ nextrec --mode=train --train_config=path/to/train_config.yaml
 nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 ```
 
-> As of version 0.4.6, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.4.7, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.4.6. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.4.7. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -283,20 +280,14 @@ When submitting issues on GitHub, please include:
 - Actual behavior  
 - Environment info (Python version, PyTorch version, etc.)  
 
----
-
 ## License
 
 This project is licensed under the [Apache 2.0 License](./LICENSE).
-
----
 
 ## Contact
 
 - **GitHub Issues**: [Submit an issue](https://github.com/zerolovesea/NextRec/issues)  
 - **Email**: zyaztec@gmail.com  
-
----
 
 ## Acknowledgements
 
@@ -307,6 +298,23 @@ NextRec is inspired by the following great open-source projects:
 - [RecBole](https://github.com/RUCAIBox/RecBole) — Unified, comprehensive, and efficient recommendation library  
 
 Special thanks to all open-source contributors!
+
+## Citation
+
+If you use this framework in your research or work, please consider citing:
+
+```bibtex
+@misc{nextrec,
+    title = {NextRec},
+    author = {Yang Zhou},
+    year = {2025},
+    publisher = {GitHub},
+    journal = {GitHub repository},
+    howpublished = {\url{https://github.com/zerolovesea/NextRec}},
+    note = {A unified, efficient, and extensible PyTorch-based recommendation library}
+}
+
+```
 
 ---
 

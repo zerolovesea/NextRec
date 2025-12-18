@@ -1,10 +1,10 @@
 """
 Date: create on 09/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 18/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-    [1] Li C, Liu Z, Wu M, et al. Multi-interest network with dynamic routing for recommendation at Tmall[C]
-        //Proceedings of the 28th ACM international conference on information and knowledge management. 2019: 2615-2623.
+[1] Li C, Liu Z, Wu M, et al. Multi-interest network with dynamic routing for recommendation at Tmall[C]
+//Proceedings of the 28th ACM international conference on information and knowledge management. 2019: 2615-2623.
 """
 
 import torch
@@ -237,6 +237,7 @@ class MIND(BaseMatchModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
+            early_stop_patience=early_stop_patience,
             **kwargs,
         )
 
