@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 05/12/2025
+Checkpoint: edit on 18/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -25,7 +25,13 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from nextrec.basic.callback import EarlyStopper
+from nextrec.basic.callback import (
+    EarlyStopper,
+    CallbackList,
+    Callback,
+    CheckpointSaver,
+    LearningRateScheduler,
+)
 from nextrec.basic.features import (
     DenseFeature,
     SparseFeature,
@@ -42,7 +48,15 @@ from nextrec.data.dataloader import build_tensors_from_data
 from nextrec.data.batch_utils import collate_fn, batch_to_dict
 from nextrec.data.data_processing import get_column_data, get_user_ids
 
-from nextrec.loss import get_loss_fn, get_loss_kwargs
+from nextrec.loss import (
+    BPRLoss,
+    HingeLoss,
+    InfoNCELoss,
+    SampledSoftmaxLoss,
+    TripletLoss,
+    get_loss_fn,
+    get_loss_kwargs,
+)
 from nextrec.utils.tensor import to_tensor
 from nextrec.utils.device import configure_device
 from nextrec.utils.optimizer import get_optimizer, get_scheduler
@@ -71,13 +85,14 @@ class BaseModel(FeatureSet, nn.Module):
         target: list[str] | str | None = None,
         id_columns: list[str] | str | None = None,
         task: str | list[str] | None = None,
-        device: str = "cpu",
-        early_stop_patience: int = 20,
-        session_id: str | None = None,
         embedding_l1_reg: float = 0.0,
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
         dense_l2_reg: float = 0.0,
+        device: str = "cpu",
+        early_stop_patience: int = 20,
+        session_id: str | None = None,
+        callbacks: list[Callback] | None = None,
         distributed: bool = False,
         rank: int | None = None,
         world_size: int | None = None,
@@ -91,16 +106,20 @@ class BaseModel(FeatureSet, nn.Module):
             dense_features: DenseFeature definitions.
             sparse_features: SparseFeature definitions.
             sequence_features: SequenceFeature definitions.
-            target: Target column name.
-            id_columns: Identifier column name, only need to specify if GAUC is required.
+            target: Target column name. e.g., 'label' or ['label1', 'label2'].
+            id_columns: Identifier column name, only need to specify if GAUC is required. e.g., 'user_id'.
             task: Task types, e.g., 'binary', 'regression', or ['binary', 'regression']. If None, falls back to self.default_task.
-            device: Torch device string or torch.device. e.g., 'cpu', 'cuda:0'.
+
             embedding_l1_reg: L1 regularization strength for embedding params. e.g., 1e-6.
             dense_l1_reg: L1 regularization strength for dense params. e.g., 1e-5.
             embedding_l2_reg: L2 regularization strength for embedding params. e.g., 1e-5.
             dense_l2_reg: L2 regularization strength for dense params. e.g., 1e-4.
+
+            device: Torch device string or torch.device. e.g., 'cpu', 'cuda:0'.
             early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
-            session_id: Session id for logging. If None, a default id with timestamps will be created.
+            session_id: Session id for logging. If None, a default id with timestamps will be created. e.g., 'session_tutorial'.
+            callbacks: List of callback instances. If None, default callbacks will be created. e.g., [EarlyStopper(), CheckpointSaver()].
+
             distributed: Enable DistributedDataParallel flow, set True to enable distributed training.
             rank: Global rank (defaults to env RANK).
             world_size: Number of processes (defaults to env WORLD_SIZE).
@@ -151,6 +170,7 @@ class BaseModel(FeatureSet, nn.Module):
         self.max_gradient_norm = 1.0
         self.logger_initialized = False
         self.training_logger = None
+        self.callbacks = CallbackList(callbacks) if callbacks else CallbackList()
 
     def register_regularization_weights(
         self,
@@ -162,8 +182,22 @@ class BaseModel(FeatureSet, nn.Module):
         include_modules = include_modules or []
         embedding_layer = getattr(self, embedding_attr, None)
         embed_dict = getattr(embedding_layer, "embed_dict", None)
+        embedding_params: list[torch.Tensor] = []
         if embed_dict is not None:
-            self.embedding_params.extend(embed.weight for embed in embed_dict.values())
+            embedding_params.extend(
+                embed.weight for embed in embed_dict.values() if hasattr(embed, "weight")
+            )
+        else:
+            weight = getattr(embedding_layer, "weight", None)
+            if isinstance(weight, torch.Tensor):
+                embedding_params.append(weight)
+
+        existing_embedding_ids = {id(param) for param in self.embedding_params}
+        for param in embedding_params:
+            if id(param) not in existing_embedding_ids:
+                self.embedding_params.append(param)
+                existing_embedding_ids.add(id(param))
+
         skip_types = (
             nn.BatchNorm1d,
             nn.BatchNorm2d,
@@ -172,6 +206,7 @@ class BaseModel(FeatureSet, nn.Module):
             nn.Dropout2d,
             nn.Dropout3d,
         )
+        existing_reg_ids = {id(param) for param in self.regularization_weights}
         for name, module in self.named_modules():
             if (
                 module is self
@@ -182,7 +217,9 @@ class BaseModel(FeatureSet, nn.Module):
             ):
                 continue
             if isinstance(module, nn.Linear):
-                self.regularization_weights.append(module.weight)
+                if id(module.weight) not in existing_reg_ids:
+                    self.regularization_weights.append(module.weight)
+                    existing_reg_ids.add(id(module.weight))
 
     def add_reg_loss(self) -> torch.Tensor:
         reg_loss = torch.tensor(0.0, device=self.device)
@@ -335,6 +372,7 @@ class BaseModel(FeatureSet, nn.Module):
         loss: str | nn.Module | list[str | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         loss_weights: int | float | list[int | float] | None = None,
+        callbacks: list[Callback] | None = None,
     ):
         """
         Configure the model for training.
@@ -346,6 +384,7 @@ class BaseModel(FeatureSet, nn.Module):
             loss: Loss function name, instance, or list for multi-task. e.g., 'bce', 'mse', or torch.nn.BCELoss(), you can also use custom loss functions.
             loss_params: Loss function parameters, or list for multi-task. e.g., {'weight': tensor([0.25, 0.75])}.
             loss_weights: Weights for each task loss, int/float for single-task or list for multi-task. e.g., 1.0, or [1.0, 0.5].
+            callbacks: Additional callbacks to add to the existing callback list. e.g., [EarlyStopper(), CheckpointSaver()].
         """
         if loss_params is None:
             self.loss_params = {}
@@ -426,6 +465,11 @@ class BaseModel(FeatureSet, nn.Module):
                     f"[BaseModel-compile Error] loss_weights must be int, float, list or tuple, got {type(loss_weights)}"
                 )
             self.loss_weights = weights
+
+        # Add callbacks from compile if provided
+        if callbacks:
+            for callback in callbacks:
+                self.callbacks.append(callback)
 
     def compute_loss(self, y_pred, y_true):
         if y_true is None:
@@ -580,6 +624,53 @@ class BaseModel(FeatureSet, nn.Module):
                 task=self.task, metrics=metrics, target_names=self.target_columns
             )
         )  # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
+
+        # Setup default callbacks if none exist
+        if len(self.callbacks.callbacks) == 0:
+            if self.nums_task == 1:
+                monitor_metric = f"val_{self.metrics[0]}"
+            else:
+                monitor_metric = f"val_{self.metrics[0]}_{self.target_columns[0]}"
+
+            if self.early_stop_patience > 0:
+                self.callbacks.append(
+                    EarlyStopper(
+                        monitor=monitor_metric,
+                        patience=self.early_stop_patience,
+                        mode=self.best_metrics_mode,
+                        restore_best_weights=not self.distributed,
+                        verbose=1 if self.is_main_process else 0,
+                    )
+                )
+
+            if self.is_main_process:
+                self.callbacks.append(
+                    CheckpointSaver(
+                        save_path=self.best_path,
+                        monitor=monitor_metric,
+                        mode=self.best_metrics_mode,
+                        save_best_only=True,
+                        verbose=1,
+                    )
+                )
+
+            if self.scheduler_fn is not None:
+                self.callbacks.append(
+                    LearningRateScheduler(
+                        scheduler=self.scheduler_fn,
+                        verbose=1 if self.is_main_process else 0,
+                    )
+                )
+
+        self.callbacks.set_model(self)
+        self.callbacks.set_params(
+            {
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "metrics": self.metrics,
+            }
+        )
+
         self.early_stopper = EarlyStopper(
             patience=self.early_stop_patience, mode=self.best_metrics_mode
         )
@@ -648,7 +739,9 @@ class BaseModel(FeatureSet, nn.Module):
                 else:
                     train_loader = train_data
             else:
-                loader, dataset = self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, return_dataset=True)  # type: ignore
+                result = self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, return_dataset=True)
+                assert isinstance(result, tuple), "Expected tuple from prepare_data_loader with return_dataset=True"
+                loader, dataset = result
                 if (
                     auto_distributed_sampler
                     and self.distributed
@@ -729,8 +822,13 @@ class BaseModel(FeatureSet, nn.Module):
             logging.info("")
             logging.info(colorize(f"Model device: {self.device}", bold=True))
 
+        self.callbacks.on_train_begin()
+
         for epoch in range(epochs):
             self.epoch_index = epoch
+
+            self.callbacks.on_epoch_begin(epoch)
+
             if is_streaming and self.is_main_process:
                 logging.info("")
                 logging.info(
@@ -740,10 +838,14 @@ class BaseModel(FeatureSet, nn.Module):
             # handle train result
             if (
                 self.distributed
+                and isinstance(train_loader, DataLoader)
                 and hasattr(train_loader, "sampler")
                 and isinstance(train_loader.sampler, DistributedSampler)
             ):
                 train_loader.sampler.set_epoch(epoch)
+            # Type guard: ensure train_loader is DataLoader for train_epoch
+            if not isinstance(train_loader, DataLoader):
+                raise TypeError(f"Expected DataLoader for training, got {type(train_loader)}")
             train_result = self.train_epoch(train_loader, is_streaming=is_streaming)
             if isinstance(train_result, tuple):  # [avg_loss, metrics_dict]
                 train_loss, train_metrics = train_result
@@ -803,6 +905,9 @@ class BaseModel(FeatureSet, nn.Module):
                     train_log_payload, step=epoch + 1, split="train"
                 )
             if valid_loader is not None:
+                # Call on_validation_begin
+                self.callbacks.on_validation_begin()
+
                 # pass user_ids only if needed for GAUC metric
                 val_metrics = self.evaluate(
                     valid_loader,
@@ -849,17 +954,17 @@ class BaseModel(FeatureSet, nn.Module):
                                 color="cyan",
                             )
                         )
+
+                # Call on_validation_end
+                self.callbacks.on_validation_end()
                 if val_metrics and self.training_logger:
                     self.training_logger.log_metrics(
                         val_metrics, step=epoch + 1, split="valid"
                     )
+
                 # Handle empty validation metrics
                 if not val_metrics:
                     if self.is_main_process:
-                        self.save_model(
-                            self.checkpoint_path, add_timestamp=False, verbose=False
-                        )
-                        self.best_checkpoint_path = self.checkpoint_path
                         logging.info(
                             colorize(
                                 "Warning: No validation metrics computed. Skipping validation for this epoch.",
@@ -867,81 +972,26 @@ class BaseModel(FeatureSet, nn.Module):
                             )
                         )
                     continue
-                if self.nums_task == 1:
-                    primary_metric_key = self.metrics[0]
-                else:
-                    primary_metric_key = f"{self.metrics[0]}_{self.target_columns[0]}"
-                primary_metric = val_metrics.get(
-                    primary_metric_key, val_metrics[list(val_metrics.keys())[0]]
-                )  # get primary metric value, default to first metric if not found
 
-                # In distributed mode, broadcast primary_metric to ensure all processes use the same value
-                if self.distributed and dist.is_available() and dist.is_initialized():
-                    metric_tensor = torch.tensor(
-                        [primary_metric], device=self.device, dtype=torch.float32
-                    )
-                    dist.broadcast(metric_tensor, src=0)
-                    primary_metric = float(metric_tensor.item())
-
-                improved = False
-                # early stopping check
-                if self.best_metrics_mode == "max":
-                    if primary_metric > self.best_metric:
-                        self.best_metric = primary_metric
-                        improved = True
-                else:
-                    if primary_metric < self.best_metric:
-                        self.best_metric = primary_metric
-                        improved = True
-
-                # save checkpoint and best model for main process
-                if self.is_main_process:
-                    self.save_model(
-                        self.checkpoint_path, add_timestamp=False, verbose=False
-                    )
-                    logging.info(" ")
-                    if improved:
-                        logging.info(
-                            colorize(
-                                f"Validation {primary_metric_key} improved to {self.best_metric:.4f}"
-                            )
-                        )
-                        self.save_model(
-                            self.best_path, add_timestamp=False, verbose=False
-                        )
-                        self.best_checkpoint_path = self.best_path
-                        self.early_stopper.trial_counter = 0
-                    else:
-                        self.early_stopper.trial_counter += 1
-                        logging.info(
-                            colorize(
-                                f"No improvement for {self.early_stopper.trial_counter} epoch(s)"
-                            )
-                        )
-                    if self.early_stopper.trial_counter >= self.early_stopper.patience:
-                        self.stop_training = True
-                        logging.info(
-                            colorize(
-                                f"Early stopping triggered after {epoch + 1} epochs",
-                                color="bright_red",
-                                bold=True,
-                            )
-                        )
-                else:
-                    # Non-main processes also update trial_counter to keep in sync
-                    if improved:
-                        self.early_stopper.trial_counter = 0
-                    else:
-                        self.early_stopper.trial_counter += 1
+                # Prepare epoch logs for callbacks
+                epoch_logs = {**train_log_payload}
+                if val_metrics:
+                    # Add val_ prefix to validation metrics
+                    for k, v in val_metrics.items():
+                        epoch_logs[f"val_{k}"] = v
             else:
+                # No validation data
+                epoch_logs = {**train_log_payload}
                 if self.is_main_process:
                     self.save_model(
                         self.checkpoint_path, add_timestamp=False, verbose=False
                     )
-                    self.save_model(self.best_path, add_timestamp=False, verbose=False)
-                    self.best_checkpoint_path = self.best_path
+                    self.best_checkpoint_path = self.checkpoint_path
 
-            # Broadcast stop_training flag to all processes (always, regardless of validation)
+            # Call on_epoch_end for all callbacks (handles early stopping, checkpointing, lr scheduling)
+            self.callbacks.on_epoch_end(epoch, epoch_logs)
+
+            # Broadcast stop_training flag to all processes
             if self.distributed and dist.is_available() and dist.is_initialized():
                 stop_tensor = torch.tensor(
                     [int(self.stop_training)], device=self.device
@@ -951,14 +1001,9 @@ class BaseModel(FeatureSet, nn.Module):
 
             if self.stop_training:
                 break
-            if self.scheduler_fn is not None:
-                if isinstance(
-                    self.scheduler_fn, torch.optim.lr_scheduler.ReduceLROnPlateau
-                ):
-                    if valid_loader is not None:
-                        self.scheduler_fn.step(primary_metric)
-                else:
-                    self.scheduler_fn.step()
+        # Call on_train_end for all callbacks
+        self.callbacks.on_train_end()
+
         if self.distributed and dist.is_available() and dist.is_initialized():
             dist.barrier()  # dist.barrier() will wait for all processes, like async all_reduce()
         if self.is_main_process:
@@ -970,9 +1015,17 @@ class BaseModel(FeatureSet, nn.Module):
                 logging.info(
                     colorize(f"Load best model from: {self.best_checkpoint_path}")
                 )
-            self.load_model(
-                self.best_checkpoint_path, map_location=self.device, verbose=False
-            )
+            if os.path.exists(self.best_checkpoint_path):
+                self.load_model(
+                    self.best_checkpoint_path, map_location=self.device, verbose=False
+                )
+            elif self.is_main_process:
+                logging.info(
+                    colorize(
+                        f"Warning: Best checkpoint not found at {self.best_checkpoint_path}, skip loading best model.",
+                        color="yellow",
+                    )
+                )
         if self.training_logger:
             self.training_logger.close()
         return self
@@ -1847,7 +1900,9 @@ class BaseModel(FeatureSet, nn.Module):
 class BaseMatchModel(BaseModel):
     """
     Base class for match (retrieval/recall) models
-    Supports pointwise, pairwise, and listwise training modes
+
+    - Pointwise: predicts a user-item match score/probability using labels (default target: 'label')
+    - Pairwise/Listwise: trains with in-batch negatives; labels can be omitted by setting target=None
     """
 
     @property
@@ -1887,6 +1942,16 @@ class BaseMatchModel(BaseModel):
         embedding_l2_reg: float = 0.0,
         dense_l2_reg: float = 0.0,
         early_stop_patience: int = 20,
+        target: list[str] | str | None = "label",
+        id_columns: list[str] | str | None = None,
+        task: str | list[str] | None = None,
+        session_id: str | None = None,
+        callbacks: list[Callback] | None = None,
+        distributed: bool = False,
+        rank: int | None = None,
+        world_size: int | None = None,
+        local_rank: int | None = None,
+        ddp_find_unused_parameters: bool = False,
         **kwargs,
     ):
 
@@ -1911,14 +1976,22 @@ class BaseMatchModel(BaseModel):
             dense_features=all_dense_features,
             sparse_features=all_sparse_features,
             sequence_features=all_sequence_features,
-            target=["label"],
-            task="binary",
+            target=target,
+            id_columns=id_columns,
+            task=task,
             device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
             early_stop_patience=early_stop_patience,
+            session_id=session_id,
+            callbacks=callbacks,
+            distributed=distributed,
+            rank=rank,
+            world_size=world_size,
+            local_rank=local_rank,
+            ddp_find_unused_parameters=ddp_find_unused_parameters,
             **kwargs,
         )
 
@@ -1989,72 +2062,73 @@ class BaseMatchModel(BaseModel):
         scheduler_params: dict | None = None,
         loss: str | nn.Module | list[str | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
+        loss_weights: int | float | list[int | float] | None = None,
+        callbacks: list[Callback] | None = None,
     ):
         """
-        Compile match model with optimizer, scheduler, and loss function.
-        Mirrors BaseModel.compile while adding training_mode validation for match tasks.
+        Configure the match model for training.
+
+        This mirrors `BaseModel.compile()` and additionally validates `training_mode`.
         """
         if self.training_mode not in self.support_training_modes:
             raise ValueError(
                 f"{self.model_name} does not support training_mode='{self.training_mode}'. Supported modes: {self.support_training_modes}"
             )
-        # Call parent compile with match-specific logic
-        optimizer_params = optimizer_params or {}
 
-        self.optimizer_name = (
-            optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
-        )
-        self.optimizer_params = optimizer_params
-        if isinstance(scheduler, str):
-            self.scheduler_name = scheduler
-        elif scheduler is not None:
-            # Try to get __name__ first (for class types), then __class__.__name__ (for instances)
-            self.scheduler_name = getattr(
-                scheduler,
-                "__name__",
-                getattr(scheduler.__class__, "__name__", str(scheduler)),
-            )
-        else:
-            self.scheduler_name = None
-        self.scheduler_params = scheduler_params or {}
-        self.loss_config = loss
-        self.loss_params = loss_params or {}
-
-        self.optimizer_fn = get_optimizer(
-            optimizer=optimizer, params=self.parameters(), **optimizer_params
-        )
-        # Set loss function based on training mode
-        default_losses = {
+        default_loss_by_mode: dict[str, str] = {
             "pointwise": "bce",
             "pairwise": "bpr",
             "listwise": "sampled_softmax",
         }
 
-        if loss is None:
-            loss_value = default_losses.get(self.training_mode, "bce")
-        elif isinstance(loss, list):
-            loss_value = (
-                loss[0]
-                if loss and loss[0] is not None
-                else default_losses.get(self.training_mode, "bce")
-            )
-        else:
-            loss_value = loss
-
-        # Pairwise/listwise modes do not support BCE, fall back to sensible defaults
-        if self.training_mode in {"pairwise", "listwise"} and loss_value in {
-            "bce",
-            "binary_crossentropy",
-        }:
-            loss_value = default_losses.get(self.training_mode, loss_value)
-        loss_kwargs = get_loss_kwargs(self.loss_params, 0)
-        self.loss_fn = [get_loss_fn(loss=loss_value, **loss_kwargs)]
-        # set scheduler
-        self.scheduler_fn = (
-            get_scheduler(scheduler, self.optimizer_fn, **(scheduler_params or {}))
-            if scheduler
-            else None
+        effective_loss: str | nn.Module | list[str | nn.Module] | None = loss
+        if effective_loss is None:
+            effective_loss = default_loss_by_mode[self.training_mode]
+        elif isinstance(effective_loss, (str,)):
+            if (
+                self.training_mode in {"pairwise", "listwise"}
+                and effective_loss in {"bce", "binary_crossentropy"}
+            ):
+                effective_loss = default_loss_by_mode[self.training_mode]
+        elif isinstance(effective_loss, list):
+            if not effective_loss:
+                effective_loss = [default_loss_by_mode[self.training_mode]]
+            else:
+                first = effective_loss[0]
+                if (
+                    self.training_mode in {"pairwise", "listwise"}
+                    and isinstance(first, str)
+                    and first in {"bce", "binary_crossentropy"}
+                ):
+                    effective_loss = [
+                        default_loss_by_mode[self.training_mode],
+                        *effective_loss[1:],
+                    ]
+        return super().compile(
+            optimizer=optimizer,
+            optimizer_params=optimizer_params,
+            scheduler=scheduler,
+            scheduler_params=scheduler_params,
+            loss=effective_loss,
+            loss_params=loss_params,
+            loss_weights=loss_weights,
+            callbacks=callbacks,
         )
+
+    def inbatch_logits(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
+        if self.similarity_metric == "dot":
+            logits = torch.matmul(user_emb, item_emb.t())
+        elif self.similarity_metric == "cosine":
+            user_norm = F.normalize(user_emb, p=2, dim=-1)
+            item_norm = F.normalize(item_emb, p=2, dim=-1)
+            logits = torch.matmul(user_norm, item_norm.t())
+        elif self.similarity_metric == "euclidean":
+            user_sq = (user_emb**2).sum(dim=1, keepdim=True)  # [B, 1]
+            item_sq = (item_emb**2).sum(dim=1, keepdim=True).t()  # [1, B]
+            logits = -(user_sq + item_sq - 2.0 * torch.matmul(user_emb, item_emb.t()))
+        else:
+            raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
+        return logits / self.temperature
 
     def compute_similarity(
         self, user_emb: torch.Tensor, item_emb: torch.Tensor
@@ -2125,9 +2199,7 @@ class BaseMatchModel(BaseModel):
 
     def compute_loss(self, y_pred, y_true):
         if self.training_mode == "pointwise":
-            if y_true is None:
-                return torch.tensor(0.0, device=self.device)
-            return self.loss_fn[0](y_pred, y_true)
+            return super().compute_loss(y_pred, y_true)
 
         # pairwise / listwise using inbatch neg
         elif self.training_mode in ["pairwise", "listwise"]:
@@ -2136,14 +2208,37 @@ class BaseMatchModel(BaseModel):
                     "For pairwise/listwise training, forward should return (user_emb, item_emb). Please check BaseMatchModel.forward implementation."
                 )
             user_emb, item_emb = y_pred  # [B, D], [B, D]
-            logits = torch.matmul(user_emb, item_emb.t())  # [B, B]
-            logits = logits / self.temperature
-            batch_size = logits.size(0)
-            targets = torch.arange(
-                batch_size, device=logits.device
-            )  # [0, 1, 2, ..., B-1]
-            # Cross-Entropy = InfoNCE
-            loss = F.cross_entropy(logits, targets)
+            batch_size = user_emb.size(0)
+            if batch_size < 2:
+                return torch.tensor(0.0, device=user_emb.device)
+
+            logits = self.inbatch_logits(user_emb, item_emb)  # [B, B]
+
+            eye = torch.eye(batch_size, device=logits.device, dtype=torch.bool)
+            pos_logits = logits.diag()  # [B]
+            neg_logits = logits.masked_select(~eye).view(batch_size, batch_size - 1)  # [B, B-1]
+
+            loss_fn = self.loss_fn[0] if getattr(self, "loss_fn", None) else None
+            if isinstance(loss_fn, SampledSoftmaxLoss):
+                loss = loss_fn(pos_logits, neg_logits)
+            elif isinstance(loss_fn, (BPRLoss, HingeLoss)):
+                loss = loss_fn(pos_logits, neg_logits)
+            elif isinstance(loss_fn, TripletLoss):
+                neg_emb = item_emb.masked_select(~eye.unsqueeze(-1)).view(
+                    batch_size, batch_size - 1, item_emb.size(-1)
+                )
+                loss = loss_fn(user_emb, item_emb, neg_emb)
+            elif isinstance(loss_fn, InfoNCELoss) and self.similarity_metric == "dot":
+                neg_emb = item_emb.masked_select(~eye.unsqueeze(-1)).view(
+                    batch_size, batch_size - 1, item_emb.size(-1)
+                )
+                loss = loss_fn(user_emb, item_emb, neg_emb)
+            else:
+                targets = torch.arange(batch_size, device=logits.device)
+                loss = F.cross_entropy(logits, targets)
+
+            if self.loss_weights is not None:
+                loss *= float(self.loss_weights[0])
             return loss
         else:
             raise ValueError(f"Unknown training mode: {self.training_mode}")
@@ -2154,17 +2249,23 @@ class BaseMatchModel(BaseModel):
         """Prepare data loader for specific features."""
         if isinstance(data, DataLoader):
             return data
-
-        feature_data = {}
-        for feature in features:
-            if isinstance(data, dict):
-                if feature.name in data:
-                    feature_data[feature.name] = data[feature.name]
-            elif isinstance(data, pd.DataFrame):
-                if feature.name in data.columns:
-                    feature_data[feature.name] = data[feature.name].values
-        return self.prepare_data_loader(
-            feature_data, batch_size=batch_size, shuffle=False
+        tensors = build_tensors_from_data(
+            data=data,
+            raw_data=data,
+            features=features,
+            target_columns=[],
+            id_columns=[],
+        )
+        if tensors is None:
+            raise ValueError(
+                "[BaseMatchModel-prepare_feature_data Error] No data available to create DataLoader."
+            )
+        dataset = TensorDictDataset(tensors)
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=collate_fn,
         )
 
     def encode_user(

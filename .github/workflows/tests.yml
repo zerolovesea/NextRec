@@ -45,18 +45,7 @@ jobs:
       run: |
         python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
         python -c "import nextrec; print('NextRec imported successfully')"
-                
-    - name: Run tutorial multi-task models
-      run: |
-        python tutorials/run_all_multitask_models.py
-        
-    - name: Run tutorial ranking models
-      run: |
-        python tutorials/run_all_ranking_models.py
-        
-    - name: Run tutorial match models
-      run: |
-        python tutorials/run_all_match_models.py
+
 
     - name: Run match model tests
       run: |

@@ -1,10 +1,10 @@
 """
 Date: create on 09/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 18/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-    [1] Covington P, Adams J, Sargin E. Deep neural networks for youtube recommendations[C]
-        //Proceedings of the 10th ACM conference on recommender systems. 2016: 191-198.
+[1] Covington P, Adams J, Sargin E. Deep neural networks for youtube recommendations[C]
+//Proceedings of the 10th ACM conference on recommender systems. 2016: 191-198.
 """
 
 import torch
@@ -81,6 +81,7 @@ class YoutubeDNN(BaseMatchModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
+            early_stop_patience=early_stop_patience,
             **kwargs,
         )
 

@@ -1,9 +1,9 @@
 """
 Date: create on 09/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 18/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-    DSSM v2 - DSSM with pairwise training using BPR loss
+DSSM v2 - DSSM with pairwise training using BPR loss
 """
 
 import torch
@@ -77,6 +77,7 @@ class DSSM_v2(BaseMatchModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
+            early_stop_patience=early_stop_patience,
             **kwargs,
         )
 

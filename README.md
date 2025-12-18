@@ -7,9 +7,9 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.6-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.7-orange.svg)
 
-中文文档 | [English Version](README_en.md) | 
+中文文档 | [English Version](README_en.md)
 
 **统一、高效、可扩展的推荐系统框架**
 
@@ -22,7 +22,7 @@
 - [安装](#安装)
 - [架构](#架构)
 - [5分钟快速上手](#5分钟快速上手)
-- [命令行工具](#命令行工具)
+- [命令行工具 NextRec-CLI](#命令行工具)
 - [兼容平台](#兼容平台)
 - [支持模型](#支持模型)
 - [贡献指南](#贡献指南)
@@ -32,35 +32,30 @@
 NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程团队提供快速的建模、训练与评估流。框架内置丰富的模型库、数据处理工具和工程化训练组件。此外提供了易上手的接口，命令行工具及教程，推荐算法学习者能以最快速度了解模型架构，复现学术论文并进行训练和部署。
 
 ## Why NextRec
-
-- **统一的特征工程与数据流水线**：NextRec框架提供了统一的特征定义、可持久化的数据处理、并对批处理进行了优化，符合工业大数据Spark/Hive场景下，基于离线特征的模型训练推理流程。
 - **多场景推荐能力**：覆盖排序（CTR/CVR）、召回、多任务学习、生成式召回等推荐/营销模型，持续跟进业界进展。
-- **友好的工程体验**：支持各种格式数据(`csv/parquet/pathlike`)的流式预处理/分布式训练/推理，GPU加速与可视化指标监控，方便业务算法工程师和推荐算法学习者快速复现实验。
+- **统一的特征工程与数据流水线**：NextRec框架提供了统一的特征定义、可持久化的数据处理、批处理优化，符合工业大数据Spark/Hive场景下，基于离线特征的模型训练推理流程。
+- **友好的工程体验**：支持多种格式数据(`csv/parquet/pathlike`)的流式处理/分布式训练/推理与可视化指标监控，方便业务算法工程师和推荐算法学习者快速复现实验。
 - **灵活的命令行工具**：支持通过命令行和配置文件，一键启动训练和推理进程，方便快速实验迭代和敏捷部署。
 - **高效训练与评估**：内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理，开箱即用。
 
 ## NextRec近期进展
 
-- **12/12/2025** 在v0.4.6中加入了生成式召回中常见的[RQ-VAE](/nextrec/models/generative/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynby)已经同步在仓库中
+- **12/12/2025** 在v0.4.7中加入了[RQ-VAE](/nextrec/models/generative/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynby)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](/nextrec_cli_preset/NextRec-CLI_zh.md)和[教学代码](/nextrec_cli_preset)
-- **03/12/2025** NextRec获得100颗🌟，感谢大家的支持
+- **03/12/2025** NextRec获得了100颗🌟！感谢大家的支持
 - **06/12/2025** 在v0.4.1中支持了单机多卡的分布式DDP训练，并且提供了配套的[代码](tutorials/distributed)
 - **23/11/2025** 在v0.2.2中对basemodel进行了逻辑上的大幅重构和流程统一，并且对listwise/pairwise/pointwise损失进行了统一
 - **11/11/2025** NextRec v0.1.0发布，我们提供了10余种Ranking模型，4种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
 
 ## 架构
 
-NextRec采用模块化工程设计，核心组件包括：Feature Spec驱动的Embedding架构；模型基类BaseModel；独立Layer模块；支持训练和推理的统一的DataLoader；开箱即用的模型库等。
+NextRec采用模块化工程设计，核心组件包括：统一特征驱动的BaseModel架构；独立Layer模块；支持训练推理的统一的DataLoader；命令行工具NextCLI等。
 
-![NextRec架构](assets/nextrec_diagram_zh.png)
-
-> 项目的架构借鉴了一些优秀的开源推荐算法库，例如DataWhaleChina社区的[torch-rechub](https://github.com/datawhalechina/torch-rechub)。torch-rechub在开发架构和模型实现上相对成熟，本人也参与了其中一小部分的维护，欢迎感兴趣的开发者前往了解。
-
----
+![NextRec架构](assets/nextrec_diagram.png)
 
 ## 安装
 
-开发者可以通过`pip install nextrec`快速安装NextRec的最新版本，环境要求为Python 3.10+。如果需要执行示例代码，则需要先拉取仓库：
+开发者可以通过`pip install nextrec`快速安装NextRec的最新版本，环境要求为Python 3.10+（对于需要使用CUDA加速的开发者，建议安装对应版本的pytorch）。如果需要执行示例代码，则需要先拉取仓库：
 
 ```bash
 git clone https://github.com/zerolovesea/NextRec.git
@@ -187,11 +182,11 @@ nextrec --mode=train --train_config=path/to/train_config.yaml
 nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 ```
 
-> 截止当前版本0.4.6，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.4.7，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.4.6，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.4.7，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -215,7 +210,7 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | [PNN](nextrec/models/ranking/pnn.py) | Product-based Neural Networks for User Response Prediction | ICDM 2016 | 已支持 |
 | [AutoInt](nextrec/models/ranking/autoint.py) | AutoInt: Automatic Feature Interaction Learning | CIKM 2019 | 已支持 |
 | [DCN](nextrec/models/ranking/dcn.py) | Deep & Cross Network for Ad Click Predictions | ADKDD 2017 | 已支持 |
-| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | KDD 2021 | 开发中 |
+| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | KDD 2021 | 已支持 |
 | [DIN](nextrec/models/ranking/din.py) | Deep Interest Network for Click-Through Rate Prediction | KDD 2018 | 已支持 |
 | [DIEN](nextrec/models/ranking/dien.py) | Deep Interest Evolution Network for Click-Through Rate Prediction | AAAI 2019 | 已支持 |
 | [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-wise Gating Blocks for High-dimensional Sparse Recommendation Data | 2020 | 已支持 |
@@ -279,20 +274,14 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 - 实际行为
 - 环境信息（Python 版本、PyTorch 版本等）
 
----
-
 ## 许可证
 
 本项目采用 [Apache 2.0 许可证](./LICENSE)。
-
----
 
 ## 联系方式
 
 - **GitHub Issues**: [提交问题](https://github.com/zerolovesea/NextRec/issues)
 - **邮箱**: zyaztec@gmail.com
-
----
 
 ## 致谢
 
@@ -304,6 +293,22 @@ NextRec 的开发受到以下优秀项目的启发：
 
 感谢开源社区的所有贡献者！
 
+
+## 引用
+
+如果您在研究或工作中使用了本框架，欢迎引用本项目：
+
+```bibtex
+@misc{nextrec,
+    title = {NextRec},
+    author = {Yang Zhou},
+    year = {2025},
+    publisher = {GitHub},
+    journal = {GitHub repository},
+    howpublished = {\url{https://github.com/zerolovesea/NextRec}},
+    note = {A unified, efficient, and extensible PyTorch-based recommendation library}
+}
+```
 ---
 
 <div align="center">

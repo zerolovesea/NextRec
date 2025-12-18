@@ -1,10 +1,10 @@
 """
 Date: create on 09/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 18/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-    [1] Huang P S, He X, Gao J, et al. Learning deep structured semantic models for web search using clickthrough data[C]
-        //Proceedings of the 22nd ACM international conference on Information & Knowledge Management. 2013: 2333-2338.
+[1] Huang P S, He X, Gao J, et al. Learning deep structured semantic models for web search using clickthrough data[C]
+//Proceedings of the 22nd ACM international conference on Information & Knowledge Management. 2013: 2333-2338.
 """
 
 import torch
@@ -81,6 +81,7 @@ class DSSM(BaseMatchModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
+            early_stop_patience=early_stop_patience,
             **kwargs,
         )
 
