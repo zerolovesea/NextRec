@@ -1,11 +1,12 @@
 [project]
 name = "nextrec"
-version = "0.4.7"
+version = "0.4.8"
 description = "A comprehensive recommendation library with match, ranking, and multi-task learning models"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "zerolovesea", email = "zyaztec@gmail.com" }
+    { name = "Yang Zhou" },
+    { email = "zyaztec@gmail.com" }
 ]
 keywords = ["recommendation", "deep-learning", "pytorch", "ctr", "ranking", "match"]
 classifiers = [

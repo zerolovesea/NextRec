@@ -55,7 +55,6 @@ from nextrec.loss import (
     SampledSoftmaxLoss,
     TripletLoss,
     get_loss_fn,
-    get_loss_kwargs,
 )
 from nextrec.utils.tensor import to_tensor
 from nextrec.utils.device import configure_device
@@ -185,7 +184,9 @@ class BaseModel(FeatureSet, nn.Module):
         embedding_params: list[torch.Tensor] = []
         if embed_dict is not None:
             embedding_params.extend(
-                embed.weight for embed in embed_dict.values() if hasattr(embed, "weight")
+                embed.weight
+                for embed in embed_dict.values()
+                if hasattr(embed, "weight")
             )
         else:
             weight = getattr(embedding_layer, "weight", None)
@@ -739,8 +740,16 @@ class BaseModel(FeatureSet, nn.Module):
                 else:
                     train_loader = train_data
             else:
-                result = self.prepare_data_loader(train_data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, return_dataset=True)
-                assert isinstance(result, tuple), "Expected tuple from prepare_data_loader with return_dataset=True"
+                result = self.prepare_data_loader(
+                    train_data,
+                    batch_size=batch_size,
+                    shuffle=shuffle,
+                    num_workers=num_workers,
+                    return_dataset=True,
+                )
+                assert isinstance(
+                    result, tuple
+                ), "Expected tuple from prepare_data_loader with return_dataset=True"
                 loader, dataset = result
                 if (
                     auto_distributed_sampler
@@ -845,7 +854,9 @@ class BaseModel(FeatureSet, nn.Module):
                 train_loader.sampler.set_epoch(epoch)
             # Type guard: ensure train_loader is DataLoader for train_epoch
             if not isinstance(train_loader, DataLoader):
-                raise TypeError(f"Expected DataLoader for training, got {type(train_loader)}")
+                raise TypeError(
+                    f"Expected DataLoader for training, got {type(train_loader)}"
+                )
             train_result = self.train_epoch(train_loader, is_streaming=is_streaming)
             if isinstance(train_result, tuple):  # [avg_loss, metrics_dict]
                 train_loss, train_metrics = train_result
@@ -2085,10 +2096,10 @@ class BaseMatchModel(BaseModel):
         if effective_loss is None:
             effective_loss = default_loss_by_mode[self.training_mode]
         elif isinstance(effective_loss, (str,)):
-            if (
-                self.training_mode in {"pairwise", "listwise"}
-                and effective_loss in {"bce", "binary_crossentropy"}
-            ):
+            if self.training_mode in {"pairwise", "listwise"} and effective_loss in {
+                "bce",
+                "binary_crossentropy",
+            }:
                 effective_loss = default_loss_by_mode[self.training_mode]
         elif isinstance(effective_loss, list):
             if not effective_loss:
@@ -2115,7 +2126,9 @@ class BaseMatchModel(BaseModel):
             callbacks=callbacks,
         )
 
-    def inbatch_logits(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
+    def inbatch_logits(
+        self, user_emb: torch.Tensor, item_emb: torch.Tensor
+    ) -> torch.Tensor:
         if self.similarity_metric == "dot":
             logits = torch.matmul(user_emb, item_emb.t())
         elif self.similarity_metric == "cosine":
@@ -2216,7 +2229,9 @@ class BaseMatchModel(BaseModel):
 
             eye = torch.eye(batch_size, device=logits.device, dtype=torch.bool)
             pos_logits = logits.diag()  # [B]
-            neg_logits = logits.masked_select(~eye).view(batch_size, batch_size - 1)  # [B, B-1]
+            neg_logits = logits.masked_select(~eye).view(
+                batch_size, batch_size - 1
+            )  # [B, B-1]
 
             loss_fn = self.loss_fn[0] if getattr(self, "loss_fn", None) else None
             if isinstance(loss_fn, SampledSoftmaxLoss):
