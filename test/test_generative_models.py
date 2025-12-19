@@ -13,7 +13,7 @@ from test.helpers import assert_no_nan_or_inf
 import pytest
 import torch
 
-from nextrec.models.generative.hstu import (
+from nextrec.models.sequential.hstu import (
     HSTULayer,
     HSTUPointwiseAttention,
     RelativePositionBias,
