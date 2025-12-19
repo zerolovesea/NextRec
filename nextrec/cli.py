@@ -29,7 +29,7 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.loggers import setup_logger
+from nextrec.basic.loggers import colorize, format_kv, setup_logger
 from nextrec.data.data_utils import split_dict_random
 from nextrec.data.dataloader import RecDataLoader
 from nextrec.data.preprocessor import DataProcessor
@@ -50,6 +50,17 @@ from nextrec.utils.data import (
 from nextrec.utils.feature import normalize_to_list
 
 logger = logging.getLogger(__name__)
+
+
+def log_cli_section(title: str) -> None:
+    logger.info("")
+    logger.info(colorize(f"[{title}]", color="bright_blue", bold=True))
+    logger.info(colorize("-" * 80, color="bright_blue"))
+
+
+def log_kv_lines(items: list[tuple[str, Any]]) -> None:
+    for label, value in items:
+        logger.info(format_kv(label, value))
 
 
 def train_model(train_config_path: str) -> None:
@@ -74,8 +85,17 @@ def train_model(train_config_path: str) -> None:
     artifact_root = Path(session_cfg.get("artifact_root", "nextrec_logs"))
     session_dir = artifact_root / session_id
     setup_logger(session_id=session_id)
-    logger.info(
-        f"[NextRec CLI] Training start | version={get_nextrec_version()} | session_id={session_id} | artifacts={session_dir.resolve()}"
+
+    log_cli_section("CLI")
+    log_kv_lines(
+        [
+            ("Mode", "train"),
+            ("Version", get_nextrec_version()),
+            ("Session ID", session_id),
+            ("Artifacts", session_dir.resolve()),
+            ("Config", config_file.resolve()),
+            ("Command", " ".join(sys.argv)),
+        ]
     )
 
     processor_path = session_dir / "processor.pkl"
@@ -102,11 +122,53 @@ def train_model(train_config_path: str) -> None:
         cfg.get("model_config", "model_config.yaml"), config_dir
     )
 
+    log_cli_section("Config")
+    log_kv_lines(
+        [
+            ("Train config", config_file.resolve()),
+            ("Feature config", feature_cfg_path),
+            ("Model config", model_cfg_path),
+        ]
+    )
+
     feature_cfg = read_yaml(feature_cfg_path)
     model_cfg = read_yaml(model_cfg_path)
 
+    # Extract id_column from data config for GAUC metrics
+    id_column = data_cfg.get("id_column") or data_cfg.get("user_id_column")
+    id_columns = [id_column] if id_column else []
+
+    log_cli_section("Data")
+    log_kv_lines(
+        [
+            ("Data path", data_path),
+            ("Format", data_cfg.get("format", "auto")),
+            ("Streaming", streaming),
+            ("Target", target),
+            ("ID column", id_column or "(not set)"),
+        ]
+    )
+    if data_cfg.get("valid_ratio") is not None:
+        logger.info(format_kv("Valid ratio", data_cfg.get("valid_ratio")))
+    if data_cfg.get("val_path") or data_cfg.get("valid_path"):
+        logger.info(
+            format_kv(
+                "Validation path",
+                resolve_path(
+                    data_cfg.get("val_path") or data_cfg.get("valid_path"), config_dir
+                ),
+            )
+        )
+
     if streaming:
         file_paths, file_type = resolve_file_paths(str(data_path))
+        log_kv_lines(
+            [
+                ("File type", file_type),
+                ("Files", len(file_paths)),
+                ("Chunk size", dataloader_chunk_size),
+            ]
+        )
         first_file = file_paths[0]
         first_chunk_size = max(1, min(dataloader_chunk_size, 1000))
         chunk_iter = iter_file_chunks(first_file, file_type, first_chunk_size)
@@ -118,13 +180,11 @@ def train_model(train_config_path: str) -> None:
 
     else:
         df = read_table(data_path, data_cfg.get("format"))
+        logger.info(format_kv("Rows", len(df)))
+        logger.info(format_kv("Columns", len(df.columns)))
         df_columns = list(df.columns)
 
     dense_names, sparse_names, sequence_names = select_features(feature_cfg, df_columns)
-
-    # Extract id_column from data config for GAUC metrics
-    id_column = data_cfg.get("id_column") or data_cfg.get("user_id_column")
-    id_columns = [id_column] if id_column else []
 
     used_columns = dense_names + sparse_names + sequence_names + target + id_columns
 
@@ -139,6 +199,17 @@ def train_model(train_config_path: str) -> None:
     processor = DataProcessor()
     register_processor_features(
         processor, feature_cfg, dense_names, sparse_names, sequence_names
+    )
+
+    log_cli_section("Features")
+    log_kv_lines(
+        [
+            ("Dense features", len(dense_names)),
+            ("Sparse features", len(sparse_names)),
+            ("Sequence features", len(sequence_names)),
+            ("Targets", len(target)),
+            ("Used columns", len(unique_used_columns)),
+        ]
     )
 
     if streaming:
@@ -244,7 +315,7 @@ def train_model(train_config_path: str) -> None:
             data=train_stream_source,
             batch_size=dataloader_cfg.get("train_batch_size", 512),
             shuffle=dataloader_cfg.get("train_shuffle", True),
-            load_full=False,
+            streaming=True,
             chunk_size=dataloader_chunk_size,
             num_workers=dataloader_cfg.get("num_workers", 0),
         )
@@ -255,7 +326,7 @@ def train_model(train_config_path: str) -> None:
                 data=str(val_data_resolved),
                 batch_size=dataloader_cfg.get("valid_batch_size", 512),
                 shuffle=dataloader_cfg.get("valid_shuffle", False),
-                load_full=False,
+                streaming=True,
                 chunk_size=dataloader_chunk_size,
                 num_workers=dataloader_cfg.get("num_workers", 0),
             )
@@ -264,7 +335,7 @@ def train_model(train_config_path: str) -> None:
                 data=streaming_valid_files,
                 batch_size=dataloader_cfg.get("valid_batch_size", 512),
                 shuffle=dataloader_cfg.get("valid_shuffle", False),
-                load_full=False,
+                streaming=True,
                 chunk_size=dataloader_chunk_size,
                 num_workers=dataloader_cfg.get("num_workers", 0),
             )
@@ -293,6 +364,15 @@ def train_model(train_config_path: str) -> None:
         sequence_features,
         target,
         device,
+    )
+
+    log_cli_section("Model")
+    log_kv_lines(
+        [
+            ("Model", model.__class__.__name__),
+            ("Device", device),
+            ("Session ID", session_id),
+        ]
     )
 
     model.compile(
@@ -325,13 +405,30 @@ def predict_model(predict_config_path: str) -> None:
     config_dir = config_file.resolve().parent
     cfg = read_yaml(config_file)
 
-    session_cfg = cfg.get("session", {}) or {}
-    session_id = session_cfg.get("id", "masknet_tutorial")
-    artifact_root = Path(session_cfg.get("artifact_root", "nextrec_logs"))
-    session_dir = Path(cfg.get("checkpoint_path") or (artifact_root / session_id))
+    # Checkpoint path is the primary configuration
+    if "checkpoint_path" not in cfg:
+        session_cfg = cfg.get("session", {}) or {}
+        session_id = session_cfg.get("id", "nextrec_session")
+        artifact_root = Path(session_cfg.get("artifact_root", "nextrec_logs"))
+        session_dir = artifact_root / session_id
+    else:
+        session_dir = Path(cfg["checkpoint_path"])
+        # Auto-infer session_id from checkpoint directory name
+        session_cfg = cfg.get("session", {}) or {}
+        session_id = session_cfg.get("id") or session_dir.name
+    
     setup_logger(session_id=session_id)
-    logger.info(
-        f"[NextRec CLI] Predict start | version={get_nextrec_version()} | session_id={session_id} | checkpoint={session_dir.resolve()}"
+
+    log_cli_section("CLI")
+    log_kv_lines(
+        [
+            ("Mode", "predict"),
+            ("Version", get_nextrec_version()),
+            ("Session ID", session_id),
+            ("Checkpoint", session_dir.resolve()),
+            ("Config", config_file.resolve()),
+            ("Command", " ".join(sys.argv)),
+        ]
     )
 
     processor_path = Path(session_dir / "processor.pkl")
@@ -339,24 +436,38 @@ def predict_model(predict_config_path: str) -> None:
         processor_path = session_dir / "processor" / "processor.pkl"
 
     predict_cfg = cfg.get("predict", {}) or {}
-    model_cfg_path = resolve_path(
-        cfg.get("model_config", "model_config.yaml"), config_dir
-    )
-    # feature_cfg_path = resolve_path(
-    #     cfg.get("feature_config", "feature_config.yaml"), config_dir
-    # )
+    
+    # Auto-find model_config in checkpoint directory if not specified
+    if "model_config" in cfg:
+        model_cfg_path = resolve_path(cfg["model_config"], config_dir)
+    else:
+        # Try to find model_config.yaml in checkpoint directory
+        auto_model_cfg = session_dir / "model_config.yaml"
+        if auto_model_cfg.exists():
+            model_cfg_path = auto_model_cfg
+        else:
+            # Fallback to config directory
+            model_cfg_path = resolve_path("model_config.yaml", config_dir)
 
     model_cfg = read_yaml(model_cfg_path)
-    # feature_cfg = read_yaml(feature_cfg_path)
     model_cfg.setdefault("session_id", session_id)
     model_cfg.setdefault("params", {})
+
+    log_cli_section("Config")
+    log_kv_lines(
+        [
+            ("Predict config", config_file.resolve()),
+            ("Model config", model_cfg_path),
+            ("Processor", processor_path),
+        ]
+    )
 
     processor = DataProcessor.load(processor_path)
 
     # Load checkpoint and ensure required parameters are passed
     checkpoint_base = Path(session_dir)
     if checkpoint_base.is_dir():
-        candidates = sorted(checkpoint_base.glob("*.model"))
+        candidates = sorted(checkpoint_base.glob("*.pt"))
         if not candidates:
             raise FileNotFoundError(
                 f"[NextRec CLI Error]: Unable to find model checkpoint: {checkpoint_base}"
@@ -365,7 +476,7 @@ def predict_model(predict_config_path: str) -> None:
         config_dir_for_features = checkpoint_base
     else:
         model_file = (
-            checkpoint_base.with_suffix(".model")
+            checkpoint_base.with_suffix(".pt")
             if checkpoint_base.suffix == ""
             else checkpoint_base
         )
@@ -415,40 +526,78 @@ def predict_model(predict_config_path: str) -> None:
         id_columns = [predict_cfg["id_column"]]
         model.id_columns = id_columns
 
+    effective_id_columns = id_columns or model.id_columns
+    log_cli_section("Features")
+    log_kv_lines(
+        [
+            ("Dense features", len(dense_features)),
+            ("Sparse features", len(sparse_features)),
+            ("Sequence features", len(sequence_features)),
+            ("Targets", len(target_cols)),
+            ("ID columns", len(effective_id_columns)),
+        ]
+    )
+
+    log_cli_section("Model")
+    log_kv_lines(
+        [
+            ("Model", model.__class__.__name__),
+            ("Checkpoint", model_file),
+            ("Device", predict_cfg.get("device", "cpu")),
+        ]
+    )
+
     rec_dataloader = RecDataLoader(
         dense_features=model.dense_features,
         sparse_features=model.sparse_features,
         sequence_features=model.sequence_features,
         target=None,
-        id_columns=id_columns or model.id_columns,
+        id_columns=effective_id_columns,
         processor=processor,
     )
 
     data_path = resolve_path(predict_cfg["data_path"], config_dir)
     batch_size = predict_cfg.get("batch_size", 512)
 
+    log_cli_section("Data")
+    log_kv_lines(
+        [
+            ("Data path", data_path),
+            ("Format", predict_cfg.get("source_data_format", predict_cfg.get("data_format", "auto"))),
+            ("Batch size", batch_size),
+            ("Chunk size", predict_cfg.get("chunk_size", 20000)),
+            ("Streaming", predict_cfg.get("streaming", True)),
+        ]
+    )
+    logger.info("")
     pred_loader = rec_dataloader.create_dataloader(
         data=str(data_path),
         batch_size=batch_size,
         shuffle=False,
-        load_full=predict_cfg.get("load_full", False),
+        streaming=predict_cfg.get("streaming", True),
         chunk_size=predict_cfg.get("chunk_size", 20000),
     )
 
-    output_path = resolve_path(predict_cfg["output_path"], config_dir)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Build output path: {checkpoint_path}/predictions/{name}.{save_data_format}
+    save_format = predict_cfg.get("save_data_format", predict_cfg.get("save_format", "csv"))
+    pred_name = predict_cfg.get("name", "pred")
+    # Pass filename with extension to let model.predict handle path resolution
+    save_path = f"{pred_name}.{save_format}"
 
     start = time.time()
-    model.predict(
+    logger.info("")
+    result = model.predict(
         data=pred_loader,
         batch_size=batch_size,
         include_ids=bool(id_columns),
         return_dataframe=False,
-        save_path=output_path,
-        save_format=predict_cfg.get("save_format", "csv"),
+        save_path=save_path,
+        save_format=save_format,
         num_workers=predict_cfg.get("num_workers", 0),
     )
     duration = time.time() - start
+    # When return_dataframe=False, result is the actual file path
+    output_path = result if isinstance(result, Path) else checkpoint_base / "predictions" / save_path
     logger.info(f"Prediction completed, results saved to: {output_path}")
     logger.info(f"Total time: {duration:.2f} seconds")
 
@@ -491,8 +640,6 @@ Examples:
     parser.add_argument("--train_config", help="Training configuration file path")
     parser.add_argument("--predict_config", help="Prediction configuration file path")
     args = parser.parse_args()
-
-    logger.info(get_nextrec_version())
 
     if not args.mode:
         parser.error("[NextRec CLI Error] --mode is required (train|predict)")

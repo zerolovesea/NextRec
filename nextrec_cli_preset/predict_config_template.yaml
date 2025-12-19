@@ -1,18 +1,47 @@
-checkpoint_path: nextrec_logs/ctcvr_task
+# ============================================================================
+# NextRec Complete Prediction Configuration Template
+# ============================================================================
+# This template shows all available configuration options with descriptions.
+# Copy and customize as needed for your use case.
+# ============================================================================
 
-model_config: model_configs/mmoe.yaml
+# ===== Checkpoint Configuration =====
+# Required: Path to the trained model checkpoint directory
+# This directory should contain: processor.pkl, features_config.pkl, and *.model files
+checkpoint_path: /path/to/checkpoint/directory
 
+# ===== Model Configuration =====
+# Optional: Path to model architecture config (YAML file)
+# If not specified, will auto-search in checkpoint_path/model_config.yaml
+# model_config: /path/to/model_config.yaml
+
+# ===== Session Configuration =====
+# Optional: Session settings for logging and identification
+# If not specified, session_id will be inferred from checkpoint directory name
+# session:
+#   id: my_experiment_session
+
+# ===== Prediction Settings =====
 predict:
-  data_path: ../dataset/ctcvr_task.csv
-  source_data_format: csv                  # Input data format: csv, parquet, json, feather, etc.
+  # ----- Required Settings -----
+  # Path to input data for prediction (file or directory)
+  data_path: /path/to/prediction/data
+  
+  # ----- Data Format Settings -----
+  source_data_format: parquet              # Input data format: csv, parquet, json, feather, etc.
                                            # Use 'auto' for automatic detection
+  
+  # ----- Identification Settings -----
   id_column: user_id                       # Column name for user/sample IDs
                                            # Will be included in prediction output
+  
+  # ----- Output Settings -----
   name: pred                               # Output filename (without extension)
                                            # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
   save_data_format: csv                    # Output format: csv, parquet, json, feather
   preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
-
+  
+  # ----- Performance Settings -----
   batch_size: 512                          # Batch size for inference
                                            # Larger = faster but more memory
   num_workers: 4                           # Number of parallel data loading workers
@@ -22,11 +51,14 @@ predict:
                                            # - 'cuda': NVIDIA GPU
                                            # - 'cuda:0', 'cuda:1': specific GPU
                                            # - 'mps': Apple Silicon GPU (M1/M2)
+  
+  # ----- Memory Management Settings -----
   streaming: true                          # Enable streaming for large datasets
                                            # true: stream from disk, lower RAM usage
                                            # false: load entire dataset into memory
   chunk_size: 20000                        # Chunk size for streaming mode (when streaming=true)
                                            # Adjust based on available memory
 
-# cd nextrec_cli_preset                                           
-# nextrec --mode predict --predict_config predict_config.yaml
+# ===== Usage Example =====
+# Run prediction with this config:
+# nextrec --mode predict --predict_config /path/to/this/predict_config.yaml

@@ -53,45 +53,66 @@ NextRec CLI 使用 YAML 配置文件来定义训练和预测流程。我们在`n
 
 ```yaml
 session:
-  id: my_training_session              # 会话ID，用于标识训练任务
+  id: my_experiment_session            # 实验唯一标识
+                                       # 用于日志与 checkpoint 目录命名
   artifact_root: nextrec_logs          # 产物根目录
+                                       # 最终路径: {artifact_root}/{id}/
 
 data:
-  path: /path/to/your/training/data    # 训练数据路径（支持文件或目录）
-  format: parquet                       # 数据格式：csv, parquet, csv.gz 等
-  target: label                         # 目标列名（可以是列表）
-  valid_ratio: 0.2                      # 验证集比例
-  # val_path: /path/to/validation/data  # 可选：指定独立的验证集路径
-  random_state: 2024                    # 随机种子
-  streaming: false                      # 是否使用流式处理（适用于大数据集）
+  path: /path/to/training/data         # 训练数据路径（文件或目录）
+  format: parquet                      # 数据格式：csv, parquet, json, feather
+                                       # 使用 auto 自动识别
+  target: label                        # 目标列
+                                       # 单任务: 'label' (字符串)
+                                       # 多任务: ['label1', 'label2'] (列表)
+  # id_column: user_id                 # 用户/样本ID列（可选，用于 GAUC）
+  # user_id_column: user_id            # id_column 的别名
+  valid_ratio: 0.2                     # 自动切分验证集比例 (0.0-1.0)
+  # val_path: /path/to/validation/data # 手动指定验证集路径
+  # valid_path: /path/to/validation/data
+  random_state: 2024                   # 随机种子
+  streaming: false                     # 流式模式（大数据集）
+                                       # false: 一次性加载到内存
+                                       # true: 按块读取
 
 feature_config: path/to/feature_config.yaml  # 特征配置文件路径
 model_config: path/to/model_config.yaml      # 模型配置文件路径
 
 dataloader:
   train_batch_size: 512                 # 训练批次大小
-  train_shuffle: true                   # 是否打乱训练数据
+  train_shuffle: true                   # 每轮打乱训练数据
   valid_batch_size: 512                 # 验证批次大小
   valid_shuffle: false                  # 是否打乱验证数据
-  chunk_size: 20000                     # 流式处理时的分块大小
+  num_workers: 4                        # 数据加载并行进程数
+                                       # 0=单进程, >0=多进程
+  # chunk_size: 20000                   # streaming=true 时的分块大小
 
 train:
-  optimizer: adam                       # 优化器：adam, sgd, adamw 等
+  optimizer: adam                       # 优化器：adam, sgd, adamw, rmsprop, adagrad
   optimizer_params:
     lr: 0.001                          # 学习率
-    weight_decay: 0.00001              # 权重衰减
-  loss: focal                          # 损失函数：focal, bce, mse 等，对于多任务场景可以设置为列表，例如：['weighted_bce', 'weighted_bce']
-  loss_params:
-    alpha: 0.25                        # Focal Loss 参数
-    gamma: 2.0
+    weight_decay: 0.0                  # L2 正则系数
+  loss: bce                            # 损失函数
+                                       # 单任务: bce, weighted_bce, focal_loss, mse
+                                       # 多任务: [bce, weighted_bce, focal_loss]
+  # loss_params:                       # 可选，多任务逐项配置
+  #   - pos_weight: 1.0
+  #     logits: false
   metrics:                             # 评估指标
     - auc
-    - recall
-    - precision
+    # - gauc
+    # - recall
+    # - precision
+    # - accuracy
+    # - f1
+    # - logloss
+    # - mse
+    # - mae
+    # - rmse
   epochs: 10                           # 训练轮数
-  batch_size: 512                      # 批次大小（可选，会被 dataloader 覆盖）
+  batch_size: 512                      # 可覆盖 dataloader.train_batch_size
   shuffle: true                        # 是否打乱数据
-  device: cpu                          # 设备：cpu, cuda, mps
+  device: cpu                          # 设备：cpu, cuda, cuda:0, mps
 ```
 
 #### 参数说明
@@ -104,12 +125,15 @@ train:
 - `path`: 训练数据路径，支持：
   - 单个文件：`/path/to/data.csv` 或 `/path/to/data.parquet`
   - 目录：`/path/to/data_dir/`（自动读取目录下所有相同格式的文件）
-- `format`: 数据格式，支持 `csv`, `parquet`, `csv.gz` 等
+- `format`: 数据格式，支持 `csv`, `parquet`, `json`, `feather`, 或 `auto`
 - `target`: 目标列名，可以是字符串或列表
   - 单目标：`target: label`
   - 多目标：`target: [label_apply, label_credit]`
+- `id_column`: 用户/样本ID列（可选，GAUC 需要）
+- `user_id_column`: `id_column` 的别名
 - `valid_ratio`: 验证集比例（0-1之间），仅当 `val_path` 未指定时生效
 - `val_path`: 独立验证集路径（可选）
+- `valid_path`: `val_path` 的别名
 - `random_state`: 随机种子，确保数据划分可复现
 - `streaming`: 是否使用流式处理
   - `true`: 适用于大数据集，按块加载数据
@@ -120,7 +144,8 @@ train:
 - `train_shuffle`: 是否打乱训练数据
 - `valid_batch_size`: 验证时的批次大小
 - `valid_shuffle`: 是否打乱验证数据
-- `chunk_size`: 流式处理时每次读取的数据量
+- `num_workers`: 数据加载进程数
+- `chunk_size`: 流式处理时每次读取的数据量（`streaming=true`）
 
 ##### train 部分
 - `optimizer`: 优化器类型
@@ -131,11 +156,11 @@ train:
   - `lr`: 学习率
   - `weight_decay`: 权重衰减（L2正则化）
 - `loss`: 损失函数
-  - `focal`: Focal Loss（适用于不平衡数据）
   - `bce`: Binary Cross Entropy
+  - `weighted_bce`: 带类别权重的 BCE
+  - `focal_loss`: Focal Loss（不平衡数据）
   - `mse`: Mean Squared Error
-  - `ce`: Cross Entropy
-- `loss_params`: 损失函数参数（根据损失函数类型而定）
+- `loss_params`: 损失函数参数（可选，多任务逐项配置）
 - `metrics`: 评估指标列表，支持：
   - `auc`: Area Under ROC Curve
   - `recall`: 召回率
@@ -143,9 +168,12 @@ train:
   - `f1`: F1 分数
   - `gauc`: Group AUC
 - `epochs`: 训练轮数
+- `batch_size`: 可覆盖 dataloader 的批次大小
+- `shuffle`: 是否打乱训练数据
 - `device`: 运行设备
   - `cpu`: CPU
   - `cuda`: NVIDIA GPU
+  - `cuda:0`: 指定 GPU 索引
   - `mps`: Apple Silicon GPU
 
 ---
@@ -157,51 +185,49 @@ train:
 #### 配置结构
 
 ```yaml
-session:
-  id: my_prediction_session             # 会话ID
-  artifact_root: nextrec_logs           # 产物根目录
-
-checkpoint_path: nextrec_logs/my_training_session  # 模型检查点路径
-processor_path: nextrec_logs/my_training_session/processor.pkl  # 数据处理器路径（可选）
-
-targets: [label]                        # 目标列名（可选，用于覆盖训练配置）
-
-feature_config: path/to/feature_config.yaml  # 特征配置文件路径
-model_config: path/to/model_config.yaml      # 模型配置文件路径
+checkpoint_path: /path/to/checkpoint/directory  # 必填 checkpoint 目录
+# model_config: /path/to/model_config.yaml       # 可选模型配置覆盖
+# session:
+#   id: my_experiment_session                    # 可选会话ID
 
 predict:
   data_path: /path/to/prediction/data   # 预测数据路径
-  output_path: predictions/output.csv   # 输出文件路径
+  source_data_format: parquet           # 输入数据格式：csv, parquet, json, feather
+                                       # 使用 auto 自动识别
   id_column: user_id                    # ID列名（可选，用于关联预测结果）
+  name: pred                            # 输出文件名（不含扩展名）
+                                       # 最终路径: {checkpoint_path}/predictions/{name}.{save_data_format}
+  save_data_format: csv                 # 输出格式：csv, parquet, json, feather
+  preview_rows: 5                       # 预览行数（输出到日志）
   batch_size: 512                       # 预测批次大小
-  chunk_size: 20000                     # 流式处理时的分块大小
   num_workers: 4                        # 数据加载线程数
   device: cpu                           # 运行设备
-  load_full: false                      # 是否一次性加载所有数据
-  save_format: csv                      # 输出格式：csv, parquet
-  preview_rows: 5                       # 预览行数（输出到日志）
+  streaming: true                       # 是否启用流式加载
+  chunk_size: 20000                     # 流式处理时的分块大小
 ```
 
 #### 参数说明
 
-- `checkpoint_path`: 训练好的模型路径
+- `checkpoint_path`: 训练好的模型 checkpoint 目录
   - 可以是目录（自动选择最新的 `.model` 文件）
   - 可以是具体的模型文件：`path/to/model.model`
-- `processor_path`: 数据处理器路径（可选）
-  - 如果未指定，会在 `checkpoint_path` 下查找 `processor.pkl`
-- `targets`: 目标列名（可选）
-  - 用于覆盖训练时的目标配置
+- `model_config`: 模型配置覆盖（可选，未指定会在 checkpoint 目录自动查找）
 - `predict.data_path`: 待预测的数据路径
-- `predict.output_path`: 预测结果输出路径
+- `predict.source_data_format`: 输入数据格式或 `auto`
 - `predict.id_column`: ID列名（可选）
   - 如果指定，预测结果将包含此列
-- `predict.batch_size`: 预测时的批次大小
-- `predict.load_full`: 是否一次性加载所有数据
-  - `true`: 适用于小数据集
-  - `false`: 流式处理，适用于大数据集
-- `predict.save_format`: 输出格式
+- `predict.name`: 输出文件名（不含扩展名）
+- `predict.save_data_format`: 输出格式
   - `csv`: CSV 文件
   - `parquet`: Parquet 文件
+  - `json`: JSON 文件
+  - `feather`: Feather 文件
+- `predict.batch_size`: 预测时的批次大小
+- `predict.num_workers`: 数据加载进程数
+- `predict.streaming`: 是否启用流式加载
+  - `true`: 流式处理，适用于大数据集
+  - `false`: 一次性加载到内存（小数据集）
+- `predict.chunk_size`: 流式处理时的分块大小
 - `predict.preview_rows`: 预览行数
   - 预测完成后在日志中显示前 N 行结果
 
@@ -632,6 +658,7 @@ data:
   target: label
   valid_ratio: 0.2
   random_state: 2024
+  streaming: false
 
 feature_config: feature_config.yaml
 model_config: model_config.yaml
@@ -641,6 +668,7 @@ dataloader:
   train_shuffle: true
   valid_batch_size: 512
   valid_shuffle: false
+  num_workers: 4
 
 train:
   optimizer: adam
@@ -656,6 +684,8 @@ train:
     - recall
     - precision
   epochs: 10
+  batch_size: 512
+  shuffle: true
   device: cuda
 ```
 
@@ -674,17 +704,17 @@ session:
 
 checkpoint_path: nextrec_logs/deepfm_ecommerce
 
-feature_config: feature_config.yaml
-model_config: model_config.yaml
-
 predict:
   data_path: data/test_data.csv
-  output_path: predictions/deepfm_predictions.csv
+  source_data_format: csv
   id_column: user_id
+  name: deepfm_predictions
+  save_data_format: csv
   batch_size: 1024
+  num_workers: 4
   device: cuda
-  load_full: false
-  save_format: csv
+  streaming: true
+  chunk_size: 20000
   preview_rows: 10
 ```
 
@@ -722,6 +752,7 @@ data:
   target: [label_click, label_purchase, label_favorite]  # 多个目标
   valid_ratio: 0.2
   random_state: 2024
+  streaming: false
 
 feature_config: feature_config.yaml
 model_config: mmoe_config.yaml
@@ -731,6 +762,7 @@ dataloader:
   train_shuffle: true
   valid_batch_size: 512
   valid_shuffle: false
+  num_workers: 4
 
 train:
   optimizer: adam
@@ -741,6 +773,8 @@ train:
   metrics:
     - auc
   epochs: 10
+  batch_size: 512
+  shuffle: true
   device: cuda
 ```
 
@@ -895,4 +929,3 @@ nextrec_logs/
 - 查看 [Python API 文档](https://nextrec.readthedocs.io/) 了解更多高级功能
 - 浏览 [tutorials/](../tutorials/) 目录获取更多示例
 - 访问 [GitHub Issues](https://github.com/zerolovesea/NextRec/issues) 反馈问题
-

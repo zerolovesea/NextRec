@@ -2,6 +2,7 @@
 Unit Tests for Ranking Models
 
 This module contains unit tests for all ranking/CTR prediction models including:
+- LR (Logistic Regression)
 - DeepFM (Deep Factorization Machine)
 - DIN (Deep Interest Network)
 - DIEN (Deep Interest Evolution Network)
@@ -9,6 +10,7 @@ This module contains unit tests for all ranking/CTR prediction models including:
 - AutoInt
 - WideDeep
 - xDeepFM (Extreme Deep Factorization Machine)
+- EulerNet
 
 Tests cover model initialization, forward pass, training, and inference.
 """
@@ -34,8 +36,10 @@ from nextrec.models.ranking.dcn import DCN
 from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.models.ranking.dien import DIEN
 from nextrec.models.ranking.din import DIN
+from nextrec.models.ranking.eulernet import EulerNet
 from nextrec.models.ranking.fibinet import FiBiNET
 from nextrec.models.ranking.fm import FM
+from nextrec.models.ranking.lr import LR
 from nextrec.models.ranking.pnn import PNN
 from nextrec.models.ranking.widedeep import WideDeep
 from nextrec.models.ranking.xdeepfm import xDeepFM
@@ -67,6 +71,92 @@ class TestFMModel:
         batch_size,
     ):
         model = FM(
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label"],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+
+
+class TestLRModel:
+    """Test suite for LR ranking model"""
+
+    def test_lr_initialization(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        device,
+    ):
+        model = LR(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label"],
+            device=device,
+        )
+        assert model.model_name == "LR"
+        assert model.task == "binary"
+
+    def test_lr_forward_pass(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+    ):
+        model = LR(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label"],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+
+
+class TestEulerNet:
+    """Test suite for EulerNet"""
+
+    def test_eulernet_initialization(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        device,
+    ):
+        model = EulerNet(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label"],
+            device=device,
+        )
+        assert model.model_name == "EulerNet"
+        assert model.task == "binary"
+
+    def test_eulernet_forward_pass(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+    ):
+        model = EulerNet(
+            dense_features=sample_dense_features,
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             target=["label"],
