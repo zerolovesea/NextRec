@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.10-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.11-orange.svg)
 
 English | [中文文档](README.md)
 
@@ -185,11 +185,11 @@ nextrec --mode=train --train_config=path/to/train_config.yaml
 nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 ```
 
-> As of version 0.4.10, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.4.11, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.4.10. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.4.11. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -207,7 +207,9 @@ The current version is 0.4.10. All models and test code have been validated on t
 | Model | Paper | Year | Status |
 |-------|-------|------|--------|
 | [FM](nextrec/models/ranking/fm.py) | Factorization Machines | ICDM 2010 | Supported |
+| [LR](nextrec/models/ranking/lr.py) | Logistic Regression | - | Supported |
 | [AFM](nextrec/models/ranking/afm.py) | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | IJCAI 2017 | Supported |
+| [FFM](nextrec/models/ranking/ffm.py) | Field-aware Factorization Machines | RecSys 2010 | In Progress |
 | [DeepFM](nextrec/models/ranking/deepfm.py) | DeepFM: A Factorization-Machine based Neural Network for CTR Prediction | IJCAI 2017 | Supported |
 | [Wide&Deep](nextrec/models/ranking/widedeep.py) | Wide & Deep Learning for Recommender Systems | DLRS 2016 | Supported |
 | [xDeepFM](nextrec/models/ranking/xdeepfm.py) | xDeepFM: Combining Explicit and Implicit Feature Interactions | KDD 2018 | Supported |
@@ -219,16 +221,24 @@ The current version is 0.4.10. All models and test code have been validated on t
 | [DIN](nextrec/models/ranking/din.py) | Deep Interest Network for CTR Prediction | KDD 2018 | Supported |
 | [DIEN](nextrec/models/ranking/dien.py) | Deep Interest Evolution Network | AAAI 2019 | Supported |
 | [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Feature-wise Gating Blocks for High-dimensional Sparse Recommendation Data | 2020 | Supported |
+| [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | SIGIR 2021 | Supported |
 
 ### Retrieval Models
 
 | Model | Paper | Year | Status |
 |-------|-------|------|--------|
-| [DSSM](nextrec/models/match/dssm.py) | Learning Deep Structured Semantic Models | CIKM 2013 | Supported |
-| [DSSM v2](nextrec/models/match/dssm_v2.py) | DSSM with pairwise BPR-style optimization | - | Supported |
-| [YouTube DNN](nextrec/models/match/youtube_dnn.py) | Deep Neural Networks for YouTube Recommendations | RecSys 2016 | Supported |
-| [MIND](nextrec/models/match/mind.py) | Multi-Interest Network with Dynamic Routing | CIKM 2019 | Supported |
-| [SDM](nextrec/models/match/sdm.py) | Sequential Deep Matching Model | - | Supported |
+| [DSSM](nextrec/models/retrieval/dssm.py) | Learning Deep Structured Semantic Models | CIKM 2013 | Supported |
+| [DSSM v2](nextrec/models/retrieval/dssm_v2.py) | DSSM with pairwise BPR-style optimization | - | Supported |
+| [YouTube DNN](nextrec/models/retrieval/youtube_dnn.py) | Deep Neural Networks for YouTube Recommendations | RecSys 2016 | Supported |
+| [MIND](nextrec/models/retrieval/mind.py) | Multi-Interest Network with Dynamic Routing | CIKM 2019 | Supported |
+| [SDM](nextrec/models/retrieval/sdm.py) | Sequential Deep Matching Model | - | Supported |
+
+### Sequential Recommendation Models
+
+| Model | Paper | Year | Status |
+|-------|-------|------|--------|
+| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | KDD 2018 | In Progress |
+| [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | arXiv 2024 | Supported |
 
 ### Multi-task Models
 
@@ -245,7 +255,18 @@ The current version is 0.4.10. All models and test code have been validated on t
 | Model | Paper | Year | Status |
 |-------|-------|------|--------|
 | [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | NeurIPS 2023 | In Progress |
-| [HSTU](nextrec/models/generative/hstu.py) | Hierarchical Sequential Transduction Units | - | Supported |
+
+### Representation Models
+
+| Model | Paper | Year | Status |
+|-------|-------|------|--------|
+| [RQ-VAE](nextrec/models/representation/rqvae.py) | RQ-VAE: RQVAE for Generative Retrieval | - | Supported |
+| [BPR](nextrec/models/representation/bpr.py) | Bayesian Personalized Ranking | UAI 2009 | In Progress |
+| [MF](nextrec/models/representation/mf.py) | Matrix Factorization Techniques for Recommender Systems | - | In Progress |
+| [AutoRec](nextrec/models/representation/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | WWW 2015 | In Progress |
+| [LightGCN](nextrec/models/representation/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | SIGIR 2020 | In Progress |
+| [S3Rec](nextrec/models/representation/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | CIKM 2020 | In Progress |
+| [CL4SRec](nextrec/models/representation/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | 2021 | In Progress |
 
 ---
 

@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.10-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.11-orange.svg)
 
 中文文档 | [English Version](README_en.md)
 
@@ -40,7 +40,7 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 
 ## NextRec近期进展
 
-- **12/12/2025** 在v0.4.10中加入了[RQ-VAE](/nextrec/models/representation/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
+- **12/12/2025** 在v0.4.11中加入了[RQ-VAE](/nextrec/models/representation/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](/nextrec_cli_preset/NextRec-CLI_zh.md)和[教学代码](/nextrec_cli_preset)
 - **03/12/2025** NextRec获得了100颗🌟！感谢大家的支持
 - **06/12/2025** 在v0.4.1中支持了单机多卡的分布式DDP训练，并且提供了配套的[代码](tutorials/distributed)
@@ -181,11 +181,11 @@ nextrec --mode=train --train_config=path/to/train_config.yaml
 nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 ```
 
-> 截止当前版本0.4.10，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.4.11，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.4.10，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.4.11，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -201,7 +201,9 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | 模型 | 论文 | 年份 | 状态 |
 |------|------|------|------|
 | [FM](nextrec/models/ranking/fm.py) | Factorization Machines | ICDM 2010 | 已支持 |
+| [LR](nextrec/models/ranking/lr.py) | Logistic Regression | - | 已支持 |
 | [AFM](nextrec/models/ranking/afm.py) | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | IJCAI 2017 | 已支持 |
+| [FFM](nextrec/models/ranking/ffm.py) | Field-aware Factorization Machines | RecSys 2010 | 开发中 |
 | [DeepFM](nextrec/models/ranking/deepfm.py) | DeepFM: A Factorization-Machine based Neural Network for CTR Prediction | IJCAI 2017 | 已支持 |
 | [Wide&Deep](nextrec/models/ranking/widedeep.py) | Wide & Deep Learning for Recommender Systems | DLRS 2016 | 已支持 |
 | [xDeepFM](nextrec/models/ranking/xdeepfm.py) | xDeepFM: Combining Explicit and Implicit Feature Interactions | KDD 2018 | 已支持 |
@@ -213,16 +215,24 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | [DIN](nextrec/models/ranking/din.py) | Deep Interest Network for Click-Through Rate Prediction | KDD 2018 | 已支持 |
 | [DIEN](nextrec/models/ranking/dien.py) | Deep Interest Evolution Network for Click-Through Rate Prediction | AAAI 2019 | 已支持 |
 | [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-wise Gating Blocks for High-dimensional Sparse Recommendation Data | 2020 | 已支持 |
+| [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | SIGIR 2021 | 已支持 |
 
 ### 召回模型
 
 | 模型 | 论文 | 年份 | 状态 |
 |------|------|------|------|
-| [DSSM](nextrec/models/match/dssm.py) | Learning Deep Structured Semantic Models | CIKM 2013 | 已支持 |
-| [DSSM v2](nextrec/models/match/dssm_v2.py) | DSSM with pairwise BPR-style optimization | - | 已支持 |
-| [YouTube DNN](nextrec/models/match/youtube_dnn.py) | Deep Neural Networks for YouTube Recommendations | RecSys 2016 | 已支持 |
-| [MIND](nextrec/models/match/mind.py) | Multi-Interest Network with Dynamic Routing | CIKM 2019 | 已支持 |
-| [SDM](nextrec/models/match/sdm.py) | Sequential Deep Matching Model | - | 已支持 |
+| [DSSM](nextrec/models/retrieval/dssm.py) | Learning Deep Structured Semantic Models | CIKM 2013 | 已支持 |
+| [DSSM v2](nextrec/models/retrieval/dssm_v2.py) | DSSM with pairwise BPR-style optimization | - | 已支持 |
+| [YouTube DNN](nextrec/models/retrieval/youtube_dnn.py) | Deep Neural Networks for YouTube Recommendations | RecSys 2016 | 已支持 |
+| [MIND](nextrec/models/retrieval/mind.py) | Multi-Interest Network with Dynamic Routing | CIKM 2019 | 已支持 |
+| [SDM](nextrec/models/retrieval/sdm.py) | Sequential Deep Matching Model | - | 已支持 |
+
+### 序列推荐模型
+
+| 模型 | 论文 | 年份 | 状态 |
+|------|------|------|------|
+| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | KDD 2018 | 开发中 |
+| [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | arXiv 2024 | 已支持 |
 
 ### 多任务模型
 
@@ -239,7 +249,18 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | 模型 | 论文 | 年份 | 状态 |
 |------|------|------|------|
 | [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | NeurIPS 2023 | 开发中 |
-| [HSTU](nextrec/models/generative/hstu.py) | Hierarchical Sequential Transduction Units | - | 已支持 |
+
+### 表征模型
+
+| 模型 | 论文 | 年份 | 状态 |
+|------|------|------|------|
+| [RQ-VAE](nextrec/models/representation/rqvae.py) | RQ-VAE: RQVAE for Generative Retrieval | - | 已支持 |
+| [BPR](nextrec/models/representation/bpr.py) | Bayesian Personalized Ranking | UAI 2009 | 开发中 |
+| [MF](nextrec/models/representation/mf.py) | Matrix Factorization Techniques for Recommender Systems | - | 开发中 |
+| [AutoRec](nextrec/models/representation/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | WWW 2015 | 开发中 |
+| [LightGCN](nextrec/models/representation/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | SIGIR 2020 | 开发中 |
+| [S3Rec](nextrec/models/representation/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | CIKM 2020 | 开发中 |
+| [CL4SRec](nextrec/models/representation/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | 2021 | 开发中 |
 
 ---
 
