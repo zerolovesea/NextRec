@@ -42,11 +42,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
 from nextrec.basic.activation import activation_layer
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
-
 from nextrec.utils.model import select_features
 
 

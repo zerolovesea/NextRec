@@ -1,71 +1,84 @@
 """
 Utilities package for NextRec
 
-This package provides various utility functions organized by category:
-- optimizer: Optimizer and scheduler utilities
-- initializer: Weight initialization utilities
-- embedding: Embedding dimension calculation
-- device_utils: Device management and selection
-- tensor_utils: Tensor operations and conversions
-- file_utils: File I/O operations
-- model_utils: Model-related utilities
-- feature_utils: Feature processing utilities
-- config_utils: Configuration loading and processing utilities
-
 Date: create on 13/11/2025
-Last update: 06/12/2025
+Last update: 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-from . import optimizer, initializer, embedding
-from .optimizer import get_optimizer, get_scheduler
-from .initializer import get_initializer
-from .embedding import get_auto_embedding_dim
-from .device import resolve_device, get_device_info
-from .tensor import to_tensor, stack_tensors, concat_tensors, pad_sequence_tensors
-from .file import (
-    resolve_file_paths,
-    read_table,
-    load_dataframes,
-    iter_file_chunks,
-    default_output_dir,
-    read_yaml,
-)
-from .model import merge_features, get_mlp_output_dim
-from .feature import normalize_to_list
-from .synthetic_data import (
-    generate_match_data,
-    generate_ranking_data,
-    generate_multitask_data,
-    generate_distributed_ranking_data,
-)
+from . import console, data, embedding, torch_utils
 from .config import (
-    resolve_path,
-    select_features,
-    register_processor_features,
     build_feature_objects,
+    build_model_instance,
     extract_feature_groups,
     load_model_class,
-    build_model_instance,
+    register_processor_features,
+    resolve_path,
+    select_features,
+)
+from .console import (
+    display_metrics_table,
+    get_nextrec_version,
+    log_startup_info,
+    progress,
+)
+from .data import (
+    default_output_dir,
+    generate_distributed_ranking_data,
+    generate_match_data,
+    generate_multitask_data,
+    generate_ranking_data,
+    iter_file_chunks,
+    load_dataframes,
+    read_table,
+    read_yaml,
+    resolve_file_paths,
+)
+from .embedding import get_auto_embedding_dim
+from .feature import normalize_to_list
+from .model import get_mlp_output_dim, merge_features
+from .torch_utils import (
+    add_distributed_sampler,
+    concat_tensors,
+    configure_device,
+    gather_numpy,
+    get_device_info,
+    get_initializer,
+    get_optimizer,
+    get_scheduler,
+    init_process_group,
+    pad_sequence_tensors,
+    resolve_device,
+    stack_tensors,
+    to_tensor,
 )
 
 __all__ = [
-    # Optimizer & Scheduler
+    # Console utilities
+    "get_nextrec_version",
+    "log_startup_info",
+    "progress",
+    "display_metrics_table",
+    # Optimizer & Scheduler (torch utils)
     "get_optimizer",
     "get_scheduler",
-    # Initializer
+    # Initializer (torch utils)
     "get_initializer",
-    # Embedding
+    # Embedding utilities
     "get_auto_embedding_dim",
-    # Device utilities
+    # Device utilities (torch utils)
     "resolve_device",
     "get_device_info",
+    "configure_device",
+    "init_process_group",
+    "gather_numpy",
+    "add_distributed_sampler",
     # Tensor utilities
     "to_tensor",
     "stack_tensors",
     "concat_tensors",
     "pad_sequence_tensors",
-    # File utilities
+    # Data utilities
     "resolve_file_paths",
     "read_table",
     "read_yaml",
@@ -79,10 +92,10 @@ __all__ = [
     "normalize_to_list",
     # Config utilities
     "resolve_path",
-    "select_features",
     "register_processor_features",
     "build_feature_objects",
     "extract_feature_groups",
+    "select_features",
     "load_model_class",
     "build_model_instance",
     # Synthetic data utilities
@@ -91,7 +104,8 @@ __all__ = [
     "generate_multitask_data",
     "generate_distributed_ranking_data",
     # Module exports
-    "optimizer",
-    "initializer",
+    "console",
+    "data",
     "embedding",
+    "torch_utils",
 ]

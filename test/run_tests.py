@@ -4,10 +4,10 @@ Test Runner Script for NextRec
 
 This script provides a convenient way to run tests with various options.
 """
-import sys
-import subprocess
 import argparse
 import logging
+import subprocess
+import sys
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

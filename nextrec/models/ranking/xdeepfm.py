@@ -55,9 +55,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import LR, MLP, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import LR, EmbeddingLayer, MLP, PredictionLayer
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 
 class CIN(nn.Module):

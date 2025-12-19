@@ -4,7 +4,8 @@ Configuration utilities for NextRec
 This module provides utilities for loading and processing configuration files,
 including feature configuration, model configuration, and training configuration.
 
-Date: create on 06/12/2025
+Date: create on 27/10/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -23,7 +24,7 @@ import torch
 from nextrec.utils.feature import normalize_to_list
 
 if TYPE_CHECKING:
-    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+    from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
     from nextrec.data.preprocessor import DataProcessor
 
 
@@ -52,7 +53,7 @@ def select_features(
         names = [name for name in cfg.keys() if name in columns]
         missing = [name for name in cfg.keys() if name not in columns]
         if missing:
-            print(f"[feature_config] skipped missing {group} columns: {missing}")
+            print(f"[Feature Config] skipped missing {group} columns: {missing}")
         return names
 
     dense_names = pick("dense")
@@ -129,7 +130,7 @@ def build_feature_objects(
         sparse_names: List of sparse feature names
         sequence_names: List of sequence feature names
     """
-    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+    from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 
     dense_cfg = feature_cfg.get("dense", {}) or {}
     sparse_cfg = feature_cfg.get("sparse", {}) or {}
@@ -236,7 +237,7 @@ def extract_feature_groups(
 
         if missing_defined:
             print(
-                f"[feature_config] feature_groups.{group_name} contains features not defined in dense/sparse/sequence: {missing_defined}"
+                f"[Feature Config] feature_groups.{group_name} contains features not defined in dense/sparse/sequence: {missing_defined}"
             )
 
         for n in name_list:
@@ -249,7 +250,7 @@ def extract_feature_groups(
 
         if missing_cols:
             print(
-                f"[feature_config] feature_groups.{group_name} missing data columns: {missing_cols}"
+                f"[Feature Config] feature_groups.{group_name} missing data columns: {missing_cols}"
             )
 
         resolved[group_name] = filtered
@@ -442,7 +443,7 @@ def build_model_instance(
 
         if group_key not in feature_groups:
             print(
-                f"[feature_config] feature_bindings refers to unknown group '{group_key}', skipped"
+                f"[Feature Config] feature_bindings refers to unknown group '{group_key}', skipped"
             )
             continue
 

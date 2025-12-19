@@ -118,6 +118,6 @@ metrics = model.evaluate(
 for name, value in metrics.items():
     print(f"{name}: {value:.4f}")
 
-print(" ")
+print("")
 print("Multi-task Example Complete!")
-print(" ")
+print("")

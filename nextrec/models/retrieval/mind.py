@@ -7,14 +7,15 @@ Reference:
 //Proceedings of the 28th ACM international conference on information and knowledge management. 2019: 2615-2623.
 """
 
+from typing import Literal
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Literal
 
-from nextrec.basic.model import BaseMatchModel
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
+from nextrec.basic.model import BaseMatchModel
 
 
 class MultiInterestSA(nn.Module):

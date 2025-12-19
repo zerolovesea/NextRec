@@ -3,26 +3,35 @@ Date: create on 09/11/2025
 Checkpoint: edit on 18/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-DSSM v2 - DSSM with pairwise training using BPR loss
+[1] Covington P, Adams J, Sargin E. Deep neural networks for youtube recommendations[C]
+//Proceedings of the 10th ACM conference on recommender systems. 2016: 191-198.
 """
+
+from typing import Literal
 
 import torch
 import torch.nn as nn
-from typing import Literal
 
-from nextrec.basic.model import BaseMatchModel
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
+from nextrec.basic.model import BaseMatchModel
 
 
-class DSSM_v2(BaseMatchModel):
+class YoutubeDNN(BaseMatchModel):
     """
-    DSSM with Pairwise Training
+    YouTube Deep Neural Network for Recommendations.
+    User tower: behavior sequence + user features -> user embedding.
+    Item tower: item features -> item embedding.
+    Training usually uses listwise / sampled softmax style objectives.
     """
 
     @property
     def model_name(self) -> str:
-        return "DSSM_v2"
+        return "YouTubeDNN"
+
+    @property
+    def support_training_modes(self) -> list[str]:
+        return ["pointwise", "pairwise", "listwise"]
 
     def __init__(
         self,
@@ -37,8 +46,8 @@ class DSSM_v2(BaseMatchModel):
         embedding_dim: int = 64,
         dnn_activation: str = "relu",
         dnn_dropout: float = 0.0,
-        training_mode: Literal["pointwise", "pairwise", "listwise"] = "pairwise",
-        num_negative_samples: int = 4,
+        training_mode: Literal["pointwise", "pairwise", "listwise"] = "listwise",
+        num_negative_samples: int = 100,
         temperature: float = 1.0,
         similarity_metric: Literal["dot", "cosine", "euclidean"] = "dot",
         device: str = "cpu",
@@ -61,7 +70,7 @@ class DSSM_v2(BaseMatchModel):
         **kwargs,
     ):
 
-        super(DSSM_v2, self).__init__(
+        super(YoutubeDNN, self).__init__(
             user_dense_features=user_dense_features,
             user_sparse_features=user_sparse_features,
             user_sequence_features=user_sequence_features,
@@ -103,6 +112,7 @@ class DSSM_v2(BaseMatchModel):
             for feat in user_sparse_features or []:
                 user_input_dim += feat.embedding_dim
             for feat in user_sequence_features or []:
+                # Sequence features are pooled before entering the DNN
                 user_input_dim += feat.embedding_dim
 
             user_dnn_units = user_dnn_hidden_units + [embedding_dim]
@@ -150,9 +160,6 @@ class DSSM_v2(BaseMatchModel):
             embedding_attr="item_embedding", include_modules=["item_dnn"]
         )
 
-        if optimizer_params is None:
-            optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5}
-
         self.compile(
             optimizer=optimizer,
             optimizer_params=optimizer_params,
@@ -165,7 +172,9 @@ class DSSM_v2(BaseMatchModel):
         self.to(device)
 
     def user_tower(self, user_input: dict) -> torch.Tensor:
-        """User tower"""
+        """
+        User tower to encode historical behavior sequences and user features.
+        """
         all_user_features = (
             self.user_dense_features
             + self.user_sparse_features
@@ -174,7 +183,7 @@ class DSSM_v2(BaseMatchModel):
         user_emb = self.user_embedding(user_input, all_user_features, squeeze_dim=True)
         user_emb = self.user_dnn(user_emb)
 
-        # Normalization for better pairwise training
+        # L2 normalization
         user_emb = torch.nn.functional.normalize(user_emb, p=2, dim=1)
 
         return user_emb
@@ -189,7 +198,7 @@ class DSSM_v2(BaseMatchModel):
         item_emb = self.item_embedding(item_input, all_item_features, squeeze_dim=True)
         item_emb = self.item_dnn(item_emb)
 
-        # Normalization for better pairwise training
+        # L2 normalization
         item_emb = torch.nn.functional.normalize(item_emb, p=2, dim=1)
 
         return item_emb

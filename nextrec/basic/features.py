@@ -7,6 +7,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import torch
+
 from nextrec.utils.embedding import get_auto_embedding_dim
 from nextrec.utils.feature import normalize_to_list
 

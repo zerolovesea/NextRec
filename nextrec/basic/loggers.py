@@ -2,20 +2,20 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Checkpoint: edit on 03/12/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
+import copy
+import json
+import logging
+import numbers
 import os
 import re
 import sys
-import json
-import copy
-import logging
-import numbers
+from typing import Any, Mapping
 
-from typing import Mapping, Any
-from nextrec.basic.session import create_session, Session
+from nextrec.basic.session import Session, create_session
 
 ANSI_CODES = {
     "black": "\033[30m",
@@ -89,6 +89,13 @@ def colorize(text: str, color: str | None = None, bold: bool = False) -> str:
         result += ANSI_CODES[color]
     result += text + ANSI_RESET
     return result
+
+
+def format_kv(label: str, value: Any, width: int = 34, indent: int = 0) -> str:
+    """Format key-value lines with consistent alignment."""
+    label_text = label if label.endswith(":") else f"{label}:"
+    prefix = " " * indent
+    return f"{prefix}{label_text:<{width}} {value}"
 
 
 def setup_logger(session_id: str | os.PathLike | None = None):

@@ -66,6 +66,6 @@ predictions = model.predict(valid_df, batch_size=512)
 print(f"\nPredictions shape: {predictions.shape}")
 print(f"Sample predictions: {predictions[:10]}")
 
-print(" ")
+print("")
 print("DeepFM Example Complete!")
-print(" ")
+print("")

@@ -6,8 +6,8 @@ Uses match_task.csv generated data
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
-from nextrec.utils.device import resolve_device
-from nextrec.models.match.dssm import DSSM
+from nextrec.utils.torch_utils import resolve_device
+from nextrec.models.retrieval.dssm import DSSM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 # Evaluate
@@ -125,6 +125,6 @@ print(f"Valid AUC: {auc:.6f}")
 print(f"Valid GAUC: {gauc:.6f}")
 print(f"Valid LogLoss: {logloss:.6f}")
 
-print(" ")
+print("")
 print("DSSM Example Complete!")
-print(" ")
+print("")

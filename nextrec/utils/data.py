@@ -1,17 +1,101 @@
 """
-Synthetic Data Generation Utilities
+Data utilities for NextRec.
 
-This module provides utilities for generating synthetic datasets for testing
-and tutorial purposes in the NextRec framework.
+This module provides file I/O helpers and synthetic data generation.
 
-Date: create on 06/12/2025
+Date: create on 19/12/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-import torch
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Dict, Generator, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, List, Tuple
+import pyarrow.parquet as pq
+import torch
+import yaml
+
+
+def resolve_file_paths(path: str) -> tuple[list[str], str]:
+    """
+    Resolve file or directory path into a sorted list of files and file type.
+
+    Args: path: Path to a file or directory
+    Returns: tuple: (list of file paths, file type)
+    """
+    path_obj = Path(path)
+
+    if path_obj.is_file():
+        file_type = path_obj.suffix.lower().lstrip(".")
+        assert file_type in [
+            "csv",
+            "parquet",
+        ], f"Unsupported file extension: {file_type}"
+        return [str(path_obj)], file_type
+
+    if path_obj.is_dir():
+        collected_files = [p for p in path_obj.iterdir() if p.is_file()]
+        csv_files = [str(p) for p in collected_files if p.suffix.lower() == ".csv"]
+        parquet_files = [
+            str(p) for p in collected_files if p.suffix.lower() == ".parquet"
+        ]
+
+        if csv_files and parquet_files:
+            raise ValueError(
+                "Directory contains both CSV and Parquet files. Please keep a single format."
+            )
+        file_paths = csv_files if csv_files else parquet_files
+        if not file_paths:
+            raise ValueError(f"No CSV or Parquet files found in directory: {path}")
+        file_paths.sort()
+        file_type = "csv" if csv_files else "parquet"
+        return file_paths, file_type
+
+    raise ValueError(f"Invalid path: {path}")
+
+
+def read_table(path: str | Path, data_format: str | None = None) -> pd.DataFrame:
+    data_path = Path(path)
+    fmt = data_format.lower() if data_format else data_path.suffix.lower().lstrip(".")
+    if data_path.is_dir() and not fmt:
+        fmt = "parquet"
+    if fmt in {"parquet", ""}:
+        return pd.read_parquet(data_path)
+    if fmt in {"csv", "txt"}:
+        # Use low_memory=False to avoid mixed-type DtypeWarning on wide CSVs
+        return pd.read_csv(data_path, low_memory=False)
+    raise ValueError(f"Unsupported data format: {data_path}")
+
+
+def load_dataframes(file_paths: list[str], file_type: str) -> list[pd.DataFrame]:
+    return [read_table(fp, file_type) for fp in file_paths]
+
+
+def iter_file_chunks(
+    file_path: str, file_type: str, chunk_size: int
+) -> Generator[pd.DataFrame, None, None]:
+    if file_type == "csv":
+        yield from pd.read_csv(file_path, chunksize=chunk_size)
+        return
+    parquet_file = pq.ParquetFile(file_path)
+    for batch in parquet_file.iter_batches(batch_size=chunk_size):
+        yield batch.to_pandas()
+
+
+def default_output_dir(path: str) -> Path:
+    path_obj = Path(path)
+    if path_obj.is_file():
+        return path_obj.parent / f"{path_obj.stem}_preprocessed"
+    return path_obj.with_name(f"{path_obj.name}_preprocessed")
+
+
+def read_yaml(path: str | Path):
+    with open(path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file) or {}
 
 
 def generate_ranking_data(
@@ -90,13 +174,14 @@ def generate_ranking_data(
         sequence_vocabs.append(seq_vocab)
 
     if "gender" in data and "dense_0" in data:
+        dense_1 = data.get("dense_1", 0)
         # Complex label generation with feature correlation
         label_probs = 1 / (
             1
             + np.exp(
                 -(
                     data["dense_0"] * 0.3
-                    + data["dense_1"] * 0.2
+                    + dense_1 * 0.2
                     + (data["gender"] - 0.5) * 0.5
                     + np.random.randn(n_samples) * 0.1
                 )
@@ -112,7 +197,7 @@ def generate_ranking_data(
         print(f"Positive rate: {data['label'].mean():.4f}")
 
     # Import here to avoid circular import
-    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+    from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 
     # Create feature definitions
     # Use input_dim for dense features to be compatible with both simple and complex scenarios
@@ -273,7 +358,7 @@ def generate_match_data(
     print(f"Positive rate: {data['label'].mean():.4f}")
 
     # Import here to avoid circular import
-    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+    from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 
     # User dense features
     user_dense_features = [DenseFeature(name="user_age", input_dim=1)]
@@ -413,15 +498,17 @@ def generate_multitask_data(
 
     # Generate multi-task labels with correlation
     # CTR (click) is relatively easier to predict
-    ctr_logits = (
-        data["dense_0"] * 0.3 + data["dense_1"] * 0.2 + np.random.randn(n_samples) * 0.5
-    )
+    dense_0 = data.get("dense_0", 0)
+    dense_1 = data.get("dense_1", 0)
+    dense_2 = data.get("dense_2", 0)
+    dense_3 = data.get("dense_3", 0)
+    ctr_logits = dense_0 * 0.3 + dense_1 * 0.2 + np.random.randn(n_samples) * 0.5
     data["click"] = (1 / (1 + np.exp(-ctr_logits)) > 0.5).astype(np.float32)
 
     # CVR (conversion) depends on click and is harder
     cvr_logits = (
-        data["dense_2"] * 0.2
-        + data["dense_3"] * 0.15
+        dense_2 * 0.2
+        + dense_3 * 0.15
         + data["click"] * 1.5  # Strong dependency on click
         + np.random.randn(n_samples) * 0.8
     )
@@ -441,7 +528,7 @@ def generate_multitask_data(
     print(f"CTCVR rate: {data['ctcvr'].mean():.4f}")
 
     # Import here to avoid circular import
-    from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+    from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 
     # Create feature definitions
     dense_features = [

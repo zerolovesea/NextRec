@@ -44,9 +44,9 @@ CVR 预测 P(conversion|click)，二者相乘得到 CTCVR 并在曝光标签上�
 import torch
 import torch.nn as nn
 
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 
 class ESMM(BaseModel):

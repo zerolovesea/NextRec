@@ -2,52 +2,52 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 18/12/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
-import os
-import tqdm
-import pickle
-import logging
 import getpass
+import logging
+import os
+import pickle
 import socket
+from pathlib import Path
+from typing import Any, Literal, Union
+
 import numpy as np
 import pandas as pd
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributed as dist
-
-from pathlib import Path
-from typing import Union, Literal, Any
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
 
+from nextrec import __version__
 from nextrec.basic.callback import (
-    EarlyStopper,
-    CallbackList,
     Callback,
+    CallbackList,
     CheckpointSaver,
+    EarlyStopper,
     LearningRateScheduler,
 )
 from nextrec.basic.features import (
     DenseFeature,
-    SparseFeature,
-    SequenceFeature,
     FeatureSet,
+    SequenceFeature,
+    SparseFeature,
 )
-from nextrec.data.dataloader import TensorDictDataset, RecDataLoader
-
-from nextrec.basic.loggers import setup_logger, colorize, TrainingLogger
-from nextrec.basic.session import resolve_save_path, create_session
-from nextrec.basic.metrics import configure_metrics, evaluate_metrics, check_user_id
-
-from nextrec.data.dataloader import build_tensors_from_data
-from nextrec.data.batch_utils import collate_fn, batch_to_dict
+from nextrec.basic.loggers import TrainingLogger, colorize, format_kv, setup_logger
+from nextrec.basic.metrics import check_user_id, configure_metrics, evaluate_metrics
+from nextrec.basic.session import create_session, resolve_save_path
+from nextrec.data.batch_utils import batch_to_dict, collate_fn
 from nextrec.data.data_processing import get_column_data, get_user_ids
-
+from nextrec.data.dataloader import (
+    RecDataLoader,
+    TensorDictDataset,
+    build_tensors_from_data,
+)
 from nextrec.loss import (
     BPRLoss,
     HingeLoss,
@@ -56,15 +56,16 @@ from nextrec.loss import (
     TripletLoss,
     get_loss_fn,
 )
-from nextrec.utils.tensor import to_tensor
-from nextrec.utils.device import configure_device
-from nextrec.utils.optimizer import get_optimizer, get_scheduler
-from nextrec.utils.distributed import (
-    gather_numpy,
-    init_process_group,
+from nextrec.utils.console import display_metrics_table, progress
+from nextrec.utils.torch_utils import (
     add_distributed_sampler,
+    configure_device,
+    gather_numpy,
+    get_optimizer,
+    get_scheduler,
+    init_process_group,
+    to_tensor,
 )
-from nextrec import __version__
 
 
 class BaseModel(FeatureSet, nn.Module):
@@ -90,6 +91,7 @@ class BaseModel(FeatureSet, nn.Module):
         dense_l2_reg: float = 0.0,
         device: str = "cpu",
         early_stop_patience: int = 20,
+        max_metrics_samples: int | None = 200000,
         session_id: str | None = None,
         callbacks: list[Callback] | None = None,
         distributed: bool = False,
@@ -116,6 +118,7 @@ class BaseModel(FeatureSet, nn.Module):
 
             device: Torch device string or torch.device. e.g., 'cpu', 'cuda:0'.
             early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
+            max_metrics_samples: Max samples to keep for training metrics. None disables limit.
             session_id: Session id for logging. If None, a default id with timestamps will be created. e.g., 'session_tutorial'.
             callbacks: List of callback instances. If None, default callbacks will be created. e.g., [EarlyStopper(), CheckpointSaver()].
 
@@ -145,7 +148,7 @@ class BaseModel(FeatureSet, nn.Module):
         self.session_path = self.session.root  # pwd/session_id, path for this session
         self.checkpoint_path = os.path.join(
             self.session_path, self.model_name + "_checkpoint.pt"
-        )  # example: pwd/session_id/DeepFM_checkpoint.pt
+        )  # e.g., pwd/session_id/DeepFM_checkpoint.pt
         self.best_path = os.path.join(self.session_path, self.model_name + "_best.pt")
         self.features_config_path = os.path.join(
             self.session_path, "features_config.pkl"
@@ -166,6 +169,9 @@ class BaseModel(FeatureSet, nn.Module):
         self.loss_weight = None
 
         self.early_stop_patience = early_stop_patience
+        self.max_metrics_samples = (
+            None if max_metrics_samples is None else int(max_metrics_samples)
+        )
         self.max_gradient_norm = 1.0
         self.logger_initialized = False
         self.training_logger = None
@@ -181,17 +187,15 @@ class BaseModel(FeatureSet, nn.Module):
         include_modules = include_modules or []
         embedding_layer = getattr(self, embedding_attr, None)
         embed_dict = getattr(embedding_layer, "embed_dict", None)
-        embedding_params: list[torch.Tensor] = []
         if embed_dict is not None:
-            embedding_params.extend(
+            embedding_params = [
                 embed.weight
                 for embed in embed_dict.values()
                 if hasattr(embed, "weight")
-            )
+            ]
         else:
             weight = getattr(embedding_layer, "weight", None)
-            if isinstance(weight, torch.Tensor):
-                embedding_params.append(weight)
+            embedding_params = [weight] if isinstance(weight, torch.Tensor) else []
 
         existing_embedding_ids = {id(param) for param in self.embedding_params}
         for param in embedding_params:
@@ -213,9 +217,11 @@ class BaseModel(FeatureSet, nn.Module):
                 module is self
                 or embedding_attr in name
                 or isinstance(module, skip_types)
-                or (include_modules and not any(inc in name for inc in include_modules))
-                or any(exc in name for exc in exclude_modules)
             ):
+                continue
+            if include_modules and not any(inc in name for inc in include_modules):
+                continue
+            if exclude_modules and any(exc in name for exc in exclude_modules):
                 continue
             if isinstance(module, nn.Linear):
                 if id(module.weight) not in existing_reg_ids:
@@ -318,22 +324,20 @@ class BaseModel(FeatureSet, nn.Module):
             raise ValueError(
                 f"[BaseModel-validation Error] validation_split must be between 0 and 1, got {validation_split}"
             )
-        if not isinstance(train_data, (pd.DataFrame, dict)):
-            raise TypeError(
-                f"[BaseModel-validation Error] train_data must be a pandas DataFrame or a dict, got {type(train_data)}"
-            )
         if isinstance(train_data, pd.DataFrame):
             total_length = len(train_data)
-        else:
-            sample_key = next(
-                iter(train_data)
-            )  # pick the first key to check length, for example: 'user_id': [1,2,3,4,5]
-            total_length = len(train_data[sample_key])  # len(train_data['user_id'])
+        elif isinstance(train_data, dict):
+            sample_key = next(iter(train_data))
+            total_length = len(train_data[sample_key])
             for k, v in train_data.items():
                 if len(v) != total_length:
                     raise ValueError(
                         f"[BaseModel-validation Error] Length of field '{k}' ({len(v)}) != length of field '{sample_key}' ({total_length})"
                     )
+        else:
+            raise TypeError(
+                f"[BaseModel-validation Error] train_data must be a pandas DataFrame or a dict, got {type(train_data)}"
+            )
         rng = np.random.default_rng(42)
         indices = rng.permutation(total_length)
         split_idx = int(total_length * (1 - validation_split))
@@ -343,12 +347,12 @@ class BaseModel(FeatureSet, nn.Module):
             train_split = train_data.iloc[train_indices].reset_index(drop=True)
             valid_split = train_data.iloc[valid_indices].reset_index(drop=True)
         else:
-            train_split = {}
-            valid_split = {}
-            for key, value in train_data.items():
-                arr = np.asarray(value)
-                train_split[key] = arr[train_indices]
-                valid_split[key] = arr[valid_indices]
+            train_split = {
+                k: np.asarray(v)[train_indices] for k, v in train_data.items()
+            }
+            valid_split = {
+                k: np.asarray(v)[valid_indices] for k, v in train_data.items()
+            }
         train_loader = self.prepare_data_loader(
             train_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
         )
@@ -403,11 +407,11 @@ class BaseModel(FeatureSet, nn.Module):
         )
 
         scheduler_params = scheduler_params or {}
-        if isinstance(scheduler, str):
-            self.scheduler_name = scheduler
-        elif scheduler is None:
+        if scheduler is None:
             self.scheduler_name = None
-        else:  # for custom scheduler instance, need to provide class name for logging
+        elif isinstance(scheduler, str):
+            self.scheduler_name = scheduler
+        else:
             self.scheduler_name = getattr(scheduler, "__name__", scheduler.__class__.__name__)  # type: ignore
         self.scheduler_params = scheduler_params
         self.scheduler_fn = (
@@ -418,25 +422,23 @@ class BaseModel(FeatureSet, nn.Module):
 
         self.loss_config = loss
         self.loss_params = loss_params or {}
-        self.loss_fn = []
-        if isinstance(loss, list):  # for example: ['bce', 'mse'] -> ['bce', 'mse']
+        if isinstance(loss, list):
             if len(loss) != self.nums_task:
                 raise ValueError(
                     f"[BaseModel-compile Error] Number of loss functions ({len(loss)}) must match number of tasks ({self.nums_task})."
                 )
-            loss_list = [loss[i] for i in range(self.nums_task)]
-        else:  # for example: 'bce' -> ['bce', 'bce']
+            loss_list = list(loss)
+        else:
             loss_list = [loss] * self.nums_task
-
         if isinstance(self.loss_params, dict):
-            params_list = [self.loss_params] * self.nums_task
-        else:  # list[dict]
-            params_list = [
+            loss_params_list = [self.loss_params] * self.nums_task
+        else:
+            loss_params_list = [
                 self.loss_params[i] if i < len(self.loss_params) else {}
                 for i in range(self.nums_task)
             ]
         self.loss_fn = [
-            get_loss_fn(loss=loss_list[i], **params_list[i])
+            get_loss_fn(loss=loss_list[i], **loss_params_list[i])
             for i in range(self.nums_task)
         ]
 
@@ -448,10 +450,8 @@ class BaseModel(FeatureSet, nn.Module):
                     raise ValueError(
                         "[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup."
                     )
-                weight_value = loss_weights[0]
-            else:
-                weight_value = loss_weights
-            self.loss_weights = [float(weight_value)]
+                loss_weights = loss_weights[0]
+            self.loss_weights = [float(loss_weights)]
         else:
             if isinstance(loss_weights, (int, float)):
                 weights = [float(loss_weights)] * self.nums_task
@@ -484,7 +484,9 @@ class BaseModel(FeatureSet, nn.Module):
                 y_true = y_true.view(-1, 1)
             if y_pred.shape != y_true.shape:
                 raise ValueError(f"Shape mismatch: {y_pred.shape} vs {y_true.shape}")
-            task_dim = self.task_dims[0] if hasattr(self, "task_dims") else y_pred.shape[1]  # type: ignore
+            task_dim = (
+                self.task_dims[0] if hasattr(self, "task_dims") else y_pred.shape[1]  # type: ignore
+            )
             if task_dim == 1:
                 loss = self.loss_fn[0](y_pred.view(-1), y_true.view(-1))
             else:
@@ -495,12 +497,11 @@ class BaseModel(FeatureSet, nn.Module):
         # multi-task
         if y_pred.shape != y_true.shape:
             raise ValueError(f"Shape mismatch: {y_pred.shape} vs {y_true.shape}")
-        if hasattr(
-            self, "prediction_layer"
-        ):  # we need to use registered task_slices for multi-task and multi-class
-            slices = self.prediction_layer.task_slices  # type: ignore
-        else:
-            slices = [(i, i + 1) for i in range(self.nums_task)]
+        slices = (
+            self.prediction_layer.task_slices  # type: ignore
+            if hasattr(self, "prediction_layer")
+            else [(i, i + 1) for i in range(self.nums_task)]
+        )
         task_losses = []
         for i, (start, end) in enumerate(slices):  # type: ignore
             y_pred_i = y_pred[:, start:end]
@@ -520,6 +521,9 @@ class BaseModel(FeatureSet, nn.Module):
         sampler=None,
         return_dataset: bool = False,
     ) -> DataLoader | tuple[DataLoader, TensorDictDataset | None]:
+        """
+        Prepare a DataLoader from input data. Only used when input data is not a DataLoader.
+        """
         if isinstance(data, DataLoader):
             return (data, None) if return_dataset else data
         tensors = build_tensors_from_data(
@@ -626,54 +630,55 @@ class BaseModel(FeatureSet, nn.Module):
             )
         )  # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
 
-        # Setup default callbacks if none exist
-        if len(self.callbacks.callbacks) == 0:
-            if self.nums_task == 1:
-                monitor_metric = f"val_{self.metrics[0]}"
-            else:
-                monitor_metric = f"val_{self.metrics[0]}_{self.target_columns[0]}"
+        # Setup default callbacks if missing
+        if self.nums_task == 1:
+            monitor_metric = f"val_{self.metrics[0]}"
+        else:
+            monitor_metric = f"val_{self.metrics[0]}_{self.target_columns[0]}"
 
-            if self.early_stop_patience > 0:
-                self.callbacks.append(
-                    EarlyStopper(
-                        monitor=monitor_metric,
-                        patience=self.early_stop_patience,
-                        mode=self.best_metrics_mode,
-                        restore_best_weights=not self.distributed,
-                        verbose=1 if self.is_main_process else 0,
-                    )
-                )
+        existing_callbacks = self.callbacks.callbacks
+        has_early_stop = any(isinstance(cb, EarlyStopper) for cb in existing_callbacks)
+        has_checkpoint = any(
+            isinstance(cb, CheckpointSaver) for cb in existing_callbacks
+        )
+        has_lr_scheduler = any(
+            isinstance(cb, LearningRateScheduler) for cb in existing_callbacks
+        )
 
-            if self.is_main_process:
-                self.callbacks.append(
-                    CheckpointSaver(
-                        save_path=self.best_path,
-                        monitor=monitor_metric,
-                        mode=self.best_metrics_mode,
-                        save_best_only=True,
-                        verbose=1,
-                    )
+        if self.early_stop_patience > 0 and not has_early_stop:
+            self.callbacks.append(
+                EarlyStopper(
+                    monitor=monitor_metric,
+                    patience=self.early_stop_patience,
+                    mode=self.best_metrics_mode,
+                    restore_best_weights=not self.distributed,
+                    verbose=1 if self.is_main_process else 0,
                 )
+            )
 
-            if self.scheduler_fn is not None:
-                self.callbacks.append(
-                    LearningRateScheduler(
-                        scheduler=self.scheduler_fn,
-                        verbose=1 if self.is_main_process else 0,
-                    )
+        if self.is_main_process and not has_checkpoint:
+            self.callbacks.append(
+                CheckpointSaver(
+                    best_path=self.best_path,
+                    checkpoint_path=self.checkpoint_path,
+                    monitor=monitor_metric,
+                    mode=self.best_metrics_mode,
+                    save_best_only=True,
+                    verbose=1,
                 )
+            )
+
+        if self.scheduler_fn is not None and not has_lr_scheduler:
+            self.callbacks.append(
+                LearningRateScheduler(
+                    scheduler=self.scheduler_fn,
+                    verbose=1 if self.is_main_process else 0,
+                )
+            )
 
         self.callbacks.set_model(self)
         self.callbacks.set_params(
-            {
-                "epochs": epochs,
-                "batch_size": batch_size,
-                "metrics": self.metrics,
-            }
-        )
-
-        self.early_stopper = EarlyStopper(
-            patience=self.early_stop_patience, mode=self.best_metrics_mode
+            {"epochs": epochs, "batch_size": batch_size, "metrics": self.metrics}
         )
         self.best_metric = (
             float("-inf") if self.best_metrics_mode == "max" else float("inf")
@@ -685,6 +690,12 @@ class BaseModel(FeatureSet, nn.Module):
         self.epoch_index = 0
         self.stop_training = False
         self.best_checkpoint_path = self.best_path
+        use_ddp_sampler = (
+            auto_distributed_sampler
+            and self.distributed
+            and dist.is_available()
+            and dist.is_initialized()
+        )
 
         if not auto_distributed_sampler and self.distributed and self.is_main_process:
             logging.info(
@@ -697,12 +708,7 @@ class BaseModel(FeatureSet, nn.Module):
         train_sampler: DistributedSampler | None = None
         if validation_split is not None and valid_data is None:
             train_loader, valid_data = self.handle_validation_split(train_data=train_data, validation_split=validation_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)  # type: ignore
-            if (
-                auto_distributed_sampler
-                and self.distributed
-                and dist.is_available()
-                and dist.is_initialized()
-            ):
+            if use_ddp_sampler:
                 base_dataset = getattr(train_loader, "dataset", None)
                 if base_dataset is not None and not isinstance(
                     getattr(train_loader, "sampler", None), DistributedSampler
@@ -725,7 +731,7 @@ class BaseModel(FeatureSet, nn.Module):
                     )
         else:
             if isinstance(train_data, DataLoader):
-                if auto_distributed_sampler and self.distributed:
+                if use_ddp_sampler:
                     train_loader, train_sampler = add_distributed_sampler(
                         train_data,
                         distributed=self.distributed,
@@ -749,15 +755,9 @@ class BaseModel(FeatureSet, nn.Module):
                 )
                 assert isinstance(
                     result, tuple
-                ), "Expected tuple from prepare_data_loader with return_dataset=True"
+                ), "[BaseModel-fit Error] Expected tuple from prepare_data_loader with return_dataset=True, but got something else."
                 loader, dataset = result
-                if (
-                    auto_distributed_sampler
-                    and self.distributed
-                    and dataset is not None
-                    and dist.is_available()
-                    and dist.is_initialized()
-                ):
+                if use_ddp_sampler and dataset is not None:
                     train_sampler = DistributedSampler(
                         dataset,
                         num_replicas=self.world_size,
@@ -802,34 +802,42 @@ class BaseModel(FeatureSet, nn.Module):
         except TypeError:  # streaming data loader does not supported len()
             self.steps_per_epoch = None
             is_streaming = True
+        self.collect_train_metrics = not is_streaming
+        if is_streaming and self.is_main_process:
+            logging.info(
+                colorize(
+                    "[Training Info] Streaming mode detected; training metrics collection is disabled to avoid memory growth.",
+                    color="yellow",
+                )
+            )
 
         if self.is_main_process:
             self.summary()
             logging.info("")
-            if self.training_logger and self.training_logger.enable_tensorboard:
-                tb_dir = self.training_logger.tensorboard_logdir
-                if tb_dir:
-                    user = getpass.getuser()
-                    host = socket.gethostname()
-                    tb_cmd = f"tensorboard --logdir {tb_dir} --port 6006"
-                    ssh_hint = f"ssh -L 6006:localhost:6006 {user}@{host}"
-                    logging.info(
-                        colorize(f"TensorBoard logs saved to: {tb_dir}", color="cyan")
-                    )
-                    logging.info(colorize("To view logs, run:", color="cyan"))
-                    logging.info(colorize(f"    {tb_cmd}", color="cyan"))
-                    logging.info(colorize("Then SSH port forward:", color="cyan"))
-                    logging.info(colorize(f"    {ssh_hint}", color="cyan"))
+            tb_dir = (
+                self.training_logger.tensorboard_logdir
+                if self.training_logger and self.training_logger.enable_tensorboard
+                else None
+            )
+            if tb_dir:
+                user = getpass.getuser()
+                host = socket.gethostname()
+                tb_cmd = f"tensorboard --logdir {tb_dir} --port 6006"
+                ssh_hint = f"ssh -L 6006:localhost:6006 {user}@{host}"
+                logging.info(
+                    colorize(f"TensorBoard logs saved to: {tb_dir}", color="cyan")
+                )
+                logging.info(colorize("To view logs, run:", color="cyan"))
+                logging.info(colorize(f"    {tb_cmd}", color="cyan"))
+                logging.info(colorize("Then SSH port forward:", color="cyan"))
+                logging.info(colorize(f"    {ssh_hint}", color="cyan"))
 
             logging.info("")
-            logging.info(colorize("=" * 80, bold=True))
-            if is_streaming:
-                logging.info(colorize("Start streaming training", bold=True))
-            else:
-                logging.info(colorize("Start training", bold=True))
-            logging.info(colorize("=" * 80, bold=True))
+            logging.info(colorize("[Training]", color="bright_blue", bold=True))
+            logging.info(colorize("-" * 80, color="bright_blue"))
+            logging.info(format_kv("Start training", f"{epochs} epochs"))
+            logging.info(format_kv("Model device", self.device))
             logging.info("")
-            logging.info(colorize(f"Model device: {self.device}", bold=True))
 
         self.callbacks.on_train_begin()
 
@@ -852,128 +860,77 @@ class BaseModel(FeatureSet, nn.Module):
                 and isinstance(train_loader.sampler, DistributedSampler)
             ):
                 train_loader.sampler.set_epoch(epoch)
-            # Type guard: ensure train_loader is DataLoader for train_epoch
+
             if not isinstance(train_loader, DataLoader):
                 raise TypeError(
                     f"Expected DataLoader for training, got {type(train_loader)}"
                 )
             train_result = self.train_epoch(train_loader, is_streaming=is_streaming)
-            if isinstance(train_result, tuple):  # [avg_loss, metrics_dict]
+            if isinstance(
+                train_result, tuple
+            ):  # [avg_loss, metrics_dict], e.g., (0.5, {'auc': 0.75, 'logloss': 0.45})
                 train_loss, train_metrics = train_result
             else:
                 train_loss = train_result
                 train_metrics = None
 
-            train_log_payload: dict[str, float] = {}
-            # handle logging for single-task and multi-task
-            if self.nums_task == 1:
-                log_str = f"Epoch {epoch + 1}/{epochs} - Train: loss={train_loss:.4f}"
-                if train_metrics:
-                    metrics_str = ", ".join(
-                        [f"{k}={v:.4f}" for k, v in train_metrics.items()]
-                    )
-                    log_str += f", {metrics_str}"
-                if self.is_main_process:
-                    logging.info(colorize(log_str))
-                train_log_payload["loss"] = float(train_loss)
-                if train_metrics:
-                    train_log_payload.update(train_metrics)
-            else:
-                total_loss_val = np.sum(train_loss) if isinstance(train_loss, np.ndarray) else train_loss  # type: ignore
-                log_str = (
-                    f"Epoch {epoch + 1}/{epochs} - Train: loss={total_loss_val:.4f}"
+            logging.info("")
+            train_log_payload = {
+                "loss": (
+                    float(np.sum(train_loss))
+                    if isinstance(train_loss, np.ndarray)
+                    else float(train_loss)
                 )
-                if train_metrics:
-                    # group metrics by task
-                    task_metrics = {}
-                    for metric_key, metric_value in train_metrics.items():
-                        for target_name in self.target_columns:
-                            if metric_key.endswith(f"_{target_name}"):
-                                if target_name not in task_metrics:
-                                    task_metrics[target_name] = {}
-                                metric_name = metric_key.rsplit(f"_{target_name}", 1)[0]
-                                task_metrics[target_name][metric_name] = metric_value
-                                break
-                    if task_metrics:
-                        task_metric_strs = []
-                        for target_name in self.target_columns:
-                            if target_name in task_metrics:
-                                metrics_str = ", ".join(
-                                    [
-                                        f"{k}={v:.4f}"
-                                        for k, v in task_metrics[target_name].items()
-                                    ]
-                                )
-                                task_metric_strs.append(f"{target_name}[{metrics_str}]")
-                        log_str += ", " + ", ".join(task_metric_strs)
-                if self.is_main_process:
-                    logging.info(colorize(log_str))
-                train_log_payload["loss"] = float(total_loss_val)
-                if train_metrics:
-                    train_log_payload.update(train_metrics)
+            }
+            if train_metrics:
+                train_log_payload.update(train_metrics)
+
+            display_metrics_table(
+                epoch=epoch + 1,
+                epochs=epochs,
+                split="Train",
+                loss=train_loss,
+                metrics=train_metrics,
+                target_names=self.target_columns,
+                base_metrics=(
+                    self.metrics
+                    if isinstance(getattr(self, "metrics", None), list)
+                    else None
+                ),
+                is_main_process=self.is_main_process,
+                colorize=lambda s: colorize(s),
+            )
             if self.training_logger:
                 self.training_logger.log_metrics(
                     train_log_payload, step=epoch + 1, split="train"
                 )
             if valid_loader is not None:
-                # Call on_validation_begin
                 self.callbacks.on_validation_begin()
-
-                # pass user_ids only if needed for GAUC metric
                 val_metrics = self.evaluate(
                     valid_loader,
                     user_ids=valid_user_ids if self.needs_user_ids else None,
                     num_workers=num_workers,
-                )  # {'auc': 0.75, 'logloss': 0.45} or {'auc_target1': 0.75, 'logloss_target1': 0.45, 'mse_target2': 3.2}
-                if self.nums_task == 1:
-                    metrics_str = ", ".join(
-                        [f"{k}={v:.4f}" for k, v in val_metrics.items()]
-                    )
-                    if self.is_main_process:
-                        logging.info(
-                            colorize(
-                                f"  Epoch {epoch + 1}/{epochs} - Valid: {metrics_str}",
-                                color="cyan",
-                            )
-                        )
-                else:
-                    # multi task metrics
-                    task_metrics = {}
-                    for metric_key, metric_value in val_metrics.items():
-                        for target_name in self.target_columns:
-                            if metric_key.endswith(f"_{target_name}"):
-                                if target_name not in task_metrics:
-                                    task_metrics[target_name] = {}
-                                metric_name = metric_key.rsplit(f"_{target_name}", 1)[0]
-                                task_metrics[target_name][metric_name] = metric_value
-                                break
-                    task_metric_strs = []
-                    for target_name in self.target_columns:
-                        if target_name in task_metrics:
-                            metrics_str = ", ".join(
-                                [
-                                    f"{k}={v:.4f}"
-                                    for k, v in task_metrics[target_name].items()
-                                ]
-                            )
-                            task_metric_strs.append(f"{target_name}[{metrics_str}]")
-                    if self.is_main_process:
-                        logging.info(
-                            colorize(
-                                f"  Epoch {epoch + 1}/{epochs} - Valid: "
-                                + ", ".join(task_metric_strs),
-                                color="cyan",
-                            )
-                        )
-
-                # Call on_validation_end
+                )
+                display_metrics_table(
+                    epoch=epoch + 1,
+                    epochs=epochs,
+                    split="Valid",
+                    loss=None,
+                    metrics=val_metrics,
+                    target_names=self.target_columns,
+                    base_metrics=(
+                        self.metrics
+                        if isinstance(getattr(self, "metrics", None), list)
+                        else None
+                    ),
+                    is_main_process=self.is_main_process,
+                    colorize=lambda s: colorize("  " + s, color="cyan"),
+                )
                 self.callbacks.on_validation_end()
                 if val_metrics and self.training_logger:
                     self.training_logger.log_metrics(
                         val_metrics, step=epoch + 1, split="valid"
                     )
-
-                # Handle empty validation metrics
                 if not val_metrics:
                     if self.is_main_process:
                         logging.info(
@@ -983,15 +940,10 @@ class BaseModel(FeatureSet, nn.Module):
                             )
                         )
                     continue
-
-                # Prepare epoch logs for callbacks
                 epoch_logs = {**train_log_payload}
-                if val_metrics:
-                    # Add val_ prefix to validation metrics
-                    for k, v in val_metrics.items():
-                        epoch_logs[f"val_{k}"] = v
+                for k, v in val_metrics.items():
+                    epoch_logs[f"val_{k}"] = v
             else:
-                # No validation data
                 epoch_logs = {**train_log_payload}
                 if self.is_main_process:
                     self.save_model(
@@ -1018,13 +970,13 @@ class BaseModel(FeatureSet, nn.Module):
         if self.distributed and dist.is_available() and dist.is_initialized():
             dist.barrier()  # dist.barrier() will wait for all processes, like async all_reduce()
         if self.is_main_process:
-            logging.info(" ")
-            logging.info(colorize("Training finished.", bold=True))
-            logging.info(" ")
+            logging.info("")
+            logging.info(colorize("Training finished.", color="bright_blue", bold=True))
+            logging.info("")
         if valid_loader is not None:
             if self.is_main_process:
                 logging.info(
-                    colorize(f"Load best model from: {self.best_checkpoint_path}")
+                    format_kv("Load best model from", self.best_checkpoint_path)
                 )
             if os.path.exists(self.best_checkpoint_path):
                 self.load_model(
@@ -1051,14 +1003,18 @@ class BaseModel(FeatureSet, nn.Module):
         num_batches = 0
         y_true_list = []
         y_pred_list = []
+        collect_metrics = getattr(self, "collect_train_metrics", True)
+        max_samples = getattr(self, "max_metrics_samples", None)
+        collected_samples = 0
+        metrics_capped = False
 
         user_ids_list = [] if self.needs_user_ids else None
         tqdm_disable = not self.is_main_process
         if self.steps_per_epoch is not None:
             batch_iter = enumerate(
-                tqdm.tqdm(
+                progress(
                     train_loader,
-                    desc=f"Epoch {self.epoch_index + 1}",
+                    description=f"Epoch {self.epoch_index + 1}",
                     total=self.steps_per_epoch,
                     disable=tqdm_disable,
                 )
@@ -1066,7 +1022,11 @@ class BaseModel(FeatureSet, nn.Module):
         else:
             desc = "Batches" if is_streaming else f"Epoch {self.epoch_index + 1}"
             batch_iter = enumerate(
-                tqdm.tqdm(train_loader, desc=desc, disable=tqdm_disable)
+                progress(
+                    train_loader,
+                    description=desc,
+                    disable=tqdm_disable,
+                )
             )
         for batch_index, batch_data in batch_iter:
             batch_dict = batch_to_dict(batch_data)
@@ -1085,16 +1045,34 @@ class BaseModel(FeatureSet, nn.Module):
             self.optimizer_fn.step()
             accumulated_loss += loss.item()
 
-            if y_true is not None:
-                y_true_list.append(y_true.detach().cpu().numpy())
-            if self.needs_user_ids and user_ids_list is not None:
-                batch_user_id = get_user_ids(
-                    data=batch_dict, id_columns=self.id_columns
-                )
-                if batch_user_id is not None:
-                    user_ids_list.append(batch_user_id)
-            if y_pred is not None and isinstance(y_pred, torch.Tensor):
-                y_pred_list.append(y_pred.detach().cpu().numpy())
+            if (
+                collect_metrics
+                and y_true is not None
+                and isinstance(y_pred, torch.Tensor)
+            ):
+                batch_size = int(y_true.size(0))
+                if max_samples is not None and collected_samples >= max_samples:
+                    collect_metrics = False
+                    metrics_capped = True
+                else:
+                    take_count = batch_size
+                    if (
+                        max_samples is not None
+                        and collected_samples + batch_size > max_samples
+                    ):
+                        take_count = max_samples - collected_samples
+                        metrics_capped = True
+                        collect_metrics = False
+                    if take_count > 0:
+                        y_true_list.append(y_true[:take_count].detach().cpu().numpy())
+                        y_pred_list.append(y_pred[:take_count].detach().cpu().numpy())
+                        if self.needs_user_ids and user_ids_list is not None:
+                            batch_user_id = get_user_ids(
+                                data=batch_dict, id_columns=self.id_columns
+                            )
+                            if batch_user_id is not None:
+                                user_ids_list.append(batch_user_id[:take_count])
+                        collected_samples += take_count
             num_batches += 1
         if self.distributed and dist.is_available() and dist.is_initialized():
             loss_tensor = torch.tensor(
@@ -1119,6 +1097,14 @@ class BaseModel(FeatureSet, nn.Module):
         combined_user_ids = (
             gather_numpy(self, combined_user_ids_local) if self.needs_user_ids else None
         )
+
+        if metrics_capped and self.is_main_process:
+            logging.info(
+                colorize(
+                    f"[Training Info] Training metrics capped at {max_samples} samples to limit memory usage.",
+                    color="yellow",
+                )
+            )
 
         if (
             y_true_all is not None
@@ -1258,11 +1244,15 @@ class BaseModel(FeatureSet, nn.Module):
                     )
                     if batch_user_id is not None:
                         collected_user_ids.append(batch_user_id)
-        if self.is_main_process:
-            logging.info(" ")
-            logging.info(
-                colorize(f"  Evaluation batches processed: {batch_count}", color="cyan")
-            )
+        # if self.is_main_process:
+        #     logging.info("")
+        #     logging.info(
+        #         colorize(
+        #             format_kv(
+        #                 "Evaluation batches processed", batch_count
+        #             ),
+        #         )
+        #     )
         y_true_all_local = np.concatenate(y_true_list, axis=0) if y_true_list else None
         y_pred_all_local = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
 
@@ -1301,10 +1291,15 @@ class BaseModel(FeatureSet, nn.Module):
                     )
                 )
             return {}
-        if self.is_main_process:
-            logging.info(
-                colorize(f"  Evaluation samples: {y_true_all.shape[0]}", color="cyan")
-            )
+        # if self.is_main_process:
+        #     logging.info(
+        #         colorize(
+        #             format_kv(
+        #                 "Evaluation samples", y_true_all.shape[0]
+        #             ),
+        #         )
+        #     )
+        logging.info("")
         metrics_dict = evaluate_metrics(
             y_true=y_true_all,
             y_pred=y_pred_all,
@@ -1396,7 +1391,7 @@ class BaseModel(FeatureSet, nn.Module):
         id_arrays = None
 
         with torch.no_grad():
-            for batch_data in tqdm.tqdm(data_loader, desc="Predicting"):
+            for batch_data in progress(data_loader, description="Predicting"):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 y_pred = self(X_input)
@@ -1417,10 +1412,9 @@ class BaseModel(FeatureSet, nn.Module):
                             if id_np.ndim == 1
                             else id_np
                         )
-        if len(y_pred_list) > 0:
-            y_pred_all = np.concatenate(y_pred_list, axis=0)
-        else:
-            y_pred_all = np.array([])
+        y_pred_all = (
+            np.concatenate(y_pred_list, axis=0) if y_pred_list else np.array([])
+        )
 
         if y_pred_all.ndim == 1:
             y_pred_all = y_pred_all.reshape(-1, 1)
@@ -1428,22 +1422,22 @@ class BaseModel(FeatureSet, nn.Module):
             num_outputs = len(self.target_columns) if self.target_columns else 1
             y_pred_all = y_pred_all.reshape(0, num_outputs)
         num_outputs = y_pred_all.shape[1]
-        pred_columns: list[str] = []
-        if self.target_columns:
-            for name in self.target_columns[:num_outputs]:
-                pred_columns.append(f"{name}")
+        pred_columns: list[str] = (
+            list(self.target_columns[:num_outputs]) if self.target_columns else []
+        )
         while len(pred_columns) < num_outputs:
             pred_columns.append(f"pred_{len(pred_columns)}")
         if include_ids and predict_id_columns:
-            id_arrays = {}
-            for id_name, pieces in id_buffers.items():
-                if pieces:
-                    concatenated = np.concatenate(
+            id_arrays = {
+                id_name: (
+                    np.concatenate(
                         [p.reshape(p.shape[0], -1) for p in pieces], axis=0
-                    )
-                    id_arrays[id_name] = concatenated.reshape(concatenated.shape[0])
-                else:
-                    id_arrays[id_name] = np.array([], dtype=np.int64)
+                    ).reshape(-1)
+                    if pieces
+                    else np.array([], dtype=np.int64)
+                )
+                for id_name, pieces in id_buffers.items()
+            }
             if return_dataframe:
                 id_df = pd.DataFrame(id_arrays)
                 pred_df = pd.DataFrame(y_pred_all, columns=pred_columns)
@@ -1544,7 +1538,7 @@ class BaseModel(FeatureSet, nn.Module):
         collected_frames = []  # only used when return_dataframe is True
 
         with torch.no_grad():
-            for batch_data in tqdm.tqdm(data_loader, desc="Predicting"):
+            for batch_data in progress(data_loader, description="Predicting"):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 y_pred = self.forward(X_input)
@@ -1555,25 +1549,24 @@ class BaseModel(FeatureSet, nn.Module):
                     y_pred_np = y_pred_np.reshape(-1, 1)
                 if pred_columns is None:
                     num_outputs = y_pred_np.shape[1]
-                    pred_columns = []
-                    if self.target_columns:
-                        for name in self.target_columns[:num_outputs]:
-                            pred_columns.append(f"{name}")
+                    pred_columns = (
+                        list(self.target_columns[:num_outputs])
+                        if self.target_columns
+                        else []
+                    )
                     while len(pred_columns) < num_outputs:
                         pred_columns.append(f"pred_{len(pred_columns)}")
 
-                id_arrays_batch = {}
-                if include_ids and id_columns and batch_dict.get("ids"):
-                    for id_name in id_columns:
-                        if id_name not in batch_dict["ids"]:
-                            continue
-                        id_tensor = batch_dict["ids"][id_name]
-                        id_np = (
-                            id_tensor.detach().cpu().numpy()
-                            if isinstance(id_tensor, torch.Tensor)
-                            else np.asarray(id_tensor)
-                        )
-                        id_arrays_batch[id_name] = id_np.reshape(id_np.shape[0])
+                ids = batch_dict.get("ids") if include_ids and id_columns else None
+                id_arrays_batch = {
+                    id_name: (
+                        ids[id_name].detach().cpu().numpy()
+                        if isinstance(ids[id_name], torch.Tensor)
+                        else np.asarray(ids[id_name])
+                    ).reshape(-1)
+                    for id_name in (id_columns or [])
+                    if ids and id_name in ids
+                }
 
                 df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
                 if id_arrays_batch:
@@ -1775,13 +1768,13 @@ class BaseModel(FeatureSet, nn.Module):
     def summary(self):
         logger = logging.getLogger()
 
-        logger.info(colorize("=" * 80, color="bright_blue", bold=True))
+        logger.info("")
         logger.info(
             colorize(
                 f"Model Summary: {self.model_name}", color="bright_blue", bold=True
             )
         )
-        logger.info(colorize("=" * 80, color="bright_blue", bold=True))
+        logger.info("")
 
         logger.info("")
         logger.info(colorize("[1] Feature Configuration", color="cyan", bold=True))
@@ -1903,6 +1896,7 @@ class BaseModel(FeatureSet, nn.Module):
         logger.info("Other Settings:")
         logger.info(f"  Early Stop Patience:   {self.early_stop_patience}")
         logger.info(f"  Max Gradient Norm:     {self.max_gradient_norm}")
+        logger.info(f"  Max Metrics Samples:   {self.max_metrics_samples}")
         logger.info(f"  Session ID:            {self.session_id}")
         logger.info(f"  Features Config Path:  {self.features_config_path}")
         logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")
@@ -2296,7 +2290,7 @@ class BaseMatchModel(BaseModel):
 
         embeddings_list = []
         with torch.no_grad():
-            for batch_data in tqdm.tqdm(data_loader, desc="Encoding users"):
+            for batch_data in progress(data_loader, description="Encoding users"):
                 batch_dict = batch_to_dict(batch_data, include_ids=False)
                 user_input = self.get_user_features(batch_dict["features"])
                 user_emb = self.user_tower(user_input)
@@ -2316,7 +2310,7 @@ class BaseMatchModel(BaseModel):
 
         embeddings_list = []
         with torch.no_grad():
-            for batch_data in tqdm.tqdm(data_loader, desc="Encoding items"):
+            for batch_data in progress(data_loader, description="Encoding items"):
                 batch_dict = batch_to_dict(batch_data, include_ids=False)
                 item_input = self.get_item_features(batch_dict["features"])
                 item_emb = self.item_tower(item_input)

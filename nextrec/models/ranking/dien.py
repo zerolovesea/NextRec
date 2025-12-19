@@ -50,14 +50,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nextrec.basic.model import BaseModel
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import (
-    EmbeddingLayer,
     MLP,
     AttentionPoolingLayer,
+    EmbeddingLayer,
     PredictionLayer,
 )
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.basic.model import BaseModel
 
 
 class AUGRU(nn.Module):

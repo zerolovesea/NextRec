@@ -136,7 +136,7 @@ def get_non_ignored_py_files(repo_root: Path, target_paths: List[Path]) -> List[
     all_py_files: List[Path] = []
     for rel in lines:
         p = (repo_root / rel).resolve()
-        if p.suffix == ".py":
+        if p.suffix == ".py" and p.exists():
             all_py_files.append(p)
 
     py_files = filter_files_under(all_py_files, target_paths)
@@ -174,9 +174,22 @@ def main() -> None:
 
     # Resolve target paths
     if args.paths:
-        target_paths = [Path(p).resolve() for p in args.paths]
+        target_paths: List[Path] = []
+        for p in args.paths:
+            resolved = Path(p).resolve()
+            if resolved.exists():
+                target_paths.append(resolved)
+            else:
+                print(
+                    f"Warning: path does not exist, skipping: {resolved}",
+                    file=sys.stderr,
+                )
     else:
         target_paths = [repo_root]
+
+    if not target_paths:
+        print("No valid paths provided; nothing to do.")
+        sys.exit(0)
 
     ensure_tools(should_install=not args.no_install)
 

@@ -54,10 +54,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import RMSNorm, EmbeddingLayer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-
+from nextrec.basic.layers import EmbeddingLayer, RMSNorm
+from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
 
 
@@ -302,7 +301,7 @@ class HSTU(BaseModel):
 
     @property
     def default_task(self) -> str:
-        return "multiclass"
+        return "binary"
 
     def __init__(
         self,
@@ -336,6 +335,9 @@ class HSTU(BaseModel):
         device: str = "cpu",
         **kwargs,
     ):
+        raise NotImplementedError(
+            "[HSTU Error] NextRec no longer supports multiclass tasks; HSTU is disabled."
+        )
         if not sequence_features:
             raise ValueError(
                 "[HSTU Error] HSTU requires at least one SequenceFeature (user behavior history)."

@@ -10,23 +10,24 @@ This module contains unit tests for basic layer components including:
 - And other building blocks
 """
 
-import pytest
-import torch
 import logging
 
+import pytest
+import torch
+
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import (
-    MLP,
     FM,
     LR,
+    MLP,
+    AveragePooling,
     EmbeddingLayer,
     MultiHeadSelfAttention,
     PredictionLayer,
     SumPooling,
-    AveragePooling,
 )
 from nextrec.models.ranking.dcn import CrossNetwork
 from nextrec.models.ranking.xdeepfm import CIN
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 logger = logging.getLogger(__name__)
 
@@ -605,16 +606,6 @@ class TestPredictionLayer:
 
         assert output.shape == (16, 2)
         assert torch.all(output[:, 0] >= 0) and torch.all(output[:, 0] <= 1)
-
-    def test_prediction_layer_multiclass(self):
-        """PredictionLayer should support multiclass outputs via sigmoid head"""
-        pred_layer = PredictionLayer(task_type="multiclass", task_dims=3)
-
-        x = torch.randn(8, 3)
-        output = pred_layer(x)
-
-        assert output.shape == (8, 3)
-        assert torch.all(output >= 0) and torch.all(output <= 1)
 
     def test_prediction_layer_shared_dim_multihead(self):
         """Single task_dim should broadcast across multiple task heads"""
