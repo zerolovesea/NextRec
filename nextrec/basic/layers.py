@@ -2,22 +2,22 @@
 Layer implementations used across NextRec models.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from itertools import combinations
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from itertools import combinations
-from collections import OrderedDict
-
-from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.utils.initializer import get_initializer
 from nextrec.basic.activation import activation_layer
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.utils.torch_utils import get_initializer
 
 
 class PredictionLayer(nn.Module):
@@ -81,8 +81,6 @@ class PredictionLayer(nn.Module):
                 outputs.append(torch.sigmoid(task_logits))
             elif task == "regression":
                 outputs.append(task_logits)
-            elif task == "multiclass":
-                outputs.append(torch.softmax(task_logits, dim=-1))
             else:
                 raise ValueError(
                     f"[PredictionLayer Error]: Unsupported task_type '{task_type}'."

@@ -7,11 +7,11 @@ from nextrec.loss import (
     BPRLoss,
     ClassBalancedFocalLoss,
     FocalLoss,
+    HingeLoss,
     ListNetLoss,
     SampledSoftmaxLoss,
-    WeightedBCELoss,
-    HingeLoss,
     TripletLoss,
+    WeightedBCELoss,
     get_loss_fn,
 )
 

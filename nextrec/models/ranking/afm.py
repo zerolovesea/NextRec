@@ -39,9 +39,9 @@ AFM 在 FM 的二阶交互上引入注意力，为每个特征对学习重要性
 import torch
 import torch.nn as nn
 
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import EmbeddingLayer, InputMask, PredictionLayer
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import EmbeddingLayer, PredictionLayer, InputMask
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 
 class AFM(BaseModel):

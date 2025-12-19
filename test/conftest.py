@@ -4,12 +4,13 @@ Pytest Configuration and Shared Fixtures
 This module provides common test fixtures and configurations for all test modules.
 """
 
-import pytest
-import torch
-import numpy as np
 import logging
 
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+import numpy as np
+import pytest
+import torch
+
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 
 # Configure logging for tests
 logging.basicConfig(

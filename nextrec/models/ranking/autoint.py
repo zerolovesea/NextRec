@@ -57,9 +57,9 @@ AutoInt 通过对所有特征 embedding 进行注意力计算，捕捉特征之�
 import torch
 import torch.nn as nn
 
-from nextrec.basic.model import BaseModel
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MultiHeadSelfAttention, PredictionLayer
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.basic.model import BaseModel
 
 
 class AutoInt(BaseModel):

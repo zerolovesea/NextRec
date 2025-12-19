@@ -1,12 +1,13 @@
 """
-Test Utility Functions
+Test helper utilities for NextRec unit tests.
 
-This module provides utility functions for testing models.
+Keep shared assertions and small utilities here to avoid pytest collecting them as tests.
 """
 
-import torch
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +16,7 @@ def assert_model_output_shape(
     output: torch.Tensor, expected_shape: tuple, message: str = ""
 ):
     """
-    Assert that model output has the expected shape
-
-    Args:
-        output: Model output tensor
-        expected_shape: Expected shape tuple
-        message: Optional custom message
+    Assert that model output has the expected shape.
     """
     actual_shape = tuple(output.shape)
     normalized_expected = expected_shape
@@ -30,60 +26,45 @@ def assert_model_output_shape(
         and actual_shape[-1] == 1
         and actual_shape[0] == expected_shape[0]
     ):
-        normalized_expected = (
-            actual_shape  # accept trailing singleton dim for single-output heads
-        )
+        normalized_expected = actual_shape
     assert (
         actual_shape == normalized_expected
     ), f"{message}\nExpected shape: {normalized_expected}, but got: {actual_shape}"
-    logger.info(f"Output shape assertion passed: {actual_shape}")
+    logger.info("Output shape assertion passed: %s", actual_shape)
 
 
 def assert_model_output_range(
     output: torch.Tensor, min_val: float = 0.0, max_val: float = 1.0
 ):
     """
-    Assert that model output values are within expected range
-
-    Args:
-        output: Model output tensor
-        min_val: Minimum expected value
-        max_val: Maximum expected value
+    Assert that model output values are within expected range.
     """
     assert torch.all(output >= min_val) and torch.all(output <= max_val), (
         f"Output values should be in range [{min_val}, {max_val}], "
         f"but got min={output.min().item():.4f}, max={output.max().item():.4f}"
     )
     logger.info(
-        f"Output range assertion passed: [{output.min().item():.4f}, {output.max().item():.4f}]"
+        "Output range assertion passed: [%.4f, %.4f]",
+        output.min().item(),
+        output.max().item(),
     )
 
 
 def assert_no_nan_or_inf(tensor: torch.Tensor, name: str = "tensor"):
     """
-    Assert that tensor contains no NaN or Inf values
-
-    Args:
-        tensor: Input tensor
-        name: Name of the tensor for error message
+    Assert that tensor contains no NaN or Inf values.
     """
     assert not torch.isnan(tensor).any(), f"{name} contains NaN values"
     assert not torch.isinf(tensor).any(), f"{name} contains Inf values"
-    logger.info(f"No NaN/Inf assertion passed for {name}")
+    logger.info("No NaN/Inf assertion passed for %s", name)
 
 
 def count_parameters(model: torch.nn.Module) -> int:
     """
-    Count total number of trainable parameters in a model
-
-    Args:
-        model: PyTorch model
-
-    Returns:
-        int: Number of trainable parameters
+    Count total number of trainable parameters in a model.
     """
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info(f"Model has {num_params:,} trainable parameters")
+    logger.info("Model has %s trainable parameters", f"{num_params:,}")
     return num_params
 
 
@@ -94,21 +75,11 @@ def run_model_forward_backward(
     loss_fn: torch.nn.Module,
 ) -> Dict[str, Any]:
     """
-    Test forward and backward pass of a model
-
-    Args:
-        model: PyTorch model
-        data: Input data dictionary
-        targets: Target labels
-        loss_fn: Loss function
-
-    Returns:
-        Dict: Dictionary containing loss and output
+    Test forward and backward pass of a model.
     """
     logger.info("Testing forward pass...")
     model.train()
 
-    # Forward pass
     output = model(data)
     assert_no_nan_or_inf(output, "model_output")
     if isinstance(targets, torch.Tensor):
@@ -117,15 +88,11 @@ def run_model_forward_backward(
         elif output.shape != targets.shape and targets.numel() == output.numel():
             targets = targets.view_as(output)
 
-    # Calculate loss
     logger.info("Testing backward pass...")
     loss = loss_fn(output, targets)
     assert_no_nan_or_inf(loss, "loss")
-
-    # Backward pass
     loss.backward()
 
-    # Check gradients
     logger.info("Checking gradients...")
     has_grad = False
     for name, param in model.named_parameters():
@@ -144,14 +111,7 @@ def run_model_inference(
     model: torch.nn.Module, data: Dict[str, torch.Tensor]
 ) -> torch.Tensor:
     """
-    Test model inference (eval mode)
-
-    Args:
-        model: PyTorch model
-        data: Input data dictionary
-
-    Returns:
-        torch.Tensor: Model output
+    Test model inference (eval mode).
     """
     logger.info("Testing inference mode...")
     model.eval()
@@ -168,12 +128,7 @@ def compare_outputs(
     output1: torch.Tensor, output2: torch.Tensor, tolerance: float = 1e-5
 ):
     """
-    Compare two model outputs
-
-    Args:
-        output1: First output tensor
-        output2: Second output tensor
-        tolerance: Tolerance for comparison
+    Compare two model outputs.
     """
     assert (
         output1.shape == output2.shape
@@ -184,4 +139,4 @@ def compare_outputs(
         max_diff < tolerance
     ), f"Outputs differ by {max_diff}, tolerance is {tolerance}"
 
-    logger.info(f"Outputs match within tolerance (max_diff={max_diff:.2e})")
+    logger.info("Outputs match within tolerance (max_diff=%.2e)", max_diff)

@@ -121,6 +121,6 @@ metrics = model.evaluate(
 for name, value in metrics.items():
     print(f"{name}: {value:.6f}")
 
-print(" ")
+print("")
 print("DIN Example Complete!")
-print(" ")
+print("")

@@ -18,10 +18,10 @@ Checkpoint: edit on 18/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-import sys
 import argparse
 import logging
 import pickle
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List
@@ -29,6 +29,7 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.loggers import setup_logger
 from nextrec.data.data_utils import split_dict_random
 from nextrec.data.dataloader import RecDataLoader
 from nextrec.data.preprocessor import DataProcessor
@@ -39,18 +40,14 @@ from nextrec.utils.config import (
     resolve_path,
     select_features,
 )
-from nextrec.utils.feature import normalize_to_list
-from nextrec.utils.file import (
+from nextrec.utils.console import get_nextrec_version
+from nextrec.utils.data import (
     iter_file_chunks,
     read_table,
     read_yaml,
     resolve_file_paths,
 )
-from nextrec.utils.cli_utils import (
-    get_nextrec_version,
-    log_startup_info,
-)
-from nextrec.basic.loggers import setup_logger
+from nextrec.utils.feature import normalize_to_list
 
 logger = logging.getLogger(__name__)
 
@@ -504,13 +501,11 @@ Examples:
         config_path = args.train_config
         if not config_path:
             parser.error("[NextRec CLI Error] train mode requires --train_config")
-        log_startup_info(logger, mode="train", config_path=config_path)
         train_model(config_path)
     else:
         config_path = args.predict_config
         if not config_path:
             parser.error("[NextRec CLI Error] predict mode requires --predict_config")
-        log_startup_info(logger, mode="predict", config_path=config_path)
         predict_model(config_path)
 
 

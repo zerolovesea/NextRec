@@ -10,22 +10,22 @@ This module contains unit tests for all multi-task learning models including:
 Tests cover model initialization, forward pass, multi-task learning, and task-specific predictions.
 """
 
-import pytest
-import torch
 import logging
-
-from nextrec.models.multi_task.share_bottom import ShareBottom
-from nextrec.models.multi_task.mmoe import MMOE
-from nextrec.models.multi_task.ple import PLE
-from nextrec.models.multi_task.esmm import ESMM
-
-from test.test_utils import (
-    assert_model_output_shape,
+from test.helpers import (
     assert_model_output_range,
+    assert_model_output_shape,
     assert_no_nan_or_inf,
     count_parameters,
     run_model_inference,
 )
+
+import pytest
+import torch
+
+from nextrec.models.multi_task.esmm import ESMM
+from nextrec.models.multi_task.mmoe import MMOE
+from nextrec.models.multi_task.ple import PLE
+from nextrec.models.multi_task.share_bottom import ShareBottom
 
 logger = logging.getLogger(__name__)
 

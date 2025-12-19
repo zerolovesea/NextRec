@@ -10,23 +10,23 @@ This module contains unit tests for all matching models including:
 Tests cover model initialization, forward pass, training, and inference.
 """
 
-import pytest
-import torch
 import logging
-
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-from nextrec.models.match.dssm import DSSM
-from nextrec.models.match.youtube_dnn import YoutubeDNN
-from nextrec.models.match.mind import MIND
-from nextrec.models.match.sdm import SDM
-
-from test.test_utils import (
-    assert_model_output_shape,
+from test.helpers import (
     assert_model_output_range,
+    assert_model_output_shape,
     assert_no_nan_or_inf,
     count_parameters,
     run_model_inference,
 )
+
+import pytest
+import torch
+
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.models.retrieval.dssm import DSSM
+from nextrec.models.retrieval.mind import MIND
+from nextrec.models.retrieval.sdm import SDM
+from nextrec.models.retrieval.youtube_dnn import YoutubeDNN
 
 logger = logging.getLogger(__name__)
 

@@ -12,18 +12,50 @@ nextrec.utils.embedding module
    :undoc-members:
    :show-inheritance:
 
-nextrec.utils.initializer module
---------------------------------
+nextrec.utils.console module
+----------------------------
 
-.. automodule:: nextrec.utils.initializer
+.. automodule:: nextrec.utils.console
    :members:
    :undoc-members:
    :show-inheritance:
 
-nextrec.utils.optimizer module
-------------------------------
+nextrec.utils.data module
+-------------------------
 
-.. automodule:: nextrec.utils.optimizer
+.. automodule:: nextrec.utils.data
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+nextrec.utils.feature module
+----------------------------
+
+.. automodule:: nextrec.utils.feature
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+nextrec.utils.model module
+--------------------------
+
+.. automodule:: nextrec.utils.model
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+nextrec.utils.config module
+---------------------------
+
+.. automodule:: nextrec.utils.config
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+nextrec.utils.torch_utils module
+--------------------------------
+
+.. automodule:: nextrec.utils.torch_utils
    :members:
    :undoc-members:
    :show-inheritance:

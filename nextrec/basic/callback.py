@@ -2,17 +2,20 @@
 Callback System for Training Process
 
 Date: create on 27/10/2025
-Checkpoint: edit on 17/12/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import copy
 import logging
-from typing import Optional
-from pathlib import Path
-import torch
 import pickle
+from pathlib import Path
+from typing import Optional
+
+import torch
+
 from nextrec import __version__
+from nextrec.basic.loggers import colorize, format_kv
 
 
 class Callback:
@@ -209,8 +212,13 @@ class EarlyStopper(Callback):
         if self.restore_best_weights and self.best_weights is not None:
             if self.verbose > 0:
                 logging.info(
-                    f"Restoring model weights from epoch {self.best_epoch + 1} "
-                    f"with best {self.monitor}: {self.best_value:.6f}"
+                    colorize(
+                        format_kv(
+                            "Restoring model weights from epoch",
+                            f"{self.best_epoch + 1} with best {self.monitor}: {self.best_value:.6f}",
+                        ),
+                        color="bright_blue",
+                    )
                 )
             self.model.load_state_dict(self.best_weights)
 
@@ -229,7 +237,8 @@ class CheckpointSaver(Callback):
 
     def __init__(
         self,
-        save_path: str | Path,
+        best_path: str | Path,
+        checkpoint_path: str | Path,
         monitor: str = "val_auc",
         mode: str = "max",
         save_best_only: bool = False,
@@ -239,7 +248,8 @@ class CheckpointSaver(Callback):
     ):
         super().__init__()
         self.run_on_main_process_only = run_on_main_process_only
-        self.save_path = Path(save_path)
+        self.best_path = Path(best_path)
+        self.checkpoint_path = Path(checkpoint_path)
         self.monitor = monitor
         self.mode = mode
         self.save_best_only = save_best_only
@@ -260,14 +270,13 @@ class CheckpointSaver(Callback):
             self.best_value = float("inf")
         else:
             self.best_value = float("-inf")
-
-        # Create directory if it doesn't exist
-        self.save_path.parent.mkdir(parents=True, exist_ok=True)
+        self.best_path.parent.mkdir(parents=True, exist_ok=True)
+        self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
     def on_epoch_end(self, epoch: int, logs: Optional[dict] = None):
+        logging.info("")
         logs = logs or {}
 
-        # Check if we should save this epoch
         should_save = False
         if self.save_freq == "epoch":
             should_save = True
@@ -289,17 +298,23 @@ class CheckpointSaver(Callback):
         if should_save:
             if not self.save_best_only or is_best:
                 checkpoint_path = (
-                    self.save_path.parent
-                    / f"{self.save_path.stem}_epoch_{epoch + 1}{self.save_path.suffix}"
+                    self.checkpoint_path.parent
+                    / f"{self.checkpoint_path.stem}{self.checkpoint_path.suffix}"
                 )
                 self.save_checkpoint(checkpoint_path, epoch, logs)
 
                 if is_best:
                     # Use save_path directly without adding _best suffix since it may already contain it
-                    self.save_checkpoint(self.save_path, epoch, logs)
+                    self.save_checkpoint(self.best_path, epoch, logs)
                     if self.verbose > 0:
                         logging.info(
-                            f"Saved best model to {self.save_path} with {self.monitor}: {current:.6f}"
+                            colorize(
+                                format_kv(
+                                    "Saved best model to",
+                                    f"{self.best_path} with {self.monitor}: {current:.6f}",
+                                ),
+                                color="bright_blue",
+                            )
                         )
 
     def save_checkpoint(self, path: Path, epoch: int, logs: dict):

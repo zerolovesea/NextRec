@@ -5,9 +5,10 @@ Date: create on 03/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-import torch
-import numpy as np
 from typing import Any, Mapping
+
+import numpy as np
+import torch
 
 
 def stack_section(batch: list[dict], section: str):

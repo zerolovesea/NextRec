@@ -2,13 +2,16 @@
 Data processing utilities for NextRec
 
 Date: create on 03/12/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-import torch
+import hashlib
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from typing import Any
+import torch
 
 
 def get_column_data(data: dict | pd.DataFrame, name: str):
@@ -166,3 +169,8 @@ def get_user_ids(
             return arr.reshape(arr.shape[0])
 
     return None
+
+
+def hash_md5_mod(value: str, hash_size: int) -> int:
+    digest = hashlib.md5(value.encode("utf-8")).digest()
+    return int.from_bytes(digest, byteorder="big", signed=False) % hash_size

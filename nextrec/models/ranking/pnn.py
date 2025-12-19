@@ -37,9 +37,9 @@ PNN 是一种 CTR 预估模型，通过将线性信号与乘积信号结合，�
 import torch
 import torch.nn as nn
 
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 
 class PNN(BaseModel):

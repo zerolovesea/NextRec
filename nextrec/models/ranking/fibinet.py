@@ -43,17 +43,17 @@ FiBiNET 是一个 CTR 预估模型，通过 SENET 重新分配特征字段的重
 import torch
 import torch.nn as nn
 
-from nextrec.basic.model import BaseModel
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import (
-    BiLinearInteractionLayer,
-    HadamardInteractionLayer,
-    EmbeddingLayer,
     LR,
     MLP,
+    BiLinearInteractionLayer,
+    EmbeddingLayer,
+    HadamardInteractionLayer,
     PredictionLayer,
     SENETLayer,
 )
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.basic.model import BaseModel
 
 
 class FiBiNET(BaseModel):

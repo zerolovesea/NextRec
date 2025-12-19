@@ -2,33 +2,32 @@
 Dataloader definitions
 
 Date: create on 27/10/2025
-Checkpoint: edit on 02/12/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
-import os
-import torch
 import logging
-import numpy as np
-import pandas as pd
-import pyarrow.parquet as pq
-
+import os
 from pathlib import Path
 from typing import cast
 
-from nextrec.basic.features import (
-    DenseFeature,
-    SparseFeature,
-    SequenceFeature,
-    FeatureSet,
-)
-from nextrec.data.preprocessor import DataProcessor
+import numpy as np
+import pandas as pd
+import pyarrow.parquet as pq
+import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 
-from nextrec.utils.tensor import to_tensor
-from nextrec.utils.file import resolve_file_paths, read_table
+from nextrec.basic.features import (
+    DenseFeature,
+    FeatureSet,
+    SequenceFeature,
+    SparseFeature,
+)
 from nextrec.data.batch_utils import collate_fn
 from nextrec.data.data_processing import get_column_data
+from nextrec.data.preprocessor import DataProcessor
+from nextrec.utils.data import read_table, resolve_file_paths
+from nextrec.utils.torch_utils import to_tensor
 
 
 class TensorDictDataset(Dataset):

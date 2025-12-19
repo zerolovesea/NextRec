@@ -48,9 +48,9 @@ PLE（Progressive Layered Extraction）通过堆叠 CGC 模块，联合共享与
 import torch
 import torch.nn as nn
 
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 from nextrec.utils.model import get_mlp_output_dim
 
 

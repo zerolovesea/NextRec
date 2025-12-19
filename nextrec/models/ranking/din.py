@@ -50,14 +50,14 @@ DIN 是一个 CTR 预估模型，通过对用户历史行为序列进行目标�
 import torch
 import torch.nn as nn
 
-from nextrec.basic.model import BaseModel
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import (
-    EmbeddingLayer,
     MLP,
     AttentionPoolingLayer,
+    EmbeddingLayer,
     PredictionLayer,
 )
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.basic.model import BaseModel
 
 
 class DIN(BaseModel):

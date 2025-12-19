@@ -46,21 +46,21 @@ RQ-VAE 通过残差量化学习分层离散表示，将连续嵌入（如物品/
 
 from __future__ import annotations
 
+import logging
 import math
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.cluster import KMeans
-from typing import cast
-import logging
-import tqdm
-
 from torch.utils.data import DataLoader
 
 from nextrec.basic.features import DenseFeature
+from nextrec.basic.loggers import colorize, setup_logger
 from nextrec.basic.model import BaseModel
 from nextrec.data.batch_utils import batch_to_dict
-from nextrec.basic.loggers import colorize, setup_logger
+from nextrec.utils.console import progress
 
 
 def kmeans(
@@ -729,9 +729,9 @@ class RQVAE(BaseModel):
             else:
                 tqdm_disable = not self.is_main_process
                 batch_iter = enumerate(
-                    tqdm.tqdm(
+                    progress(
                         train_loader,
-                        desc=f"Epoch {epoch + 1}/{epochs}",
+                        description=f"Epoch {epoch + 1}/{epochs}",
                         total=steps_per_epoch,
                         disable=tqdm_disable,
                     )
@@ -777,9 +777,9 @@ class RQVAE(BaseModel):
                 logging.info(colorize(train_log))
 
         if self.is_main_process:
-            logging.info(" ")
+            logging.info("")
             logging.info(colorize("Training finished.", bold=True))
-            logging.info(" ")
+            logging.info("")
         return self
 
     def predict(

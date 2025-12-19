@@ -2,7 +2,7 @@
 Loss utilities for NextRec.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 17/12/2025
+Checkpoint: edit on 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -18,16 +18,10 @@ from nextrec.loss.listwise import (
     SampledSoftmaxLoss,
 )
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
-from nextrec.loss.pointwise import (
-    ClassBalancedFocalLoss,
-    FocalLoss,
-    WeightedBCELoss,
-)
-
+from nextrec.loss.pointwise import ClassBalancedFocalLoss, FocalLoss, WeightedBCELoss
 
 VALID_TASK_TYPES = [
     "binary",
-    "multiclass",
     "multilabel",
     "regression",
 ]

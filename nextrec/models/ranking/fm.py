@@ -40,14 +40,10 @@ FM 是一种通过分解二阶特征交互矩阵、以线性复杂度建模特�
 
 import torch.nn as nn
 
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import FM as FMInteraction
+from nextrec.basic.layers import LR, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import (
-    EmbeddingLayer,
-    FM as FMInteraction,
-    LR,
-    PredictionLayer,
-)
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 
 class FM(BaseModel):

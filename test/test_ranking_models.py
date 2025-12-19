@@ -13,32 +13,32 @@ This module contains unit tests for all ranking/CTR prediction models including:
 Tests cover model initialization, forward pass, training, and inference.
 """
 
+import logging
+from test.helpers import (
+    assert_model_output_range,
+    assert_model_output_shape,
+    assert_no_nan_or_inf,
+    count_parameters,
+    run_model_forward_backward,
+    run_model_inference,
+)
+
 import pytest
 import torch
 import torch.nn as nn
-import logging
 
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-from nextrec.models.ranking.deepfm import DeepFM
-from nextrec.models.ranking.din import DIN
-from nextrec.models.ranking.fm import FM
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.models.ranking.afm import AFM
 from nextrec.models.ranking.autoint import AutoInt
+from nextrec.models.ranking.dcn import DCN
+from nextrec.models.ranking.deepfm import DeepFM
+from nextrec.models.ranking.dien import DIEN
+from nextrec.models.ranking.din import DIN
+from nextrec.models.ranking.fibinet import FiBiNET
+from nextrec.models.ranking.fm import FM
+from nextrec.models.ranking.pnn import PNN
 from nextrec.models.ranking.widedeep import WideDeep
 from nextrec.models.ranking.xdeepfm import xDeepFM
-from nextrec.models.ranking.dcn import DCN
-from nextrec.models.ranking.dien import DIEN
-from nextrec.models.ranking.fibinet import FiBiNET
-from nextrec.models.ranking.afm import AFM
-from nextrec.models.ranking.pnn import PNN
-
-from test.test_utils import (
-    assert_model_output_shape,
-    assert_model_output_range,
-    assert_no_nan_or_inf,
-    run_model_forward_backward,
-    run_model_inference,
-    count_parameters,
-)
 
 logger = logging.getLogger(__name__)
 

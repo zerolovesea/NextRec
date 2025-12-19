@@ -41,9 +41,9 @@ Wide & Deep 同时使用宽线性部分（记忆共现/手工交叉）与深网�
 
 import torch.nn as nn
 
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import LR, MLP, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import LR, EmbeddingLayer, MLP, PredictionLayer
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 
 class WideDeep(BaseModel):

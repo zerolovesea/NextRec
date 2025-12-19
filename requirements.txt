@@ -2,9 +2,9 @@ torch>=2.0.0
 torchvision>=0.15.0
 PyYAML>=6.0
 transformers>=4.38.0
-tqdm>=4.65.0
 tensorboard>=2.14.0
 protobuf<5.0.0
+rich>=13.7.0
 pytest-cov>=4.1.0
 
 # macOS

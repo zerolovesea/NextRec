@@ -3,30 +3,31 @@ Date: create on 09/11/2025
 Checkpoint: edit on 18/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Huang P S, He X, Gao J, et al. Learning deep structured semantic models for web search using clickthrough data[C]
-//Proceedings of the 22nd ACM international conference on Information & Knowledge Management. 2013: 2333-2338.
+DSSM v2 - DSSM with pairwise training using BPR loss
 """
+
+from typing import Literal
 
 import torch
 import torch.nn as nn
-from typing import Literal
 
-from nextrec.basic.model import BaseMatchModel
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
+from nextrec.basic.model import BaseMatchModel
 
 
-class DSSM(BaseMatchModel):
+class DSSM_v2(BaseMatchModel):
     """
-    Deep Structured Semantic Model
-
-    Dual-tower model that encodes user and item features separately and
-    computes similarity via cosine or dot product.
+    DSSM with Pairwise Training
     """
 
     @property
     def model_name(self) -> str:
-        return "DSSM"
+        return "DSSM_v2"
+
+    @property
+    def support_training_modes(self) -> list[str]:
+        return ["pointwise", "pairwise", "listwise"]
 
     def __init__(
         self,
@@ -41,10 +42,10 @@ class DSSM(BaseMatchModel):
         embedding_dim: int = 64,
         dnn_activation: str = "relu",
         dnn_dropout: float = 0.0,
-        training_mode: Literal["pointwise", "pairwise", "listwise"] = "pointwise",
+        training_mode: Literal["pointwise", "pairwise", "listwise"] = "pairwise",
         num_negative_samples: int = 4,
         temperature: float = 1.0,
-        similarity_metric: Literal["dot", "cosine", "euclidean"] = "cosine",
+        similarity_metric: Literal["dot", "cosine", "euclidean"] = "dot",
         device: str = "cpu",
         embedding_l1_reg: float = 0.0,
         dense_l1_reg: float = 0.0,
@@ -65,7 +66,7 @@ class DSSM(BaseMatchModel):
         **kwargs,
     ):
 
-        super(DSSM, self).__init__(
+        super(DSSM_v2, self).__init__(
             user_dense_features=user_dense_features,
             user_sparse_features=user_sparse_features,
             user_sequence_features=user_sequence_features,
@@ -89,7 +90,7 @@ class DSSM(BaseMatchModel):
         self.user_dnn_hidden_units = user_dnn_hidden_units
         self.item_dnn_hidden_units = item_dnn_hidden_units
 
-        # User tower embedding layer
+        # User tower
         user_features = []
         if user_dense_features:
             user_features.extend(user_dense_features)
@@ -101,7 +102,6 @@ class DSSM(BaseMatchModel):
         if len(user_features) > 0:
             self.user_embedding = EmbeddingLayer(user_features)
 
-            # Compute user tower input dimension
             user_input_dim = 0
             for feat in user_dense_features or []:
                 user_input_dim += 1
@@ -110,7 +110,6 @@ class DSSM(BaseMatchModel):
             for feat in user_sequence_features or []:
                 user_input_dim += feat.embedding_dim
 
-            # User DNN
             user_dnn_units = user_dnn_hidden_units + [embedding_dim]
             self.user_dnn = MLP(
                 input_dim=user_input_dim,
@@ -120,7 +119,7 @@ class DSSM(BaseMatchModel):
                 activation=dnn_activation,
             )
 
-        # Item tower embedding layer
+        # Item tower
         item_features = []
         if item_dense_features:
             item_features.extend(item_dense_features)
@@ -132,7 +131,6 @@ class DSSM(BaseMatchModel):
         if len(item_features) > 0:
             self.item_embedding = EmbeddingLayer(item_features)
 
-            # Compute item tower input dimension
             item_input_dim = 0
             for feat in item_dense_features or []:
                 item_input_dim += 1
@@ -141,7 +139,6 @@ class DSSM(BaseMatchModel):
             for feat in item_sequence_features or []:
                 item_input_dim += feat.embedding_dim
 
-            # Item DNN
             item_dnn_units = item_dnn_hidden_units + [embedding_dim]
             self.item_dnn = MLP(
                 input_dim=item_input_dim,
@@ -173,51 +170,31 @@ class DSSM(BaseMatchModel):
         self.to(device)
 
     def user_tower(self, user_input: dict) -> torch.Tensor:
-        """
-        User tower encodes user features into embeddings.
-
-        Args:
-            user_input: user feature dict
-
-        Returns:
-            user_emb: [batch_size, embedding_dim]
-        """
+        """User tower"""
         all_user_features = (
             self.user_dense_features
             + self.user_sparse_features
             + self.user_sequence_features
         )
         user_emb = self.user_embedding(user_input, all_user_features, squeeze_dim=True)
-
         user_emb = self.user_dnn(user_emb)
 
-        # L2 normalize for cosine similarity
-        if self.similarity_metric == "cosine":
-            user_emb = torch.nn.functional.normalize(user_emb, p=2, dim=1)
+        # Normalization for better pairwise training
+        user_emb = torch.nn.functional.normalize(user_emb, p=2, dim=1)
 
         return user_emb
 
     def item_tower(self, item_input: dict) -> torch.Tensor:
-        """
-        Item tower encodes item features into embeddings.
-
-        Args:
-            item_input: item feature dict
-
-        Returns:
-            item_emb: [batch_size, embedding_dim] or [batch_size, num_items, embedding_dim]
-        """
+        """Item tower"""
         all_item_features = (
             self.item_dense_features
             + self.item_sparse_features
             + self.item_sequence_features
         )
         item_emb = self.item_embedding(item_input, all_item_features, squeeze_dim=True)
-
         item_emb = self.item_dnn(item_emb)
 
-        # L2 normalize for cosine similarity
-        if self.similarity_metric == "cosine":
-            item_emb = torch.nn.functional.normalize(item_emb, p=2, dim=1)
+        # Normalization for better pairwise training
+        item_emb = torch.nn.functional.normalize(item_emb, p=2, dim=1)
 
         return item_emb

@@ -6,9 +6,9 @@ Checkpoint: edit on 06/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
-from nextrec.models.match.dssm import DSSM
-from nextrec.models.match.youtube_dnn import YoutubeDNN
-from nextrec.models.match.mind import MIND
+from nextrec.models.retrieval.dssm import DSSM
+from nextrec.models.retrieval.youtube_dnn import YoutubeDNN
+from nextrec.models.retrieval.mind import MIND
 
 from nextrec.utils import generate_match_data
 

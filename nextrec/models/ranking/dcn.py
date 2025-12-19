@@ -53,9 +53,9 @@ Deep 分支提升表达能力；最终将 Cross（及 Deep）结果送入线性�
 import torch
 import torch.nn as nn
 
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
-from nextrec.basic.layers import EmbeddingLayer, MLP, PredictionLayer
-from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 
 class CrossNetwork(nn.Module):
