@@ -7,6 +7,8 @@ Author: Yang Zhou,zyaztec@gmail.com
 """
 
 from nextrec.models.ranking.fm import FM
+from nextrec.models.ranking.lr import LR
+from nextrec.models.ranking.eulernet import EulerNet
 from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.models.ranking.din import DIN
 from nextrec.models.ranking.dien import DIEN
@@ -149,7 +151,9 @@ def main():
     candidate_feature_name = "item_id"
 
     models_to_train = [
+        (LR, "LR", {}),
         (FM, "FM", {}),
+        (EulerNet, "EulerNet", {"num_layers": 2, "num_orders": 8}),
         (DeepFM, "DeepFM", {"mlp_params": mlp_params}),
         (WideDeep, "WideDeep", {"mlp_params": mlp_params}),
         (DCN, "DCN", {"mlp_params": mlp_params, "cross_num": 3}),

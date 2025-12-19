@@ -1376,7 +1376,7 @@ class BaseModel(FeatureSet, nn.Module):
                 data=data,
                 batch_size=batch_size,
                 shuffle=False,
-                load_full=False,
+                streaming=True,
                 chunk_size=streaming_chunk_size,
             )
         else:
@@ -1510,7 +1510,7 @@ class BaseModel(FeatureSet, nn.Module):
                 data=data,
                 batch_size=batch_size,
                 shuffle=False,
-                load_full=False,
+                streaming=True,
                 chunk_size=streaming_chunk_size,
             )
         elif not isinstance(data, DataLoader):
@@ -1605,7 +1605,8 @@ class BaseModel(FeatureSet, nn.Module):
                 if collected_frames
                 else pd.DataFrame(columns=pred_columns or [])
             )
-        return pd.DataFrame(columns=pred_columns or [])
+        # Return the actual save path when not returning dataframe
+        return target_path
 
     def save_model(
         self,

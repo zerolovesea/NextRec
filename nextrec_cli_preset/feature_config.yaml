@@ -1,8 +1,8 @@
 # CTCVR Task Feature Configuration
-# Dataset: ctcvr_task.csv
+# Dataset: dataset/ctcvr_task.csv
 # Features: user_id, item, gender, city, device, channel, age_bucket, 
 #           user_active_days_7, user_ctr, item_price, item_popularity, 
-#           time_since_last_click, hist_item_seq, click, conversion
+#           time_since_last_click, hist_item_seq, click, conversion (targets)
 
 dense:
   user_active_days_7:

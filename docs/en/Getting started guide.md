@@ -102,4 +102,4 @@ metrics = model.evaluate(
 - Multi-task: `tutorials/example_multitask.py`
 - Notebooks: `tutorials/notebooks/zh/Hands on nextrec.ipynb`, `tutorials/notebooks/zh/Hands on dataprocessor.ipynb`
 
-For large offline features or streaming loads, use `DataProcessor` and `RecDataLoader` to configure CSV/Parquet paths and streaming (`load_full=False`) without changing model code.
+For large offline features or streaming loads, use `DataProcessor` and `RecDataLoader` to configure CSV/Parquet paths and streaming (`streaming=True`) without changing model code.

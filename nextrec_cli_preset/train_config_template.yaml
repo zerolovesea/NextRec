@@ -1,0 +1,149 @@
+# ============================================================================
+# NextRec Training Configuration Template (CLI-supported fields only)
+# ============================================================================
+
+# ===== Session Configuration =====
+session:
+  id: my_experiment_session                            # Unique experiment identifier
+                                                       # Used for logging and checkpoint directory naming
+  artifact_root: nextrec_logs                          # Root directory for all experiment outputs
+                                                       # Final path: {artifact_root}/{id}/
+
+# ===== Data Configuration =====
+data:
+  # ----- Required: Data Source -----
+  path: /path/to/training/data                         # Training data path (file or directory)
+  
+  # ----- Data Format Settings -----
+  format: parquet                                      # Data format: csv, parquet, json, feather
+                                                       # Use 'auto' for automatic detection
+  
+  # ----- Target Configuration -----
+  target: label                                        # Target column(s)
+                                                       # Single-task: 'label' (string)
+                                                       # Multi-task: ['label1', 'label2', 'label3'] (list)
+  
+  # ----- Optional: Identification Column -----
+  # id_column: user_id                                 # Column for user/sample IDs
+                                                       # Required for GAUC metric
+                                                       # Comment out if not needed
+  # user_id_column: user_id                            # Alternative key for id column
+  
+  # ----- Validation Strategy -----
+  # Choose ONE of the following methods:
+  valid_ratio: 0.2                                     # Auto-split: fraction for validation (0.0-1.0)
+  # val_path: /path/to/validation/data                 # Manual: separate validation dataset path
+  # valid_path: /path/to/validation/data               # Alias for val_path
+  
+  # ----- Other Data Settings -----
+  random_state: 2024                                   # Random seed for data splitting
+                                                       # Ensures reproducible train/val splits
+  streaming: false                                     # Streaming mode for datasets too large for memory
+                                                       # false: load full dataset into memory
+                                                       # true: stream data in chunks
+
+# ===== Configuration Files =====
+# Paths to feature and model configuration files (relative or absolute paths)
+feature_config: feature_config.yaml                    # Feature definitions (dense, sparse, sequence)
+model_config: model_config.yaml                        # Model architecture configuration
+
+# ===== DataLoader Configuration =====
+dataloader:
+  # ----- Training DataLoader -----
+  train_batch_size: 512                                # Batch size for training
+                                                       # Larger = faster but more memory
+  train_shuffle: true                                  # Shuffle training data each epoch
+                                                       # Recommended: true
+  
+  # ----- Validation DataLoader -----
+  valid_batch_size: 512                                # Batch size for validation
+                                                       # Can be larger than train_batch_size
+  valid_shuffle: false                                 # Shuffle validation data
+                                                       # Usually false for consistent evaluation
+  
+  # ----- Performance Settings -----
+  num_workers: 4                                       # Number of parallel data loading workers
+                                                       # 0 = single process (default, more stable)
+                                                       # >0 = multiprocessing (faster but more memory)
+  
+  # ----- Optional: Streaming Mode Settings -----
+  # chunk_size: 20000                                  # Chunk size when streaming=true
+                                                       # Number of rows to load at once
+                                                       # Adjust based on available memory
+
+# ===== Training Configuration =====
+train:
+  # ----- Optimizer Configuration -----
+  optimizer: adam                                      # Optimizer algorithm
+                                                       # Options: adam, sgd, adamw, rmsprop, adagrad
+                                                       # Recommended: adam (adaptive learning rate)
+  optimizer_params:
+    lr: 0.001                                          # Learning rate (step size)
+                                                       # Typical ranges:
+                                                       # - Adam: 0.001 - 0.0001
+                                                       # - SGD: 0.01 - 0.1
+    weight_decay: 0.0                                  # L2 regularization coefficient
+                                                       # 0.0 = no regularization
+                                                       # 0.0001-0.01 = light to heavy regularization
+                                                       # Helps prevent overfitting
+  
+  # ----- Loss Function Configuration -----
+  loss: bce                                            # Loss function(s)
+                                                       # Single-task: 'bce', 'weighted_bce', 'focal_loss', 'mse'
+                                                       # Multi-task: ['bce', 'weighted_bce', 'focal_loss']
+                                                       # 
+                                                       # Common options:
+                                                       # - bce: Binary Cross Entropy (classification)
+                                                       # - weighted_bce: BCE with class weights (imbalanced data)
+                                                       # - focal_loss: Focus on hard examples (extreme imbalance)
+                                                       # - mse: Mean Squared Error (regression)
+  
+  # ----- Optional: Advanced Loss Configuration -----
+  # Uncomment and customize for fine-grained control
+  # loss_params:                                       # Per-task loss parameters (for multi-task)
+  #   - pos_weight: 1.0                                # Task 1: weight for positive class
+  #     logits: false                                  # false: input is probabilities; true: logits
+  #   - pos_weight: 5.0                                # Task 2: higher weight for imbalanced data
+  #     logits: false                                  # Use pos_weight > 1 when positive class is rare
+  #   - pos_weight: 2.0                                # Task 3: moderate imbalance
+  #     logits: false
+  
+  # ----- Evaluation Metrics -----
+  metrics:                                             # Metrics to compute during training/validation
+    - auc                                              # Area Under ROC Curve (binary classification)
+                                                       # Range: 0.5 (random) to 1.0 (perfect)
+    # - gauc                                           # Grouped AUC (requires id_column)
+                                                       # Computes AUC per user/group, then averages
+    # - recall                                         # Recall / True Positive Rate / Sensitivity
+                                                       # TP / (TP + FN)
+    # - precision                                      # Precision / Positive Predictive Value
+                                                       # TP / (TP + FP)
+    # - accuracy                                       # Overall accuracy
+                                                       # (TP + TN) / Total
+    # - f1                                             # F1 Score (harmonic mean of precision/recall)
+                                                       # 2 * (Precision * Recall) / (Precision + Recall)
+    # - logloss                                        # Log Loss / Cross Entropy
+                                                       # Lower is better
+    # - mse                                            # Mean Squared Error (regression)
+    # - mae                                            # Mean Absolute Error (regression)
+    # - rmse                                           # Root Mean Squared Error (regression)
+  
+  # ----- Training Process Settings -----
+  epochs: 10                                           # Number of training epochs
+                                                       # One epoch = one full pass through training data
+                                                       # More epochs = more training but risk overfitting
+  
+  batch_size: 512                                      # Batch size for training
+                                                       # Overrides dataloader.train_batch_size if set
+                                                       # Larger batch = faster but more memory
+                                                       # Smaller batch = more noise, may help generalization
+  
+  shuffle: true                                        # Shuffle training data
+                                                       # Recommended: true for better convergence
+  
+  device: cpu                                          # Computation device
+                                                       # Options:
+                                                       # - 'cpu': CPU computation (slower but always available)
+                                                       # - 'cuda': NVIDIA GPU (auto-select first available)
+                                                       # - 'cuda:0', 'cuda:1': specific GPU by index
+                                                       # - 'mps': Apple Silicon GPU (M1/M2/M3/M4 chips)

@@ -1,19 +1,17 @@
 session:
-  id: nextrec-cli_tutorial
-  artifact_root: nextrec_logs
+  id: ctcvr_task                       # Experiment identifier
+  artifact_root: nextrec_logs          # Directory for outputs
+
+feature_config: feature_config.yaml    # Path to feature config
+model_config: model_configs/mmoe.yaml        # Path to model config
 
 data:
-  path: dataset/ctcvr_task.csv
-  format: csv  
-  target: ['click', 'conversion']                    # for single task, use string: 'conversion'
-  id_column: user_id                                 # For GAUC calculation, comment this line if no id column
-  valid_ratio: 0.2
-  # val_path: /path/to/your/validation/dataset
-  random_state: 2024
-  streaming: false  
-
-feature_config: nextrec_cli_preset/feature_config.yaml
-model_config: nextrec_cli_preset/model_configs/mmoe.yaml
+  path: ../dataset/ctcvr_task.csv          # Training data path
+  format: csv                          # Data format
+  target: [click, conversion]          # Target column(s)
+  id_column: user_id                   # Optional ID column (for GAUC)
+  valid_ratio: 0.2                     # Validation split ratio
+  # valid_path
 
 dataloader:
   train_batch_size: 512
@@ -25,21 +23,15 @@ dataloader:
 train:
   optimizer: adam
   optimizer_params:
-    lr: 0.0001    
-    weight_decay: 0.0001
-  loss: ['weighted_bce', 'weighted_bce']                # for single task, use string: 'weighted_bce' or 'bce'
-  loss_params:                                          # specify pos_weight for each task, must match number of tasks
-    - pos_weight: 1.5 
-      logits: false    
-    - pos_weight: 20.0  
-      logits: false    
-  loss_weights: [1.0, 2.0]                              # specify loss weight for each task, must match number of tasks
+    lr: 0.001
+  loss: ['bce','bce']                            # Loss function
   metrics:
     - auc
     - gauc
     - recall
-    - precision
-  epochs: 5 
-  batch_size: 512
+  epochs: 10
   shuffle: true
   device: cpu
+
+# cd nextrec_cli_preset
+# nextrec --mode train --train_config train_config.yaml

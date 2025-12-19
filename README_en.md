@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.9-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.10-orange.svg)
 
 English | [中文文档](README.md)
 
@@ -46,7 +46,6 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](/nextrec_cli_preset/NextRec-CLI.md) and [reference code](/nextrec_cli_preset).
 - **03/12/2025** NextRec reached 100 ⭐—thanks for the support!
 - **06/12/2025** Added single-machine multi-GPU DDP training in v0.4.1 with supporting [code](tutorials/distributed).
-- **23/11/2025** Major logical refactor of basemodel and unification of listwise/pairwise/pointwise losses in v0.2.2.
 - **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 4 multi-task models, 4 retrieval models, and a unified training/logging/metrics system.
 
 ## Architecture
@@ -186,11 +185,11 @@ nextrec --mode=train --train_config=path/to/train_config.yaml
 nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 ```
 
-> As of version 0.4.9, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.4.10, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.4.9. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.4.10. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|

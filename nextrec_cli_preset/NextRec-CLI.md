@@ -53,45 +53,66 @@ The training configuration file defines the complete training pipeline, includin
 
 ```yaml
 session:
-  id: my_training_session              # Session ID for identifying training task
-  artifact_root: nextrec_logs          # Root directory for artifacts
+  id: my_experiment_session            # Unique experiment identifier
+                                       # Used for logging and checkpoint directory naming
+  artifact_root: nextrec_logs          # Root directory for all experiment outputs
+                                       # Final path: {artifact_root}/{id}/
 
 data:
-  path: /path/to/your/training/data    # Training data path (supports file or directory)
-  format: parquet                       # Data format: csv, parquet, csv.gz, etc.
-  target: label                         # Target column name (can be a list)
-  valid_ratio: 0.2                      # Validation split ratio
-  # val_path: /path/to/validation/data  # Optional: specify separate validation data path
-  random_state: 2024                    # Random seed
-  streaming: false                      # Whether to use streaming processing (for large datasets)
+  path: /path/to/training/data         # Training data path (file or directory)
+  format: parquet                      # Data format: csv, parquet, json, feather
+                                       # Use 'auto' for automatic detection
+  target: label                        # Target column(s)
+                                       # Single-task: 'label' (string)
+                                       # Multi-task: ['label1', 'label2'] (list)
+  # id_column: user_id                 # Column for user/sample IDs (optional, for GAUC)
+  # user_id_column: user_id            # Alternative key for id column
+  valid_ratio: 0.2                     # Auto-split: fraction for validation (0.0-1.0)
+  # val_path: /path/to/validation/data # Manual: separate validation dataset path
+  # valid_path: /path/to/validation/data
+  random_state: 2024                   # Random seed for data splitting
+  streaming: false                     # Streaming mode for datasets too large for memory
+                                       # false: load full dataset into memory
+                                       # true: stream data in chunks
 
 feature_config: path/to/feature_config.yaml  # Feature configuration file path
 model_config: path/to/model_config.yaml      # Model configuration file path
 
 dataloader:
   train_batch_size: 512                 # Training batch size
-  train_shuffle: true                   # Whether to shuffle training data
+  train_shuffle: true                   # Shuffle training data each epoch
   valid_batch_size: 512                 # Validation batch size
-  valid_shuffle: false                  # Whether to shuffle validation data
-  chunk_size: 20000                     # Chunk size for streaming processing
+  valid_shuffle: false                  # Shuffle validation data
+  num_workers: 4                        # Number of parallel data loading workers
+                                       # 0 = single process, >0 = multiprocessing
+  # chunk_size: 20000                   # Chunk size when streaming=true
 
 train:
-  optimizer: adam                       # Optimizer: adam, sgd, adamw, etc.
+  optimizer: adam                       # Optimizer: adam, sgd, adamw, rmsprop, adagrad
   optimizer_params:
     lr: 0.001                          # Learning rate
-    weight_decay: 0.00001              # Weight decay
-  loss: focal                          # Loss function: focal, bce, mse, etc.
-  loss_params:
-    alpha: 0.25                        # Focal Loss parameter
-    gamma: 2.0
-  metrics:                             # Evaluation metrics
+    weight_decay: 0.0                  # L2 regularization coefficient
+  loss: bce                            # Loss function(s)
+                                       # Single-task: bce, weighted_bce, focal_loss, mse
+                                       # Multi-task: [bce, weighted_bce, focal_loss]
+  # loss_params:                       # Optional, per-task loss params
+  #   - pos_weight: 1.0
+  #     logits: false
+  metrics:                             # Metrics to compute during training/validation
     - auc
-    - recall
-    - precision
+    # - gauc
+    # - recall
+    # - precision
+    # - accuracy
+    # - f1
+    # - logloss
+    # - mse
+    # - mae
+    # - rmse
   epochs: 10                           # Number of training epochs
-  batch_size: 512                      # Batch size (optional, overridden by dataloader)
-  shuffle: true                        # Whether to shuffle data
-  device: cpu                          # Device: cpu, cuda, mps
+  batch_size: 512                      # Overrides dataloader.train_batch_size if set
+  shuffle: true                        # Shuffle training data
+  device: cpu                          # Device: cpu, cuda, cuda:0, mps
 ```
 
 #### Parameter Description
@@ -104,12 +125,15 @@ train:
 - `path`: Training data path, supports:
   - Single file: `/path/to/data.csv` or `/path/to/data.parquet`
   - Directory: `/path/to/data_dir/` (automatically reads all files of the same format)
-- `format`: Data format, supports `csv`, `parquet`, `csv.gz`, etc.
+- `format`: Data format, supports `csv`, `parquet`, `json`, `feather`, or `auto`
 - `target`: Target column name, can be string or list
   - Single target: `target: label`
   - Multiple targets: `target: [label_apply, label_credit]`
+- `id_column`: Column for user/sample IDs (optional, required for GAUC)
+- `user_id_column`: Alias for `id_column`
 - `valid_ratio`: Validation split ratio (0-1), only effective when `val_path` is not specified
 - `val_path`: Independent validation data path (optional)
+- `valid_path`: Alias for `val_path`
 - `random_state`: Random seed for reproducible data splitting
 - `streaming`: Whether to use streaming processing
   - `true`: For large datasets, loads data in chunks
@@ -120,7 +144,8 @@ train:
 - `train_shuffle`: Whether to shuffle training data
 - `valid_batch_size`: Batch size for validation
 - `valid_shuffle`: Whether to shuffle validation data
-- `chunk_size`: Data chunk size for streaming processing
+- `num_workers`: Number of data loading workers
+- `chunk_size`: Data chunk size for streaming processing (when `streaming=true`)
 
 ##### train Section
 - `optimizer`: Optimizer type
@@ -130,12 +155,12 @@ train:
 - `optimizer_params`: Optimizer parameters
   - `lr`: Learning rate
   - `weight_decay`: Weight decay (L2 regularization)
-- `loss`: Loss function
-  - `focal`: Focal Loss (suitable for imbalanced data)
+- `loss`: Loss function(s)
   - `bce`: Binary Cross Entropy
+  - `weighted_bce`: BCE with class weights
+  - `focal_loss`: Focal Loss (imbalanced data)
   - `mse`: Mean Squared Error
-  - `ce`: Cross Entropy
-- `loss_params`: Loss function parameters (depends on loss function type)
+- `loss_params`: Loss function parameters (optional, per task)
 - `metrics`: List of evaluation metrics, supports:
   - `auc`: Area Under ROC Curve
   - `recall`: Recall
@@ -143,9 +168,12 @@ train:
   - `f1`: F1 Score
   - `gauc`: Group AUC
 - `epochs`: Number of training epochs
+- `batch_size`: Overrides dataloader batch size if set
+- `shuffle`: Whether to shuffle training data
 - `device`: Computing device
   - `cpu`: CPU
   - `cuda`: NVIDIA GPU
+  - `cuda:0`: Specific NVIDIA GPU index
   - `mps`: Apple Silicon GPU
 
 ---
@@ -157,51 +185,49 @@ The prediction configuration file defines the model inference pipeline.
 #### Configuration Structure
 
 ```yaml
-session:
-  id: my_prediction_session             # Session ID
-  artifact_root: nextrec_logs           # Root directory for artifacts
-
-checkpoint_path: nextrec_logs/my_training_session  # Model checkpoint path
-processor_path: nextrec_logs/my_training_session/processor.pkl  # Data processor path (optional)
-
-targets: [label]                        # Target column name (optional, overrides training config)
-
-feature_config: path/to/feature_config.yaml  # Feature configuration file path
-model_config: path/to/model_config.yaml      # Model configuration file path
+checkpoint_path: /path/to/checkpoint/directory  # Required checkpoint directory
+# model_config: /path/to/model_config.yaml       # Optional model config override
+# session:
+#   id: my_experiment_session                    # Optional session ID
 
 predict:
   data_path: /path/to/prediction/data   # Prediction data path
-  output_path: predictions/output.csv   # Output file path
+  source_data_format: parquet           # Input data format: csv, parquet, json, feather
+                                       # Use 'auto' for automatic detection
   id_column: user_id                    # ID column name (optional, for linking predictions)
+  name: pred                            # Output filename (without extension)
+                                       # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
+  save_data_format: csv                 # Output format: csv, parquet, json, feather
+  preview_rows: 5                       # Number of preview rows (output to log)
   batch_size: 512                       # Prediction batch size
-  chunk_size: 20000                     # Chunk size for streaming processing
   num_workers: 4                        # Number of data loading threads
   device: cpu                           # Computing device
-  load_full: false                      # Whether to load all data at once
-  save_format: csv                      # Output format: csv, parquet
-  preview_rows: 5                       # Number of preview rows (output to log)
+  streaming: true                       # Whether to stream data from disk
+  chunk_size: 20000                     # Chunk size for streaming processing
 ```
 
 #### Parameter Description
 
-- `checkpoint_path`: Path to trained model
+- `checkpoint_path`: Path to trained model checkpoint directory
   - Can be directory (automatically selects latest `.pt` file)
   - Can be specific model file: `path/to/model.pt`
-- `processor_path`: Data processor path (optional)
-  - If not specified, will look for `processor.pkl` under `checkpoint_path`
-- `targets`: Target column name (optional)
-  - Used to override training target configuration
+- `model_config`: Model config override (optional, auto-searches in checkpoint directory)
 - `predict.data_path`: Path to data for prediction
-- `predict.output_path`: Prediction results output path
+- `predict.source_data_format`: Input data format or `auto`
 - `predict.id_column`: ID column name (optional)
   - If specified, prediction results will include this column
-- `predict.batch_size`: Batch size for prediction
-- `predict.load_full`: Whether to load all data at once
-  - `true`: For small datasets
-  - `false`: Streaming processing, for large datasets
-- `predict.save_format`: Output format
+- `predict.name`: Output filename (without extension)
+- `predict.save_data_format`: Output format
   - `csv`: CSV file
   - `parquet`: Parquet file
+  - `json`: JSON file
+  - `feather`: Feather file
+- `predict.batch_size`: Batch size for prediction
+- `predict.num_workers`: Number of data loading workers
+- `predict.streaming`: Whether to stream data from disk
+  - `true`: Streaming processing, for large datasets
+  - `false`: Load all data into memory (small datasets)
+- `predict.chunk_size`: Chunk size for streaming processing
 - `predict.preview_rows`: Number of preview rows
   - Displays first N rows of results in log after prediction
 
@@ -632,6 +658,7 @@ data:
   target: label
   valid_ratio: 0.2
   random_state: 2024
+  streaming: false
 
 feature_config: feature_config.yaml
 model_config: model_config.yaml
@@ -641,6 +668,7 @@ dataloader:
   train_shuffle: true
   valid_batch_size: 512
   valid_shuffle: false
+  num_workers: 4
 
 train:
   optimizer: adam
@@ -656,6 +684,8 @@ train:
     - recall
     - precision
   epochs: 10
+  batch_size: 512
+  shuffle: true
   device: cuda
 ```
 
@@ -674,17 +704,17 @@ session:
 
 checkpoint_path: nextrec_logs/deepfm_ecommerce
 
-feature_config: feature_config.yaml
-model_config: model_config.yaml
-
 predict:
   data_path: data/test_data.csv
-  output_path: predictions/deepfm_predictions.csv
+  source_data_format: csv
   id_column: user_id
+  name: deepfm_predictions
+  save_data_format: csv
   batch_size: 1024
+  num_workers: 4
   device: cuda
-  load_full: false
-  save_format: csv
+  streaming: true
+  chunk_size: 20000
   preview_rows: 10
 ```
 
@@ -722,6 +752,7 @@ data:
   target: [label_click, label_purchase, label_favorite]  # Multiple targets
   valid_ratio: 0.2
   random_state: 2024
+  streaming: false
 
 feature_config: feature_config.yaml
 model_config: mmoe_config.yaml
@@ -731,6 +762,7 @@ dataloader:
   train_shuffle: true
   valid_batch_size: 512
   valid_shuffle: false
+  num_workers: 4
 
 train:
   optimizer: adam
@@ -741,6 +773,8 @@ train:
   metrics:
     - auc
   epochs: 10
+  batch_size: 512
+  shuffle: true
   device: cuda
 ```
 
@@ -895,4 +929,3 @@ Paths in configuration files support the following formats:
 - Check [Python API Documentation](https://nextrec.readthedocs.io/) for more advanced features
 - Browse [tutorials/](../tutorials/) directory for more examples
 - Visit [GitHub Issues](https://github.com/zerolovesea/NextRec/issues) to report issues
-

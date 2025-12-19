@@ -102,9 +102,8 @@ class FileDataset(FeatureSet, IterableDataset):
         self.current_file_index = 0
         for file_path in self.file_paths:
             self.current_file_index += 1
-            if self.total_files == 1:
-                file_name = os.path.basename(file_path)
-                logging.info(f"Processing file: {file_name}")
+            # Don't log file processing here to avoid interrupting progress bars
+            # File information is already displayed in the CLI data section
             if self.file_type == "csv":
                 yield from self.read_csv_chunks(file_path)
             elif self.file_type == "parquet":
@@ -190,7 +189,7 @@ class RecDataLoader(FeatureSet):
         ),
         batch_size: int = 32,
         shuffle: bool = True,
-        load_full: bool = True,
+        streaming: bool = False,
         chunk_size: int = 10000,
         num_workers: int = 0,
         sampler=None,
@@ -202,7 +201,7 @@ class RecDataLoader(FeatureSet):
             data: Data source, can be a dict, pd.DataFrame, file path (str), or existing DataLoader.
             batch_size: Batch size for DataLoader.
             shuffle: Whether to shuffle the data (ignored in streaming mode).
-            load_full: If True, load full data into memory; if False, use streaming mode for large files.
+            streaming: If True, use streaming mode for large files; if False, load full data into memory.
             chunk_size: Chunk size for streaming mode (number of rows per chunk).
             num_workers: Number of worker processes for data loading.
             sampler: Optional sampler for DataLoader, only used for distributed training.
@@ -217,7 +216,7 @@ class RecDataLoader(FeatureSet):
                 path=data,
                 batch_size=batch_size,
                 shuffle=shuffle,
-                load_full=load_full,
+                streaming=streaming,
                 chunk_size=chunk_size,
                 num_workers=num_workers,
             )
@@ -230,7 +229,7 @@ class RecDataLoader(FeatureSet):
                 path=data,
                 batch_size=batch_size,
                 shuffle=shuffle,
-                load_full=load_full,
+                streaming=streaming,
                 chunk_size=chunk_size,
                 num_workers=num_workers,
             )
@@ -290,7 +289,7 @@ class RecDataLoader(FeatureSet):
         path: str | os.PathLike | list[str] | list[os.PathLike],
         batch_size: int,
         shuffle: bool,
-        load_full: bool,
+        streaming: bool,
         chunk_size: int = 10000,
         num_workers: int = 0,
     ) -> DataLoader:
@@ -311,8 +310,17 @@ class RecDataLoader(FeatureSet):
                     f"[RecDataLoader Error] Unsupported file extension in list: {suffix}"
                 )
             file_type = "csv" if suffix == ".csv" else "parquet"
+        if streaming:
+            return self.load_files_streaming(
+                file_paths,
+                file_type,
+                batch_size,
+                chunk_size,
+                shuffle,
+                num_workers=num_workers,
+            )
         # Load full data into memory
-        if load_full:
+        else:
             dfs = []
             total_bytes = 0
             for file_path in file_paths:
@@ -325,25 +333,16 @@ class RecDataLoader(FeatureSet):
                     dfs.append(df)
                 except MemoryError as exc:
                     raise MemoryError(
-                        f"[RecDataLoader Error] Out of memory while reading {file_path}. Consider using load_full=False with streaming."
+                        f"[RecDataLoader Error] Out of memory while reading {file_path}. Consider using streaming=True."
                     ) from exc
             try:
                 combined_df = pd.concat(dfs, ignore_index=True)
             except MemoryError as exc:
                 raise MemoryError(
-                    f"[RecDataLoader Error] Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use load_full=False to stream or reduce chunk_size."
+                    f"[RecDataLoader Error] Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use streaming=True or reduce chunk_size."
                 ) from exc
             return self.create_from_memory(
                 combined_df, batch_size, shuffle, num_workers=num_workers
-            )
-        else:
-            return self.load_files_streaming(
-                file_paths,
-                file_type,
-                batch_size,
-                chunk_size,
-                shuffle,
-                num_workers=num_workers,
             )
 
     def load_files_streaming(
