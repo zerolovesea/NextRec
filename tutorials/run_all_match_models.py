@@ -10,7 +10,7 @@ from nextrec.models.retrieval.dssm import DSSM
 from nextrec.models.retrieval.youtube_dnn import YoutubeDNN
 from nextrec.models.retrieval.mind import MIND
 
-from nextrec.utils import generate_match_data
+from nextrec.utils import compute_pair_scores, generate_match_data
 
 
 def train_model(
@@ -65,6 +65,9 @@ def train_model(
             batch_size=512,
             user_id_column="user_id",
         )
+
+        sample_scores = compute_pair_scores(model, valid_df.head(2048), batch_size=512)
+        print(f"{model_name} sample scores: {sample_scores[:5]}")
 
         print(f"{model_name} completed successfully")
         return True, metrics

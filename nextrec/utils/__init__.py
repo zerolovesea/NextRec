@@ -36,7 +36,7 @@ from .data import (
 )
 from .embedding import get_auto_embedding_dim
 from .feature import normalize_to_list
-from .model import get_mlp_output_dim, merge_features
+from .model import compute_pair_scores, get_mlp_output_dim, merge_features
 from .torch_utils import (
     add_distributed_sampler,
     concat_tensors,
@@ -88,6 +88,7 @@ __all__ = [
     # Model utilities
     "merge_features",
     "get_mlp_output_dim",
+    "compute_pair_scores",
     # Feature utilities
     "normalize_to_list",
     # Config utilities

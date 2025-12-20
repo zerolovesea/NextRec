@@ -7,6 +7,8 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 from collections import OrderedDict
 
+import torch
+
 
 def merge_features(primary, secondary) -> list:
     merged: OrderedDict[str, object] = OrderedDict()
@@ -42,3 +44,15 @@ def select_features(
         )
 
     return [feature_map[name] for name in names]
+
+
+def compute_pair_scores(model, data, batch_size: int = 512):
+    user_emb = model.encode_user(data, batch_size=batch_size)
+    item_emb = model.encode_item(data, batch_size=batch_size)
+    with torch.no_grad():
+        user_tensor = torch.as_tensor(user_emb, device=model.device)
+        item_tensor = torch.as_tensor(item_emb, device=model.device)
+        scores = model.compute_similarity(user_tensor, item_tensor)
+        if model.training_mode == "pointwise":
+            scores = torch.sigmoid(scores)
+    return scores.detach().cpu().numpy()

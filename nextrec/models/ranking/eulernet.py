@@ -41,7 +41,8 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, EmbeddingLayer, PredictionLayer
 from nextrec.basic.model import BaseModel
 
-class EulerInteractionLayerPaper(nn.Module):
+
+class EulerInteractionLayer(nn.Module):
     """
     Paper-aligned Euler Interaction Layer.
 
@@ -102,24 +103,32 @@ class EulerInteractionLayerPaper(nn.Module):
             self.bn = None
             self.ln = None
 
-    def forward(self, r: torch.Tensor, p: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, r: torch.Tensor, p: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         r, p: [B, m, d]
         return r_out, p_out: [B, n, d]
         """
         B, m, d = r.shape
-        assert m == self.m and d == self.d, f"Expected [B,{self.m},{self.d}] got {r.shape}"
+        assert (
+            m == self.m and d == self.d
+        ), f"Expected [B,{self.m},{self.d}] got {r.shape}"
 
         # Euler Transformation: rectangular -> polar
-        lam = torch.sqrt(r * r + p * p + self.eps)         # [B,m,d]
-        theta = torch.atan2(p, r)              # [B,m,d]
-        log_lam = torch.log(lam + self.eps)               # [B,m,d]
+        lam = torch.sqrt(r * r + p * p + self.eps)  # [B,m,d]
+        theta = torch.atan2(p, r)  # [B,m,d]
+        log_lam = torch.log(lam + self.eps)  # [B,m,d]
 
         # Generalized Multi-order Transformation
         # psi_k = sum_j alpha_{k,j} * theta_j + delta_k
         # l_k   = exp(sum_j alpha_{k,j} * log(lam_j) + delta'_k)
-        psi = torch.einsum("bmd,nmd->bnd", theta, self.alpha) + self.delta_phase  # [B,n,d]
-        log_l = torch.einsum("bmd,nmd->bnd", log_lam, self.alpha) + self.delta_logmod  # [B,n,d]
+        psi = (
+            torch.einsum("bmd,nmd->bnd", theta, self.alpha) + self.delta_phase
+        )  # [B,n,d]
+        log_l = (
+            torch.einsum("bmd,nmd->bnd", log_lam, self.alpha) + self.delta_logmod
+        )  # [B,n,d]
         l = torch.exp(log_l)  # [B,n,d]
 
         # Inverse Euler Transformation
@@ -153,7 +162,7 @@ class EulerInteractionLayerPaper(nn.Module):
         return r_out, p_out
 
 
-class ComplexSpaceMappingPaper(nn.Module):
+class ComplexSpaceMapping(nn.Module):
     """
     Map real embeddings e_j to complex features via Euler's formula (Eq.6-7).
     For each field j:
@@ -174,63 +183,6 @@ class ComplexSpaceMappingPaper(nn.Module):
         r = mu * torch.cos(e)
         p = mu * torch.sin(e)
         return r, p
-    
-class EulerNetPaper(nn.Module):
-    """
-    Paper-aligned EulerNet core (embedding -> mapping -> L Euler layers -> linear regression).
-    """
-
-    def __init__(
-        self,
-        *,
-        embedding_dim: int,
-        num_fields: int,
-        num_layers: int = 2,
-        num_orders: int = 8,      # n in paper
-        use_implicit: bool = True,
-        norm: str | None = "ln",  # None | "bn" | "ln"
-    ):
-        super().__init__()
-        self.d = embedding_dim
-        self.m = num_fields
-        self.L = num_layers
-        self.n = num_orders
-
-        self.mapping = ComplexSpaceMappingPaper(embedding_dim, num_fields)
-
-        self.layers = nn.ModuleList([
-            EulerInteractionLayerPaper(
-                embedding_dim=embedding_dim,
-                num_fields=(num_fields if i == 0 else num_orders),  # stack: m -> n -> n ...
-                num_orders=num_orders,
-                use_implicit=use_implicit,
-                norm=norm,
-            )
-            for i in range(num_layers)
-        ])
-
-        # Output regression (Eq.16-17)
-        # After last layer: r,p are [B,n,d]. Concatenate to [B, n*d] each, then regress.
-        self.w = nn.Linear(self.n * self.d, 1, bias=False)  # for real
-        self.w_im = nn.Linear(self.n * self.d, 1, bias=False)  # for imag
-
-    def forward(self, field_emb: torch.Tensor) -> torch.Tensor:
-        """
-        field_emb: [B, m, d] real embeddings e_j
-        return: logits, shape [B,1]
-        """
-        r, p = self.mapping(field_emb)  # [B,m,d]
-
-        # stack Euler interaction layers
-        for layer in self.layers:
-            r, p = layer(r, p)  # -> [B,n,d]
-
-        r_flat = r.reshape(r.size(0), self.n * self.d)
-        p_flat = p.reshape(p.size(0), self.n * self.d)
-
-        z_re = self.w(r_flat)
-        z_im = self.w_im(p_flat)
-        return z_re + z_im  # Eq.17 logits
 
 
 class EulerNet(BaseModel):
@@ -313,14 +265,23 @@ class EulerNet(BaseModel):
                 "All interaction features must share the same embedding_dim in EulerNet."
             )
 
-        self.euler = EulerNetPaper(
-            embedding_dim=self.embedding_dim,
-            num_fields=self.num_fields,
-            num_layers=num_layers,
-            num_orders=num_orders,
-            use_implicit=use_implicit,
-            norm=norm,
+        self.num_layers = num_layers
+        self.num_orders = num_orders
+        self.mapping = ComplexSpaceMapping(self.embedding_dim, self.num_fields)
+        self.layers = nn.ModuleList(
+            [
+                EulerInteractionLayer(
+                    embedding_dim=self.embedding_dim,
+                    num_fields=(self.num_fields if i == 0 else self.num_orders),
+                    num_orders=self.num_orders,
+                    use_implicit=use_implicit,
+                    norm=norm,
+                )
+                for i in range(self.num_layers)
+            ]
         )
+        self.w = nn.Linear(self.num_orders * self.embedding_dim, 1, bias=False)
+        self.w_im = nn.Linear(self.num_orders * self.embedding_dim, 1, bias=False)
 
         if self.use_linear:
             if len(self.linear_features) == 0:
@@ -336,7 +297,7 @@ class EulerNet(BaseModel):
 
         self.prediction_layer = PredictionLayer(task_type=self.task)
 
-        modules = ["euler"]
+        modules = ["mapping", "layers", "w", "w_im"]
         if self.use_linear:
             modules.append("linear")
         self.register_regularization_weights(
@@ -354,7 +315,7 @@ class EulerNet(BaseModel):
         field_emb = self.embedding(
             x=x, features=self.interaction_features, squeeze_dim=False
         )
-        y_euler = self.euler(field_emb)
+        y_euler = self.euler_forward(field_emb)
 
         if self.use_linear and self.linear is not None:
             linear_input = self.embedding(
@@ -363,3 +324,11 @@ class EulerNet(BaseModel):
             y_euler = y_euler + self.linear(linear_input)
 
         return self.prediction_layer(y_euler)
+
+    def euler_forward(self, field_emb: torch.Tensor) -> torch.Tensor:
+        r, p = self.mapping(field_emb)
+        for layer in self.layers:
+            r, p = layer(r, p)
+        r_flat = r.reshape(r.size(0), self.num_orders * self.embedding_dim)
+        p_flat = p.reshape(p.size(0), self.num_orders * self.embedding_dim)
+        return self.w(r_flat) + self.w_im(p_flat)

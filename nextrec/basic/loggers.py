@@ -2,7 +2,7 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 20/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -185,7 +185,7 @@ class TrainingLogger:
     ) -> dict[str, float]:
         formatted: dict[str, float] = {}
         for key, value in metrics.items():
-            if isinstance(value, numbers.Number):
+            if isinstance(value, numbers.Real):
                 formatted[f"{split}/{key}"] = float(value)
             elif hasattr(value, "item"):
                 try:

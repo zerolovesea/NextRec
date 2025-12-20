@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 20/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -169,6 +169,7 @@ class BaseModel(FeatureSet, nn.Module):
         self.loss_weight = None
 
         self.early_stop_patience = early_stop_patience
+        # max samples to keep for training metrics, in case of large training set
         self.max_metrics_samples = (
             None if max_metrics_samples is None else int(max_metrics_samples)
         )
@@ -563,6 +564,7 @@ class BaseModel(FeatureSet, nn.Module):
         num_workers: int = 0,
         tensorboard: bool = True,
         auto_distributed_sampler: bool = True,
+        log_interval: int = 1,
     ):
         """
         Train the model.
@@ -579,6 +581,7 @@ class BaseModel(FeatureSet, nn.Module):
             num_workers: DataLoader worker count.
             tensorboard: Enable tensorboard logging.
             auto_distributed_sampler: Attach DistributedSampler automatically when distributed, set False to when data is already sharded per rank.
+            log_interval: Log validation metrics every N epochs (still computes metrics each epoch).
 
         Notes:
             - Distributed training uses DDP; init occurs via env vars (RANK/WORLD_SIZE/LOCAL_RANK).
@@ -629,6 +632,9 @@ class BaseModel(FeatureSet, nn.Module):
                 task=self.task, metrics=metrics, target_names=self.target_columns
             )
         )  # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
+
+        if log_interval < 1:
+            raise ValueError("[BaseModel-fit Error] log_interval must be >= 1.")
 
         # Setup default callbacks if missing
         if self.nums_task == 1:
@@ -911,23 +917,27 @@ class BaseModel(FeatureSet, nn.Module):
                     user_ids=valid_user_ids if self.needs_user_ids else None,
                     num_workers=num_workers,
                 )
-                display_metrics_table(
-                    epoch=epoch + 1,
-                    epochs=epochs,
-                    split="Valid",
-                    loss=None,
-                    metrics=val_metrics,
-                    target_names=self.target_columns,
-                    base_metrics=(
-                        self.metrics
-                        if isinstance(getattr(self, "metrics", None), list)
-                        else None
-                    ),
-                    is_main_process=self.is_main_process,
-                    colorize=lambda s: colorize("  " + s, color="cyan"),
-                )
+                should_log_valid = (epoch + 1) % log_interval == 0 or (
+                    epoch + 1
+                ) == epochs
+                if should_log_valid:
+                    display_metrics_table(
+                        epoch=epoch + 1,
+                        epochs=epochs,
+                        split="Valid",
+                        loss=None,
+                        metrics=val_metrics,
+                        target_names=self.target_columns,
+                        base_metrics=(
+                            self.metrics
+                            if isinstance(getattr(self, "metrics", None), list)
+                            else None
+                        ),
+                        is_main_process=self.is_main_process,
+                        colorize=lambda s: colorize("  " + s, color="cyan"),
+                    )
                 self.callbacks.on_validation_end()
-                if val_metrics and self.training_logger:
+                if should_log_valid and val_metrics and self.training_logger:
                     self.training_logger.log_metrics(
                         val_metrics, step=epoch + 1, split="valid"
                     )
@@ -1207,7 +1217,7 @@ class BaseModel(FeatureSet, nn.Module):
             user_id_column: Column name for user IDs if user_ids is not provided. e.g. 'user_id'
             num_workers: DataLoader worker count.
         """
-        model = self.ddp_model if getattr(self, "ddp_model", None) is not None else self
+        model = self.ddp_model if self.ddp_model is not None else self
         model.eval()
         eval_metrics = metrics if metrics is not None else self.metrics
         if eval_metrics is None:
@@ -1233,6 +1243,10 @@ class BaseModel(FeatureSet, nn.Module):
                 batch_count += 1
                 batch_dict = batch_to_dict(batch_data)
                 X_input, y_true = self.get_input(batch_dict, require_labels=True)
+                if X_input is None:
+                    raise ValueError(
+                        "[BaseModel-evaluate Error] No input features found in the evaluation data."
+                    )
                 y_pred = model(X_input)
                 if y_true is not None:
                     y_true_list.append(y_true.cpu().numpy())
@@ -1322,7 +1336,7 @@ class BaseModel(FeatureSet, nn.Module):
         return_dataframe: bool = True,
         streaming_chunk_size: int = 10000,
         num_workers: int = 0,
-    ) -> pd.DataFrame | np.ndarray:
+    ) -> pd.DataFrame | np.ndarray | Path | None:
         """
         Note: predict does not support distributed mode currently, consider it as a single-process operation.
         Make predictions on the given data.
@@ -1497,7 +1511,7 @@ class BaseModel(FeatureSet, nn.Module):
         streaming_chunk_size: int,
         return_dataframe: bool,
         id_columns: list[str] | None = None,
-    ) -> pd.DataFrame:
+    ) -> pd.DataFrame | Path:
         if isinstance(data, (str, os.PathLike)):
             rec_loader = RecDataLoader(
                 dense_features=self.dense_features,
@@ -1623,12 +1637,12 @@ class BaseModel(FeatureSet, nn.Module):
             add_timestamp=add_timestamp,
         )
         model_path = Path(target_path)
-
-        model_to_save = (
-            self.ddp_model.module
-            if getattr(self, "ddp_model", None) is not None
-            else self
-        )
+        
+        ddp_model = getattr(self, "ddp_model", None)
+        if ddp_model is not None:
+            model_to_save = ddp_model.module
+        else:
+            model_to_save = self
         torch.save(model_to_save.state_dict(), model_path)
         # torch.save(self.state_dict(), model_path)
 
@@ -2025,33 +2039,18 @@ class BaseMatchModel(BaseModel):
         self.num_negative_samples = num_negative_samples
         self.temperature = temperature
         self.similarity_metric = similarity_metric
-
-        self.user_feature_names = [
-            f.name
-            for f in (
-                self.user_dense_features
-                + self.user_sparse_features
-                + self.user_sequence_features
-            )
-        ]
-        self.item_feature_names = [
-            f.name
-            for f in (
-                self.item_dense_features
-                + self.item_sparse_features
-                + self.item_sequence_features
-            )
-        ]
-
-    def get_user_features(self, X_input: dict) -> dict:
-        return {
-            name: X_input[name] for name in self.user_feature_names if name in X_input
-        }
-
-    def get_item_features(self, X_input: dict) -> dict:
-        return {
-            name: X_input[name] for name in self.item_feature_names if name in X_input
-        }
+        self.user_features_all = (
+            self.user_dense_features
+            + self.user_sparse_features
+            + self.user_sequence_features
+        )
+        self.item_features_all = (
+            self.item_dense_features
+            + self.item_sparse_features
+            + self.item_sequence_features
+        )
+        self.user_feature_names = {feature.name for feature in self.user_features_all}
+        self.item_feature_names = {feature.name for feature in self.item_features_all}
 
     def compile(
         self,
@@ -2073,8 +2072,6 @@ class BaseMatchModel(BaseModel):
     ):
         """
         Configure the match model for training.
-
-        This mirrors `BaseModel.compile()` and additionally validates `training_mode`.
         """
         if self.training_mode not in self.support_training_modes:
             raise ValueError(
@@ -2090,7 +2087,7 @@ class BaseMatchModel(BaseModel):
         effective_loss: str | nn.Module | list[str | nn.Module] | None = loss
         if effective_loss is None:
             effective_loss = default_loss_by_mode[self.training_mode]
-        elif isinstance(effective_loss, (str,)):
+        elif isinstance(effective_loss, str):
             if self.training_mode in {"pairwise", "listwise"} and effective_loss in {
                 "bce",
                 "binary_crossentropy",
@@ -2124,6 +2121,7 @@ class BaseMatchModel(BaseModel):
     def inbatch_logits(
         self, user_emb: torch.Tensor, item_emb: torch.Tensor
     ) -> torch.Tensor:
+        """Compute in-batch logits matrix between user and item embeddings."""
         if self.similarity_metric == "dot":
             logits = torch.matmul(user_emb, item_emb.t())
         elif self.similarity_metric == "cosine":
@@ -2131,8 +2129,8 @@ class BaseMatchModel(BaseModel):
             item_norm = F.normalize(item_emb, p=2, dim=-1)
             logits = torch.matmul(user_norm, item_norm.t())
         elif self.similarity_metric == "euclidean":
-            user_sq = (user_emb**2).sum(dim=1, keepdim=True)  # [B, 1]
-            item_sq = (item_emb**2).sum(dim=1, keepdim=True).t()  # [1, B]
+            user_sq = torch.sum(user_emb**2, dim=1, keepdim=True)  # [B, 1]
+            item_sq = torch.sum(item_emb**2, dim=1, keepdim=True).t()  # [1, B]
             logits = -(user_sq + item_sq - 2.0 * torch.matmul(user_emb, item_emb.t()))
         else:
             raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
@@ -2141,56 +2139,43 @@ class BaseMatchModel(BaseModel):
     def compute_similarity(
         self, user_emb: torch.Tensor, item_emb: torch.Tensor
     ) -> torch.Tensor:
+        """Compute similarity score between user and item embeddings."""
+        if user_emb.dim() == 2 and item_emb.dim() == 3:
+            user_emb = user_emb.unsqueeze(1)
+
         if self.similarity_metric == "dot":
-            if user_emb.dim() == 3 and item_emb.dim() == 3:
-                # [batch_size, num_items, emb_dim] @ [batch_size, num_items, emb_dim]
-                similarity = torch.sum(
-                    user_emb * item_emb, dim=-1
-                )  # [batch_size, num_items]
-            elif user_emb.dim() == 2 and item_emb.dim() == 3:
-                # [batch_size, emb_dim] @ [batch_size, num_items, emb_dim]
-                user_emb_expanded = user_emb.unsqueeze(1)  # [batch_size, 1, emb_dim]
-                similarity = torch.sum(
-                    user_emb_expanded * item_emb, dim=-1
-                )  # [batch_size, num_items]
-            else:
-                similarity = torch.sum(user_emb * item_emb, dim=-1)  # [batch_size]
-
+            similarity = torch.sum(user_emb * item_emb, dim=-1)
         elif self.similarity_metric == "cosine":
-            if user_emb.dim() == 3 and item_emb.dim() == 3:
-                similarity = F.cosine_similarity(user_emb, item_emb, dim=-1)
-            elif user_emb.dim() == 2 and item_emb.dim() == 3:
-                user_emb_expanded = user_emb.unsqueeze(1)
-                similarity = F.cosine_similarity(user_emb_expanded, item_emb, dim=-1)
-            else:
-                similarity = F.cosine_similarity(user_emb, item_emb, dim=-1)
-
+            similarity = F.cosine_similarity(user_emb, item_emb, dim=-1)
         elif self.similarity_metric == "euclidean":
-            if user_emb.dim() == 3 and item_emb.dim() == 3:
-                distance = torch.sum((user_emb - item_emb) ** 2, dim=-1)
-            elif user_emb.dim() == 2 and item_emb.dim() == 3:
-                user_emb_expanded = user_emb.unsqueeze(1)
-                distance = torch.sum((user_emb_expanded - item_emb) ** 2, dim=-1)
-            else:
-                distance = torch.sum((user_emb - item_emb) ** 2, dim=-1)
-            similarity = -distance
-
+            similarity = -torch.sum((user_emb - item_emb) ** 2, dim=-1)
         else:
             raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
         similarity = similarity / self.temperature
         return similarity
 
     def user_tower(self, user_input: dict) -> torch.Tensor:
+        """User tower to encode user features into embeddings."""
         raise NotImplementedError
 
     def item_tower(self, item_input: dict) -> torch.Tensor:
+        """Item tower to encode item features into embeddings."""
         raise NotImplementedError
 
     def forward(
         self, X_input: dict
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        user_input = self.get_user_features(X_input)
-        item_input = self.get_item_features(X_input)
+        """Rewrite forward to handle user and item features separately."""
+        user_input = {
+            name: tensor
+            for name, tensor in X_input.items()
+            if name in self.user_feature_names
+        }
+        item_input = {
+            name: tensor
+            for name, tensor in X_input.items()
+            if name in self.item_feature_names
+        }
 
         user_emb = self.user_tower(user_input)  # [B, D]
         item_emb = self.item_tower(item_input)  # [B, D]
@@ -2254,11 +2239,35 @@ class BaseMatchModel(BaseModel):
             raise ValueError(f"Unknown training mode: {self.training_mode}")
 
     def prepare_feature_data(
-        self, data: dict | pd.DataFrame | DataLoader, features: list, batch_size: int
+        self,
+        data,
+        features: list,
+        batch_size: int,
+        num_workers: int = 0,
+        streaming_chunk_size: int = 10000,
     ) -> DataLoader:
         """Prepare data loader for specific features."""
         if isinstance(data, DataLoader):
             return data
+        if isinstance(data, (str, os.PathLike)):
+            dense_features = [f for f in features if isinstance(f, DenseFeature)]
+            sparse_features = [f for f in features if isinstance(f, SparseFeature)]
+            sequence_features = [f for f in features if isinstance(f, SequenceFeature)]
+            rec_loader = RecDataLoader(
+                dense_features=dense_features,
+                sparse_features=sparse_features,
+                sequence_features=sequence_features,
+                target=[],
+                id_columns=[],
+            )
+            return rec_loader.create_dataloader(
+                data=data,
+                batch_size=batch_size,
+                shuffle=False,
+                streaming=True,
+                chunk_size=streaming_chunk_size,
+                num_workers=num_workers,
+            )
         tensors = build_tensors_from_data(
             data=data,
             raw_data=data,
@@ -2276,44 +2285,91 @@ class BaseMatchModel(BaseModel):
             batch_size=batch_size,
             shuffle=False,
             collate_fn=collate_fn,
+            num_workers=num_workers,
         )
 
+    def build_feature_tensors(self, feature_source: dict, features: list) -> dict:
+        """Convert feature values to tensors on the model device."""
+        tensors = {}
+        for feature in features:
+            if feature.name not in feature_source:
+                raise KeyError(
+                    f"[BaseMatchModel-feature Error] Feature '{feature.name}' not found in input data."
+                )
+            feature_data = get_column_data(feature_source, feature.name)
+            tensors[feature.name] = to_tensor(
+                feature_data,
+                dtype=(
+                    torch.float32 if isinstance(feature, DenseFeature) else torch.long
+                ),
+                device=self.device,
+            )
+        return tensors
+
     def encode_user(
-        self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 512
+        self,
+        data: (
+            dict
+            | pd.DataFrame
+            | DataLoader
+            | str
+            | os.PathLike
+            | list[str | os.PathLike]
+        ),
+        batch_size: int = 512,
+        num_workers: int = 0,
+        streaming_chunk_size: int = 10000,
     ) -> np.ndarray:
         self.eval()
-        all_user_features = (
-            self.user_dense_features
-            + self.user_sparse_features
-            + self.user_sequence_features
+        data_loader = self.prepare_feature_data(
+            data,
+            self.user_features_all,
+            batch_size,
+            num_workers=num_workers,
+            streaming_chunk_size=streaming_chunk_size,
         )
-        data_loader = self.prepare_feature_data(data, all_user_features, batch_size)
 
         embeddings_list = []
         with torch.no_grad():
             for batch_data in progress(data_loader, description="Encoding users"):
                 batch_dict = batch_to_dict(batch_data, include_ids=False)
-                user_input = self.get_user_features(batch_dict["features"])
+                user_input = self.build_feature_tensors(
+                    batch_dict["features"], self.user_features_all
+                )
                 user_emb = self.user_tower(user_input)
                 embeddings_list.append(user_emb.cpu().numpy())
         return np.concatenate(embeddings_list, axis=0)
 
     def encode_item(
-        self, data: dict | pd.DataFrame | DataLoader, batch_size: int = 512
+        self,
+        data: (
+            dict
+            | pd.DataFrame
+            | DataLoader
+            | str
+            | os.PathLike
+            | list[str | os.PathLike]
+        ),
+        batch_size: int = 512,
+        num_workers: int = 0,
+        streaming_chunk_size: int = 10000,
     ) -> np.ndarray:
         self.eval()
-        all_item_features = (
-            self.item_dense_features
-            + self.item_sparse_features
-            + self.item_sequence_features
+        data_loader = self.prepare_feature_data(
+            data,
+            self.item_features_all,
+            batch_size,
+            num_workers=num_workers,
+            streaming_chunk_size=streaming_chunk_size,
         )
-        data_loader = self.prepare_feature_data(data, all_item_features, batch_size)
 
         embeddings_list = []
         with torch.no_grad():
             for batch_data in progress(data_loader, description="Encoding items"):
                 batch_dict = batch_to_dict(batch_data, include_ids=False)
-                item_input = self.get_item_features(batch_dict["features"])
+                item_input = self.build_feature_tensors(
+                    batch_dict["features"], self.item_features_all
+                )
                 item_emb = self.item_tower(item_input)
                 embeddings_list.append(item_emb.cpu().numpy())
         return np.concatenate(embeddings_list, axis=0)

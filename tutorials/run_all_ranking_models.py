@@ -18,6 +18,7 @@ from nextrec.models.ranking.widedeep import WideDeep
 from nextrec.models.ranking.xdeepfm import xDeepFM
 from nextrec.models.ranking.fibinet import FiBiNET
 from nextrec.models.ranking.afm import AFM
+from nextrec.models.ranking.ffm import FFM
 from nextrec.models.ranking.pnn import PNN
 from nextrec.models.ranking.masknet import MaskNet
 
@@ -153,6 +154,7 @@ def main():
     models_to_train = [
         (LR, "LR", {}),
         (FM, "FM", {}),
+        (FFM, "FFM", {}),
         (EulerNet, "EulerNet", {"num_layers": 2, "num_orders": 8}),
         (DeepFM, "DeepFM", {"mlp_params": mlp_params}),
         (WideDeep, "WideDeep", {"mlp_params": mlp_params}),

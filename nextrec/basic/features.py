@@ -2,7 +2,7 @@
 Feature definitions
 
 Date: create on 27/10/2025
-Checkpoint: edit on 02/12/2025
+Checkpoint: edit on 20/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -12,14 +12,49 @@ from nextrec.utils.embedding import get_auto_embedding_dim
 from nextrec.utils.feature import normalize_to_list
 
 
-class BaseFeature(object):
+class BaseFeature:
     def __repr__(self):
         params = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
         param_str = ", ".join(f"{k}={v!r}" for k, v in params.items())
         return f"{self.__class__.__name__}({param_str})"
 
 
-class SequenceFeature(BaseFeature):
+class EmbeddingFeature(BaseFeature):
+    def __init__(
+        self,
+        name: str,
+        vocab_size: int,
+        embedding_name: str = "",
+        embedding_dim: int | None = 4,
+        padding_idx: int | None = None,
+        init_type: str = "normal",
+        init_params: dict | None = None,
+        l1_reg: float = 0.0,
+        l2_reg: float = 1e-5,
+        trainable: bool = True,
+        pretrained_weight: torch.Tensor | None = None,
+        freeze_pretrained: bool = False,
+    ):
+        self.name = name
+        self.vocab_size = vocab_size
+        self.embedding_name = embedding_name or name
+        self.embedding_dim = (
+            get_auto_embedding_dim(vocab_size)
+            if embedding_dim is None
+            else embedding_dim
+        )
+
+        self.init_type = init_type
+        self.init_params = init_params or {}
+        self.padding_idx = padding_idx
+        self.l1_reg = l1_reg
+        self.l2_reg = l2_reg
+        self.trainable = trainable
+        self.pretrained_weight = pretrained_weight
+        self.freeze_pretrained = freeze_pretrained
+
+
+class SequenceFeature(EmbeddingFeature):
     def __init__(
         self,
         name: str,
@@ -37,52 +72,26 @@ class SequenceFeature(BaseFeature):
         pretrained_weight: torch.Tensor | None = None,
         freeze_pretrained: bool = False,
     ):
-        self.name = name
-        self.vocab_size = vocab_size
+        super().__init__(
+            name=name,
+            vocab_size=vocab_size,
+            embedding_name=embedding_name,
+            embedding_dim=embedding_dim,
+            padding_idx=padding_idx,
+            init_type=init_type,
+            init_params=init_params,
+            l1_reg=l1_reg,
+            l2_reg=l2_reg,
+            trainable=trainable,
+            pretrained_weight=pretrained_weight,
+            freeze_pretrained=freeze_pretrained,
+        )
         self.max_len = max_len
-        self.embedding_name = embedding_name or name
-        self.embedding_dim = embedding_dim or get_auto_embedding_dim(vocab_size)
-
-        self.init_type = init_type
-        self.init_params = init_params or {}
         self.combiner = combiner
-        self.padding_idx = padding_idx
-        self.l1_reg = l1_reg
-        self.l2_reg = l2_reg
-        self.trainable = trainable
-        self.pretrained_weight = pretrained_weight
-        self.freeze_pretrained = freeze_pretrained
 
 
-class SparseFeature(BaseFeature):
-    def __init__(
-        self,
-        name: str,
-        vocab_size: int,
-        embedding_name: str = "",
-        embedding_dim: int | None = 4,
-        padding_idx: int | None = None,
-        init_type: str = "normal",
-        init_params: dict | None = None,
-        l1_reg: float = 0.0,
-        l2_reg: float = 1e-5,
-        trainable: bool = True,
-        pretrained_weight: torch.Tensor | None = None,
-        freeze_pretrained: bool = False,
-    ):
-        self.name = name
-        self.vocab_size = vocab_size
-        self.embedding_name = embedding_name or name
-        self.embedding_dim = embedding_dim or get_auto_embedding_dim(vocab_size)
-
-        self.init_type = init_type
-        self.init_params = init_params or {}
-        self.padding_idx = padding_idx
-        self.l1_reg = l1_reg
-        self.l2_reg = l2_reg
-        self.trainable = trainable
-        self.pretrained_weight = pretrained_weight
-        self.freeze_pretrained = freeze_pretrained
+class SparseFeature(EmbeddingFeature):
+    pass
 
 
 class DenseFeature(BaseFeature):
@@ -95,7 +104,11 @@ class DenseFeature(BaseFeature):
     ):
         self.name = name
         self.input_dim = max(int(input_dim or 1), 1)
-        self.embedding_dim = embedding_dim or self.input_dim
+        self.embedding_dim = self.input_dim if embedding_dim is None else embedding_dim
+        if use_embedding and self.embedding_dim == 0:
+            raise ValueError(
+                "[Features Error] DenseFeature: use_embedding=True is incompatible with embedding_dim=0"
+            )
         if embedding_dim is not None and embedding_dim > 1:
             self.use_embedding = True
         else:

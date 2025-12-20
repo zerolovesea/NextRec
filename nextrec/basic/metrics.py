@@ -2,7 +2,7 @@
 Metrics computation and configuration for model evaluation.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 20/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -49,8 +49,8 @@ TASK_DEFAULT_METRICS = {
 
 def check_user_id(*metric_sources: Any) -> bool:
     """Return True when GAUC or ranking@K metrics appear in the provided sources."""
-    metric_names: set[str] = set()
-    stack: list[Any] = list(metric_sources)
+    metric_names = set()
+    stack = list(metric_sources)
     while stack:
         item = stack.pop()
         if not item:
@@ -367,10 +367,12 @@ def configure_metrics(
     target_names: list[str],  # ['target1', 'target2']
 ) -> tuple[list[str], dict[str, list[str]] | None, str]:
     """Configure metrics based on task and user input."""
+
     primary_task = task[0] if isinstance(task, list) else task
     nums_task = len(task) if isinstance(task, list) else 1
-    metrics_list: list[str] = []
-    task_specific_metrics: dict[str, list[str]] | None = None
+    metrics_list = []
+    task_specific_metrics = None
+
     if isinstance(metrics, dict):
         metrics_list = []
         task_specific_metrics = {}
@@ -462,6 +464,7 @@ def compute_single_metric(
     user_ids: np.ndarray | None = None,
 ) -> float:
     """Compute a single metric given true and predicted values."""
+
     y_p_binary = (y_pred > 0.5).astype(int)
     metric_lower = metric.lower()
     try:
@@ -575,6 +578,7 @@ def evaluate_metrics(
     user_ids: np.ndarray | None = None,  # example: User IDs for GAUC computation
 ) -> dict:  # {'auc': 0.75, 'logloss': 0.45, 'mse_target2': 3.2}
     """Evaluate specified metrics for given true and predicted values."""
+
     result = {}
     if y_true is None or y_pred is None:
         return result

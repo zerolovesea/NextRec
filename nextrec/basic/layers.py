@@ -2,7 +2,7 @@
 Layer implementations used across NextRec models.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 20/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -28,6 +28,16 @@ class PredictionLayer(nn.Module):
         use_bias: bool = True,
         return_logits: bool = False,
     ):
+        """
+        Prediction layer supporting binary and regression outputs.
+
+        Args:
+            task_type: A string or list of strings specifying the type of each task. supported types are "binary" and "regression".
+            task_dims: An integer or list of integers specifying the output dimension for each task.
+                If None, defaults to 1 for each task. If a single integer is provided, it is shared across all tasks.
+            use_bias: Whether to include a bias term in the prediction layer.
+            return_logits: If True, returns raw logits without applying activation functions.
+        """
         super().__init__()
         self.task_types = [task_type] if isinstance(task_type, str) else list(task_type)
         if len(self.task_types) == 0:
@@ -253,8 +263,11 @@ class EmbeddingLayer(nn.Module):
         for feat in unique_feats.values():
             if isinstance(feat, DenseFeature):
                 in_dim = max(int(getattr(feat, "input_dim", 1)), 1)
-                emb_dim = getattr(feat, "embedding_dim", None)
-                out_dim = max(int(emb_dim), 1) if emb_dim else in_dim
+                if getattr(feat, "use_embedding", False):
+                    emb_dim = getattr(feat, "embedding_dim", None)
+                    out_dim = max(int(emb_dim), 1) if emb_dim else in_dim
+                else:
+                    out_dim = in_dim
                 dim += out_dim
             elif isinstance(feat, SequenceFeature) and feat.combiner == "concat":
                 dim += feat.embedding_dim * feat.max_len
@@ -518,13 +531,17 @@ class MultiHeadSelfAttention(nn.Module):
         self.use_residual = use_residual
         self.dropout_rate = dropout
 
-        self.W_Q = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.W_K = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.W_V = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.W_O = nn.Linear(embedding_dim, embedding_dim, bias=False)
+        self.W_Q = nn.Linear(
+            embedding_dim, embedding_dim, bias=False
+        )  # Query projection
+        self.W_K = nn.Linear(embedding_dim, embedding_dim, bias=False)  # Key projection
+        self.W_V = nn.Linear(
+            embedding_dim, embedding_dim, bias=False
+        )  # Value projection
+        self.W_O = nn.Linear(
+            embedding_dim, embedding_dim, bias=False
+        )  # Output projection
 
-        if self.use_residual:
-            self.W_Res = nn.Linear(embedding_dim, embedding_dim, bias=False)
         if use_layer_norm:
             self.layer_norm = nn.LayerNorm(embedding_dim)
         else:
@@ -537,81 +554,60 @@ class MultiHeadSelfAttention(nn.Module):
     def forward(
         self, x: torch.Tensor, attention_mask: torch.Tensor | None = None
     ) -> torch.Tensor:
-        """
-        Args:
-            x: [batch_size, seq_len, embedding_dim]
-            attention_mask: [batch_size, seq_len] or [batch_size, seq_len, seq_len], boolean mask where True indicates valid positions
-        Returns:
-            output: [batch_size, seq_len, embedding_dim]
-        """
-        batch_size, seq_len, _ = x.shape
-        Q = self.W_Q(x)  # [batch_size, seq_len, embedding_dim]
+        # x: [Batch, Length, Dim]
+        B, L, D = x.shape
+
+        Q = self.W_Q(x)
         K = self.W_K(x)
         V = self.W_V(x)
 
-        # Split into multiple heads: [batch_size, num_heads, seq_len, head_dim]
-        Q = Q.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        K = K.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        V = V.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        Q = Q.view(B, L, self.num_heads, self.head_dim).transpose(
+            1, 2
+        )  # [Batch, Heads, Length, head_dim]
+        K = K.view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
+        V = V.view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
+
+        key_padding_mask = None
+        if attention_mask is not None:
+            if attention_mask.dim() == 2:  # [B,L], 1=valid, 0=pad
+                key_padding_mask = ~attention_mask.bool()
+                attn_mask = key_padding_mask[:, None, None, :]
+                attn_mask = attn_mask.expand(B, 1, L, L)
+            elif attention_mask.dim() == 3:  # [B,L,L], 1=allowed, 0=masked
+                attn_mask = (~attention_mask.bool()).view(B, 1, L, L)
+            else:
+                raise ValueError("attention_mask must be [B,L] or [B,L,L]")
+        else:
+            attn_mask = None
 
         if self.use_flash_attention:
-            # Use PyTorch 2.0+ Flash Attention
-            if attention_mask is not None:
-                # Convert mask to [batch_size, 1, seq_len, seq_len] format
-                if attention_mask.dim() == 2:
-                    # [B, L] -> [B, 1, 1, L]
-                    attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-                elif attention_mask.dim() == 3:
-                    # [B, L, L] -> [B, 1, L, L]
-                    attention_mask = attention_mask.unsqueeze(1)
-            attention_output = F.scaled_dot_product_attention(
+            attn = F.scaled_dot_product_attention(
                 Q,
                 K,
                 V,
-                attn_mask=attention_mask,
+                attn_mask=attn_mask,
                 dropout_p=self.dropout_rate if self.training else 0.0,
-            )
-            # Handle potential NaN values
-            attention_output = torch.nan_to_num(attention_output, nan=0.0)
+            )  # [B,H,L,dh]
         else:
-            # Fallback to standard attention
             scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim**0.5)
+            if attn_mask is not None:
+                scores = scores.masked_fill(attn_mask, float("-inf"))
+            attn_weights = torch.softmax(scores, dim=-1)
+            attn_weights = self.dropout(attn_weights)
+            attn = torch.matmul(attn_weights, V)  # [B,H,L,dh]
 
-            if attention_mask is not None:
-                # Process mask for standard attention
-                if attention_mask.dim() == 2:
-                    # [B, L] -> [B, 1, 1, L]
-                    attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-                elif attention_mask.dim() == 3:
-                    # [B, L, L] -> [B, 1, L, L]
-                    attention_mask = attention_mask.unsqueeze(1)
-                scores = scores.masked_fill(~attention_mask, float("-1e9"))
+        attn = attn.transpose(1, 2).contiguous().view(B, L, D)
+        out = self.W_O(attn)
 
-            attention_weights = F.softmax(scores, dim=-1)
-            attention_weights = self.dropout(attention_weights)
-            attention_output = torch.matmul(
-                attention_weights, V
-            )  # [batch_size, num_heads, seq_len, head_dim]
-
-        # Concatenate heads
-        attention_output = attention_output.transpose(1, 2).contiguous()
-        attention_output = attention_output.view(
-            batch_size, seq_len, self.embedding_dim
-        )
-
-        # Output projection
-        output = self.W_O(attention_output)
-
-        # Residual connection
         if self.use_residual:
-            output = output + self.W_Res(x)
-
-        # Layer normalization
+            out = out + x
         if self.layer_norm is not None:
-            output = self.layer_norm(output)
+            out = self.layer_norm(out)
 
-        output = F.relu(output)
-        return output
+        if key_padding_mask is not None:
+            out = out * (~key_padding_mask).unsqueeze(-1)
+
+        return out
 
 
 class AttentionPoolingLayer(nn.Module):

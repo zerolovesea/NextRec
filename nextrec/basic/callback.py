@@ -22,10 +22,10 @@ class Callback:
     """
     Base callback.
 
-    Notes (DDP):
-        - In distributed training, the training loop runs on every rank.
-        - For callbacks with side effects (saving, logging, etc.), set
-          ``run_on_main_process_only=True`` to avoid multi-rank duplication.
+    Notes for DDP training:
+    In distributed training, the training loop runs on every rank.
+    For callbacks with side effects (saving, logging, etc.), set
+    ``run_on_main_process_only=True`` to avoid multi-rank duplication.
     """
 
     run_on_main_process_only: bool = False
@@ -70,7 +70,7 @@ class Callback:
 
 
 class CallbackList:
-    """Container for managing multiple callbacks."""
+    """Generates a list of callbacks"""
 
     def __init__(self, callbacks: Optional[list[Callback]] = None):
         self.callbacks = callbacks or []
@@ -78,61 +78,41 @@ class CallbackList:
     def append(self, callback: Callback):
         self.callbacks.append(callback)
 
-    def set_model(self, model):
+    def call(self, fn_name: str, *args, **kwargs):
         for callback in self.callbacks:
-            callback.set_model(model)
+            if not callback.should_run():
+                continue
+            getattr(callback, fn_name)(*args, **kwargs)
+
+    def set_model(self, model):
+        self.call("set_model", model)
 
     def set_params(self, params: dict):
-        for callback in self.callbacks:
-            callback.set_params(params)
+        self.call("set_params", params)
 
     def on_train_begin(self, logs: Optional[dict] = None):
-        for callback in self.callbacks:
-            if not callback.should_run():
-                continue
-            callback.on_train_begin(logs)
+        self.call("on_train_begin", logs)
 
     def on_train_end(self, logs: Optional[dict] = None):
-        for callback in self.callbacks:
-            if not callback.should_run():
-                continue
-            callback.on_train_end(logs)
+        self.call("on_train_end", logs)
 
     def on_epoch_begin(self, epoch: int, logs: Optional[dict] = None):
-        for callback in self.callbacks:
-            if not callback.should_run():
-                continue
-            callback.on_epoch_begin(epoch, logs)
+        self.call("on_epoch_begin", epoch, logs)
 
     def on_epoch_end(self, epoch: int, logs: Optional[dict] = None):
-        for callback in self.callbacks:
-            if not callback.should_run():
-                continue
-            callback.on_epoch_end(epoch, logs)
+        self.call("on_epoch_end", epoch, logs)
 
     def on_batch_begin(self, batch: int, logs: Optional[dict] = None):
-        for callback in self.callbacks:
-            if not callback.should_run():
-                continue
-            callback.on_batch_begin(batch, logs)
+        self.call("on_batch_begin", batch, logs)
 
     def on_batch_end(self, batch: int, logs: Optional[dict] = None):
-        for callback in self.callbacks:
-            if not callback.should_run():
-                continue
-            callback.on_batch_end(batch, logs)
+        self.call("on_batch_end", batch, logs)
 
     def on_validation_begin(self, logs: Optional[dict] = None):
-        for callback in self.callbacks:
-            if not callback.should_run():
-                continue
-            callback.on_validation_begin(logs)
+        self.call("on_validation_begin", logs)
 
     def on_validation_end(self, logs: Optional[dict] = None):
-        for callback in self.callbacks:
-            if not callback.should_run():
-                continue
-            callback.on_validation_end(logs)
+        self.call("on_validation_end", logs)
 
 
 class EarlyStopper(Callback):
@@ -146,6 +126,20 @@ class EarlyStopper(Callback):
         restore_best_weights: bool = True,
         verbose: int = 1,
     ):
+        """
+        Callback to stop training early if no improvement.
+
+        Args:
+            monitor: Metric name to monitor.
+            patience: Number of epochs with no improvement after which training will be stopped.
+            mode: One of {'min', 'max'}. In 'min' mode, training will stop when the
+                monitored metric has stopped decreasing; in 'max' mode it will stop
+                when the monitored metric has stopped increasing.
+            min_delta: Minimum change in the monitored metric to qualify as an improvement.
+            restore_best_weights: Whether to restore model weights from the epoch with the best value
+                of the monitored metric.
+            verbose: Verbosity mode. 1: messages will be printed. 0: silent.
+        """
         super().__init__()
         self.monitor = monitor
         self.patience = patience
@@ -233,6 +227,7 @@ class CheckpointSaver(Callback):
         save_best_only: If True, only save when the model is considered the "best".
         save_freq: Frequency of checkpoint saving ('epoch' or integer for every N epochs).
         verbose: Verbosity mode.
+        run_on_main_process_only: Whether to run this callback only on the main process in DDP.
     """
 
     def __init__(
@@ -274,7 +269,6 @@ class CheckpointSaver(Callback):
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
     def on_epoch_end(self, epoch: int, logs: Optional[dict] = None):
-        logging.info("")
         logs = logs or {}
 
         should_save = False
@@ -282,9 +276,6 @@ class CheckpointSaver(Callback):
             should_save = True
         elif isinstance(self.save_freq, int) and (epoch + 1) % self.save_freq == 0:
             should_save = True
-
-        if not should_save and self.save_best_only:
-            should_save = False
 
         # Check if this is the best model
         current = logs.get(self.monitor)
@@ -297,11 +288,7 @@ class CheckpointSaver(Callback):
 
         if should_save:
             if not self.save_best_only or is_best:
-                checkpoint_path = (
-                    self.checkpoint_path.parent
-                    / f"{self.checkpoint_path.stem}{self.checkpoint_path.suffix}"
-                )
-                self.save_checkpoint(checkpoint_path, epoch, logs)
+                self.save_checkpoint(self.checkpoint_path, epoch, logs)
 
                 if is_best:
                     # Use save_path directly without adding _best suffix since it may already contain it
@@ -371,7 +358,9 @@ class LearningRateScheduler(Callback):
             # Step the scheduler
             if hasattr(self.scheduler, "step"):
                 # Some schedulers need metrics
-                if "val_loss" in (logs or {}) and hasattr(self.scheduler, "mode"):
+                if logs is None:
+                    logs = {}
+                if "val_loss" in logs and hasattr(self.scheduler, "mode"):
                     self.scheduler.step(logs["val_loss"])
                 else:
                     self.scheduler.step()
@@ -399,7 +388,6 @@ class MetricsLogger(Callback):
         self.run_on_main_process_only = True
         self.log_freq = log_freq
         self.verbose = verbose
-        self.batch_count = 0
 
     def on_epoch_end(self, epoch: int, logs: Optional[dict] = None):
         if self.verbose > 0 and (
@@ -416,8 +404,10 @@ class MetricsLogger(Callback):
             logging.info(f"Epoch {epoch + 1}: {metrics_str}")
 
     def on_batch_end(self, batch: int, logs: Optional[dict] = None):
-        self.batch_count += 1
-        if self.verbose > 1 and self.log_freq == "batch":
+        if self.verbose > 1 and (
+            self.log_freq == "batch"
+            or (isinstance(self.log_freq, int) and (batch + 1) % self.log_freq == 0)
+        ):
             logs = logs or {}
             metrics_str = " - ".join(
                 [
