@@ -72,7 +72,7 @@ See `tutorials/` for examples covering ranking, retrieval, multi-task learning, 
 - [movielen_ranking_deepfm.py](/tutorials/movielen_ranking_deepfm.py) — DeepFM training on MovieLens 100k dataset
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) — DIN Deep Interest Network training on e-commerce dataset
 - [example_multitask.py](/tutorials/example_multitask.py) — ESMM multi-task learning training on e-commerce dataset
-- [movielen_match_dssm.py](/tutorials/example_match_dssm.py) — DSSM retrieval model training on MovieLens 100k dataset
+- [movielen_match_dssm.py](/tutorials/movielen_match_dssm.py) — DSSM retrieval model training on MovieLens 100k dataset
 
 - [example_distributed_training.py](/tutorials/distributed/example_distributed_training.py) — Single-machine multi-GPU training with NextRec
 
