@@ -113,8 +113,6 @@ class LR(BaseModel):
         )
 
     def forward(self, x):
-        input_linear = self.embedding(
-            x=x, features=self.all_features, squeeze_dim=True
-        )
+        input_linear = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
         y = self.linear(input_linear)
         return self.prediction_layer(y)

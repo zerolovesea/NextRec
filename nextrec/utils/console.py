@@ -4,7 +4,7 @@ Console and CLI utilities for NextRec.
 This module centralizes CLI logging helpers, progress display, and metric tables.
 
 Date: create on 19/12/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 20/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -241,6 +241,14 @@ def display_metrics_table(
             if name not in normalized_order:
                 normalized_order.append(name)
         task_order = normalized_order
+
+    if not task_order and not grouped and not metrics:
+        if isinstance(loss, numbers.Number):
+            msg = f"Epoch {epoch}/{epochs} - {split} (loss={float(loss):.4f})"
+            if colorize is not None:
+                msg = colorize(msg)
+            logging.info(msg)
+        return
 
     if Console is None or Table is None or box is None:
         prefix = f"Epoch {epoch}/{epochs} - {split}:"

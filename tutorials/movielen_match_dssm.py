@@ -4,6 +4,7 @@ import pandas as pd
 from nextrec.data.preprocessor import DataProcessor
 from nextrec.basic.features import DenseFeature, SparseFeature
 from nextrec.models.retrieval.dssm import DSSM
+from nextrec.utils import compute_pair_scores
 
 from nextrec.data import build_eval_candidates
 
@@ -145,7 +146,7 @@ model.fit(
     user_id_column="user_id",
 )
 # Evaluate
-predictions = model.predict(valid_df, batch_size=512)
+predictions = compute_pair_scores(model, valid_df, batch_size=512)
 print(f"\nPredictions shape: {predictions.shape}")
 print(f"Sample predictions: {predictions[:10]}")
 

@@ -416,7 +416,7 @@ def predict_model(predict_config_path: str) -> None:
         # Auto-infer session_id from checkpoint directory name
         session_cfg = cfg.get("session", {}) or {}
         session_id = session_cfg.get("id") or session_dir.name
-    
+
     setup_logger(session_id=session_id)
 
     log_cli_section("CLI")
@@ -436,7 +436,7 @@ def predict_model(predict_config_path: str) -> None:
         processor_path = session_dir / "processor" / "processor.pkl"
 
     predict_cfg = cfg.get("predict", {}) or {}
-    
+
     # Auto-find model_config in checkpoint directory if not specified
     if "model_config" in cfg:
         model_cfg_path = resolve_path(cfg["model_config"], config_dir)
@@ -563,7 +563,12 @@ def predict_model(predict_config_path: str) -> None:
     log_kv_lines(
         [
             ("Data path", data_path),
-            ("Format", predict_cfg.get("source_data_format", predict_cfg.get("data_format", "auto"))),
+            (
+                "Format",
+                predict_cfg.get(
+                    "source_data_format", predict_cfg.get("data_format", "auto")
+                ),
+            ),
             ("Batch size", batch_size),
             ("Chunk size", predict_cfg.get("chunk_size", 20000)),
             ("Streaming", predict_cfg.get("streaming", True)),
@@ -579,7 +584,9 @@ def predict_model(predict_config_path: str) -> None:
     )
 
     # Build output path: {checkpoint_path}/predictions/{name}.{save_data_format}
-    save_format = predict_cfg.get("save_data_format", predict_cfg.get("save_format", "csv"))
+    save_format = predict_cfg.get(
+        "save_data_format", predict_cfg.get("save_format", "csv")
+    )
     pred_name = predict_cfg.get("name", "pred")
     # Pass filename with extension to let model.predict handle path resolution
     save_path = f"{pred_name}.{save_format}"
@@ -597,7 +604,11 @@ def predict_model(predict_config_path: str) -> None:
     )
     duration = time.time() - start
     # When return_dataframe=False, result is the actual file path
-    output_path = result if isinstance(result, Path) else checkpoint_base / "predictions" / save_path
+    output_path = (
+        result
+        if isinstance(result, Path)
+        else checkpoint_base / "predictions" / save_path
+    )
     logger.info(f"Prediction completed, results saved to: {output_path}")
     logger.info(f"Total time: {duration:.2f} seconds")
 

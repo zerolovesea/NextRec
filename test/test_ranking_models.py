@@ -4,6 +4,7 @@ Unit Tests for Ranking Models
 This module contains unit tests for all ranking/CTR prediction models including:
 - LR (Logistic Regression)
 - DeepFM (Deep Factorization Machine)
+- FFM (Field-aware Factorization Machines)
 - DIN (Deep Interest Network)
 - DIEN (Deep Interest Evolution Network)
 - DCN (Deep & Cross Network)
@@ -37,6 +38,7 @@ from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.models.ranking.dien import DIEN
 from nextrec.models.ranking.din import DIN
 from nextrec.models.ranking.eulernet import EulerNet
+from nextrec.models.ranking.ffm import FFM
 from nextrec.models.ranking.fibinet import FiBiNET
 from nextrec.models.ranking.fm import FM
 from nextrec.models.ranking.lr import LR
@@ -1387,6 +1389,41 @@ class TestAFM:
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             attention_dim=8,
+            target=["label"],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+
+
+class TestFFM:
+    """Test suite for FFM"""
+
+    def test_ffm_initialization(
+        self, sample_sparse_features, sample_sequence_features, device
+    ):
+        model = FFM(
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label"],
+            device=device,
+        )
+        assert model.model_name == "FFM"
+
+    def test_ffm_forward_pass(
+        self,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+    ):
+        model = FFM(
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
             target=["label"],
             device=device,
         )

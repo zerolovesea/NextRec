@@ -610,7 +610,7 @@ class DataProcessor(FeatureSet):
         save_format: Optional[Literal["csv", "parquet"]],
         output_path: Optional[str],
         warn_missing: bool = True,
-    ) -> Union[pd.DataFrame, Dict[str, np.ndarray]]:
+    ):
         logger = logging.getLogger()
         is_dataframe = isinstance(data, pd.DataFrame)
         data_dict = data if isinstance(data, dict) else None
@@ -705,7 +705,7 @@ class DataProcessor(FeatureSet):
         output_path: Optional[str],
         save_format: Optional[Literal["csv", "parquet"]],
         chunk_size: int = 200000,
-    ) -> list[str]:
+    ):
         """Transform data from files under a path and save them to a new location.
 
         Uses chunked reading/writing to keep peak memory bounded for large files.
@@ -852,7 +852,7 @@ class DataProcessor(FeatureSet):
         save_format: Optional[Literal["csv", "parquet"]] = None,
         output_path: Optional[str] = None,
         chunk_size: int = 200000,
-    ) -> Union[pd.DataFrame, Dict[str, np.ndarray], list[str]]:
+    ):
         if not self.is_fitted:
             raise ValueError(
                 "[Data Processor Error] DataProcessor must be fitted before transform"
@@ -880,7 +880,7 @@ class DataProcessor(FeatureSet):
         save_format: Optional[Literal["csv", "parquet"]] = None,
         output_path: Optional[str] = None,
         chunk_size: int = 200000,
-    ) -> Union[pd.DataFrame, Dict[str, np.ndarray], list[str]]:
+    ):
         self.fit(data, chunk_size=chunk_size)
         return self.transform(
             data,
