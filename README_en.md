@@ -4,8 +4,10 @@
 
 <div align="center">
 
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/nextrec?period=total&units=NONE&left_color=BLACK&right_color=GREEN&left_text=PyPI-downloads)](https://pepy.tech/projects/nextrec)
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
+
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 ![Version](https://img.shields.io/badge/Version-0.4.14-orange.svg)
 

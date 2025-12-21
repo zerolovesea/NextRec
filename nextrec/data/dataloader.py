@@ -210,6 +210,15 @@ class RecDataLoader(FeatureSet):
             DataLoader instance.
         """
 
+        # Enforce num_workers=0 for streaming mode to prevent data duplication
+        if streaming and num_workers > 0:
+            logging.warning(
+                f"[RecDataLoader Warning] num_workers={num_workers} is not compatible with streaming=True. "
+                "Each worker would create its own data stream, causing data duplication. "
+                "Forcing num_workers=0."
+            )
+            num_workers = 0
+
         if isinstance(data, DataLoader):
             return data
         elif isinstance(data, (str, os.PathLike)):
@@ -363,6 +372,13 @@ class RecDataLoader(FeatureSet):
             logging.info(
                 "[RecDataLoader Info] Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput."
             )
+        if num_workers > 0:
+            logging.warning(
+                f"[RecDataLoader Warning] num_workers={num_workers} is not compatible with streaming mode. "
+                "Each worker would create its own data stream, causing data duplication. "
+                "Forcing num_workers=0."
+            )
+            num_workers = 0
         dataset = FileDataset(
             file_paths=file_paths,
             dense_features=self.dense_features,
