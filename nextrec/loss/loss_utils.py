@@ -60,7 +60,7 @@ def build_cb_focal(kw):
     return ClassBalancedFocalLoss(**kw)
 
 
-def get_loss_fn(loss = None, **kw) -> nn.Module:
+def get_loss_fn(loss=None, **kw) -> nn.Module:
     """
     Get loss function by name or return the provided loss module.
 

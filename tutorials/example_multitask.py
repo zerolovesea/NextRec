@@ -78,14 +78,20 @@ model = ESMM(
     session_id="esmm_tutorial",
 )
 
-
 model.compile(
     optimizer="adam",
     optimizer_params={"lr": 5e-4, "weight_decay": 1e-4},
     loss=["bce", "bce"],
-    loss_params=None,
-    loss_weights=[1.0, 2.0],
+    loss_weights=[0.3, 0.7],
 )
+
+
+# model.compile(
+#     optimizer="adam",
+#     optimizer_params={"lr": 5e-4, "weight_decay": 1e-4},
+#     loss=["bce", "bce"],
+#     loss_weights={"method": "grad_norm", "alpha": 1.5, "lr": 0.025},
+# )
 
 model.fit(
     train_data=train_df,

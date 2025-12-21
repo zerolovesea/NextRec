@@ -96,6 +96,7 @@ train:
                                        # Single-task: bce, weighted_bce, focal_loss, mse
                                        # Multi-task: [bce, weighted_bce, focal_loss]
   # loss_params:                       # Optional, per-task loss params
+  # loss_weights:                      # Optional loss weights or GradNorm
   #   - pos_weight: 1.0
   #     logits: false
   metrics:                             # Metrics to compute during training/validation
@@ -161,6 +162,7 @@ train:
   - `focal_loss`: Focal Loss (imbalanced data)
   - `mse`: Mean Squared Error
 - `loss_params`: Loss function parameters (optional, per task)
+- `loss_weights`: Loss weights (list/number) or GradNorm config
 - `metrics`: List of evaluation metrics, supports:
   - `auc`: Area Under ROC Curve
   - `recall`: Recall
@@ -679,6 +681,12 @@ train:
   loss_params:
     alpha: 0.25
     gamma: 2.0
+  loss_weights:
+    method: grad_norm
+    alpha: 1.5
+    lr: 0.025
+    init_ema_steps: 50
+    init_ema_decay: 0.9
   metrics:
     - auc
     - recall
@@ -770,6 +778,7 @@ train:
     lr: 0.001
     weight_decay: 0.00001
   loss: bce
+  loss_weights: [0.3, 0.7]
   metrics:
     - auc
   epochs: 10

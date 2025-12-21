@@ -129,6 +129,7 @@ class ShareBottom(BaseModel):
 
         # Shared bottom network
         self.bottom = MLP(input_dim=input_dim, output_layer=False, **bottom_params)
+        self.grad_norm_shared_modules = ["embedding", "bottom"]
 
         # Get bottom output dimension
         if "dims" in bottom_params and len(bottom_params["dims"]) > 0:

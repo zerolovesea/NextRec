@@ -380,6 +380,7 @@ def train_model(train_config_path: str) -> None:
         optimizer_params=train_cfg.get("optimizer_params", {}),
         loss=train_cfg.get("loss", "focal"),
         loss_params=train_cfg.get("loss_params", {}),
+        loss_weights=train_cfg.get("loss_weights"),
     )
 
     model.fit(

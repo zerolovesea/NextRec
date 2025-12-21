@@ -483,6 +483,10 @@ class POSO(BaseModel):
                 ]
             )
             self.tower_heads = None
+        if self.architecture == "mlp":
+            self.grad_norm_shared_modules = ["embedding"]
+        else:
+            self.grad_norm_shared_modules = ["embedding", "mmoe"]
         self.prediction_layer = PredictionLayer(
             task_type=self.default_task,
             task_dims=[1] * self.num_tasks,

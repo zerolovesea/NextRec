@@ -107,6 +107,14 @@ train:
   #     logits: false                                  # Use pos_weight > 1 when positive class is rare
   #   - pos_weight: 2.0                                # Task 3: moderate imbalance
   #     logits: false
+  # loss_weights:                                     # Optional loss weights or GradNorm
+  #   method: grad_norm
+  #   alpha: 1.5
+  #   lr: 0.025
+  #   init_ema_steps: 50
+  #   init_ema_decay: 0.9
+  # Or use a list/number for fixed weighting:
+  # loss_weights: [0.3, 0.7]
   
   # ----- Evaluation Metrics -----
   metrics:                                             # Metrics to compute during training/validation

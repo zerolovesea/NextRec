@@ -50,12 +50,14 @@ from nextrec.data.dataloader import (
 )
 from nextrec.loss import (
     BPRLoss,
+    GradNormLossWeighting,
     HingeLoss,
     InfoNCELoss,
     SampledSoftmaxLoss,
     TripletLoss,
     get_loss_fn,
 )
+from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.console import display_metrics_table, progress
 from nextrec.utils.torch_utils import (
     add_distributed_sampler,
@@ -177,6 +179,8 @@ class BaseModel(FeatureSet, nn.Module):
         self.logger_initialized = False
         self.training_logger = None
         self.callbacks = CallbackList(callbacks) if callbacks else CallbackList()
+        self.grad_norm: GradNormLossWeighting | None = None
+        self.grad_norm_shared_params: list[torch.nn.Parameter] | None = None
 
     def register_regularization_weights(
         self,
@@ -377,7 +381,7 @@ class BaseModel(FeatureSet, nn.Module):
         scheduler_params: dict | None = None,
         loss: str | nn.Module | list[str | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
-        loss_weights: int | float | list[int | float] | None = None,
+        loss_weights: int | float | list[int | float] | dict | str | None = None,
         callbacks: list[Callback] | None = None,
     ):
         """
@@ -390,6 +394,7 @@ class BaseModel(FeatureSet, nn.Module):
             loss: Loss function name, instance, or list for multi-task. e.g., 'bce', 'mse', or torch.nn.BCELoss(), you can also use custom loss functions.
             loss_params: Loss function parameters, or list for multi-task. e.g., {'weight': tensor([0.25, 0.75])}.
             loss_weights: Weights for each task loss, int/float for single-task or list for multi-task. e.g., 1.0, or [1.0, 0.5].
+                Use "grad_norm" or {"method": "grad_norm", ...} to enable GradNorm for multi-task loss balancing.
             callbacks: Additional callbacks to add to the existing callback list. e.g., [EarlyStopper(), CheckpointSaver()].
         """
         if loss_params is None:
@@ -443,7 +448,31 @@ class BaseModel(FeatureSet, nn.Module):
             for i in range(self.nums_task)
         ]
 
-        if loss_weights is None:
+        self.grad_norm = None
+        self.grad_norm_shared_params = None
+        if isinstance(loss_weights, str) and loss_weights.lower() == "grad_norm":
+            if self.nums_task == 1:
+                raise ValueError(
+                    "[BaseModel-compile Error] GradNorm requires multi-task setup."
+                )
+            self.grad_norm = GradNormLossWeighting(
+                num_tasks=self.nums_task, device=self.device
+            )
+            self.loss_weights = None
+        elif (
+            isinstance(loss_weights, dict) and loss_weights.get("method") == "grad_norm"
+        ):
+            if self.nums_task == 1:
+                raise ValueError(
+                    "[BaseModel-compile Error] GradNorm requires multi-task setup."
+                )
+            grad_norm_params = dict(loss_weights)
+            grad_norm_params.pop("method", None)
+            self.grad_norm = GradNormLossWeighting(
+                num_tasks=self.nums_task, device=self.device, **grad_norm_params
+            )
+            self.loss_weights = None
+        elif loss_weights is None:
             self.loss_weights = None
         elif self.nums_task == 1:
             if isinstance(loss_weights, (list, tuple)):
@@ -508,9 +537,20 @@ class BaseModel(FeatureSet, nn.Module):
             y_pred_i = y_pred[:, start:end]
             y_true_i = y_true[:, start:end]
             task_loss = self.loss_fn[i](y_pred_i, y_true_i)
-            if isinstance(self.loss_weights, (list, tuple)):
-                task_loss *= self.loss_weights[i]
             task_losses.append(task_loss)
+        if self.grad_norm is not None:
+            if self.grad_norm_shared_params is None:
+                self.grad_norm_shared_params = get_grad_norm_shared_params(
+                    self, getattr(self, "grad_norm_shared_modules", None)
+                )
+            return self.grad_norm.compute_weighted_loss(
+                task_losses, self.grad_norm_shared_params
+            )
+        if isinstance(self.loss_weights, (list, tuple)):
+            task_losses = [
+                task_loss * self.loss_weights[i]
+                for i, task_loss in enumerate(task_losses)
+            ]
         return torch.stack(task_losses).sum()
 
     def prepare_data_loader(
@@ -1053,6 +1093,8 @@ class BaseModel(FeatureSet, nn.Module):
             params = model.parameters() if self.ddp_model is not None else self.parameters()  # type: ignore # ddp model parameters or self parameters
             nn.utils.clip_grad_norm_(params, self.max_gradient_norm)
             self.optimizer_fn.step()
+            if self.grad_norm is not None:
+                self.grad_norm.step()
             accumulated_loss += loss.item()
 
             if (
@@ -1637,7 +1679,7 @@ class BaseModel(FeatureSet, nn.Module):
             add_timestamp=add_timestamp,
         )
         model_path = Path(target_path)
-        
+
         ddp_model = getattr(self, "ddp_model", None)
         if ddp_model is not None:
             model_to_save = ddp_model.module
@@ -2067,7 +2109,7 @@ class BaseMatchModel(BaseModel):
         scheduler_params: dict | None = None,
         loss: str | nn.Module | list[str | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
-        loss_weights: int | float | list[int | float] | None = None,
+        loss_weights: int | float | list[int | float] | dict | str | None = None,
         callbacks: list[Callback] | None = None,
     ):
         """

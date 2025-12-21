@@ -165,6 +165,7 @@ class MMOE(BaseModel):
         for _ in range(self.num_tasks):
             gate = nn.Sequential(nn.Linear(input_dim, num_experts), nn.Softmax(dim=1))
             self.gates.append(gate)
+        self.grad_norm_shared_modules = ["embedding", "experts", "gates"]
 
         # Task-specific towers
         self.towers = nn.ModuleList()

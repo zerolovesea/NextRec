@@ -138,6 +138,7 @@ class ESMM(BaseModel):
 
         # CVR tower
         self.cvr_tower = MLP(input_dim=input_dim, output_layer=True, **cvr_params)
+        self.grad_norm_shared_modules = ["embedding"]
         self.prediction_layer = PredictionLayer(
             task_type=self.default_task, task_dims=[1, 1]
         )
