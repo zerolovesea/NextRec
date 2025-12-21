@@ -28,19 +28,19 @@ if TYPE_CHECKING:
     from nextrec.data.preprocessor import DataProcessor
 
 
-def resolve_path(path_str: str | Path, base_dir: Path) -> Path:
+def resolve_path(path_str: str | Path | None = None, base_dir: Path | None = None) -> Path:
+    if path_str is None:
+        return Path.cwd()
     path = Path(path_str).expanduser()
     if path.is_absolute():
         return path
     # Prefer resolving relative to current working directory when the path (or its parent)
     # already exists there; otherwise fall back to the config file's directory.
-    cwd_path = (Path.cwd() / path).resolve()
-    if cwd_path.exists() or cwd_path.parent.exists():
-        return cwd_path
-    base_dir_path = (base_dir / path).resolve()
-    if base_dir_path.exists() or base_dir_path.parent.exists():
-        return base_dir_path
-    return cwd_path
+    candidates = ((Path.cwd() / path).resolve(), ((base_dir or Path.cwd()) / path).resolve())
+    return next(
+        (candidate for candidate in candidates if candidate.exists() or candidate.parent.exists()),
+        candidates[0],
+    )
 
 
 def select_features(
