@@ -44,6 +44,8 @@ def train_model(
         model.compile(
             optimizer="adam",
             optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
+            loss=["bce"] * len(kwargs.get("target", ["task1", "task2"])),
+            loss_weights={"method": "grad_norm", "alpha": 1.5, "lr": 0.025},
         )
 
         model.fit(

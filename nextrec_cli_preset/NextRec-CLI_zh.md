@@ -96,6 +96,7 @@ train:
                                        # 单任务: bce, weighted_bce, focal_loss, mse
                                        # 多任务: [bce, weighted_bce, focal_loss]
   # loss_params:                       # 可选，多任务逐项配置
+  # loss_weights:                      # 可选，损失权重或 GradNorm
   #   - pos_weight: 1.0
   #     logits: false
   metrics:                             # 评估指标
@@ -161,6 +162,7 @@ train:
   - `focal_loss`: Focal Loss（不平衡数据）
   - `mse`: Mean Squared Error
 - `loss_params`: 损失函数参数（可选，多任务逐项配置）
+- `loss_weights`: 损失权重（列表/数值）或 GradNorm 配置
 - `metrics`: 评估指标列表，支持：
   - `auc`: Area Under ROC Curve
   - `recall`: 召回率
@@ -679,6 +681,12 @@ train:
   loss_params:
     alpha: 0.25
     gamma: 2.0
+  loss_weights:
+    method: grad_norm
+    alpha: 1.5
+    lr: 0.025
+    init_ema_steps: 50
+    init_ema_decay: 0.9
   metrics:
     - auc
     - recall
@@ -770,6 +778,7 @@ train:
     lr: 0.001
     weight_decay: 0.00001
   loss: bce
+  loss_weights: [0.3, 0.7]
   metrics:
     - auc
   epochs: 10

@@ -295,6 +295,7 @@ class PLE(BaseModel):
             )
             self.cgc_layers.append(cgc_layer)
             expert_output_dim = cgc_layer.output_dim
+        self.grad_norm_shared_modules = ["embedding", "cgc_layers"]
 
         # Task-specific towers
         self.towers = nn.ModuleList()
