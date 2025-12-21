@@ -42,7 +42,8 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 ## NextRec Progress
 
-- **12/12/2025** Added [RQ-VAE](/nextrec/models/representation/rqvae.py), a common module for generative retrieval. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
+- **21/12/2025** Added support for [GradNorm](/nextrec/loss/grad_norm.py) in v0.4.13, configurable via `loss_weight='grad_norm'` in the compile method
+- **12/12/2025** Added [RQ-VAE](/nextrec/models/representation/rqvae.py), a common module for generative retrieval in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](/nextrec_cli_preset/NextRec-CLI.md) and [reference code](/nextrec_cli_preset).
 - **03/12/2025** NextRec reached 100 ⭐—thanks for the support!
 - **06/12/2025** Added single-machine multi-GPU DDP training in v0.4.1 with supporting [code](tutorials/distributed).
