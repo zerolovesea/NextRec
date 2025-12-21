@@ -341,7 +341,7 @@ class BaseModel(FeatureSet, nn.Module):
                     )
         else:
             raise TypeError(
-                f"[BaseModel-validation Error] train_data must be a pandas DataFrame or a dict, got {type(train_data)}"
+                f"[BaseModel-validation Error] If you want to use validation_split, train_data must be a pandas DataFrame or a dict instead of {type(train_data)}"
             )
         rng = np.random.default_rng(42)
         indices = rng.permutation(total_length)
@@ -481,7 +481,7 @@ class BaseModel(FeatureSet, nn.Module):
                         "[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup."
                     )
                 loss_weights = loss_weights[0]
-            self.loss_weights = [float(loss_weights)]
+            self.loss_weights = [float(loss_weights)] # type: ignore
         else:
             if isinstance(loss_weights, (int, float)):
                 weights = [float(loss_weights)] * self.nums_task
@@ -555,13 +555,13 @@ class BaseModel(FeatureSet, nn.Module):
 
     def prepare_data_loader(
         self,
-        data: dict | pd.DataFrame | DataLoader,
+        data,
         batch_size: int = 32,
         shuffle: bool = True,
         num_workers: int = 0,
         sampler=None,
         return_dataset: bool = False,
-    ) -> DataLoader | tuple[DataLoader, TensorDictDataset | None]:
+    ):
         """
         Prepare a DataLoader from input data. Only used when input data is not a DataLoader.
         """
@@ -591,8 +591,8 @@ class BaseModel(FeatureSet, nn.Module):
 
     def fit(
         self,
-        train_data: dict | pd.DataFrame | DataLoader,
-        valid_data: dict | pd.DataFrame | DataLoader | None = None,
+        train_data = None,
+        valid_data = None,
         metrics: (
             list[str] | dict[str, list[str]] | None
         ) = None,  # ['auc', 'logloss'] or {'target1': ['auc', 'logloss'], 'target2': ['mse']}
@@ -1943,6 +1943,12 @@ class BaseModel(FeatureSet, nn.Module):
             logger.info(f"Loss Function:           {self.loss_config}")
         if hasattr(self, "loss_weights"):
             logger.info(f"Loss Weights:            {self.loss_weights}")
+        if hasattr(self, "grad_norm"):
+            logger.info(f"GradNorm Enabled:        {self.grad_norm is not None}")
+            if self.grad_norm is not None:
+                grad_lr = self.grad_norm.optimizer.param_groups[0].get("lr")
+                logger.info(f"  GradNorm alpha:        {self.grad_norm.alpha}")
+                logger.info(f"  GradNorm lr:           {grad_lr}")
 
         logger.info("Regularization:")
         logger.info(f"  Embedding L1:          {self.embedding_l1_reg}")

@@ -186,6 +186,7 @@ class RecDataLoader(FeatureSet):
             | list[str]
             | list[os.PathLike]
             | DataLoader
+            | None
         ),
         batch_size: int = 32,
         shuffle: bool = True,

@@ -8,9 +8,50 @@ on:
   workflow_dispatch:
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare project version
+        id: version
+        run: |
+          before="${{ github.event.before }}"
+          after="${{ github.sha }}"
+          zero_sha="0000000000000000000000000000000000000000"
+
+          if [ -z "$before" ] || [ "$before" = "$zero_sha" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          get_version() {
+            git show "$1:pyproject.toml" | grep -m 1 '^version[[:space:]]*=' | sed -E 's/.*"([^"]+)".*/\1/'
+          }
+
+          before_version="$(get_version "$before" || true)"
+          after_version="$(get_version "$after" || true)"
+
+          if [ -z "$before_version" ] || [ -z "$after_version" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$before_version" = "$after_version" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # dev -> TestPyPI
   publish-to-testpypi:
-    if: github.ref == 'refs/heads/dev'
+    needs: check-version
+    if: needs.check-version.outputs.changed == 'true' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -38,7 +79,8 @@ jobs:
 
   # main -> PyPI
   publish-to-pypi:
-    if: github.ref == 'refs/heads/main'
+    needs: check-version
+    if: needs.check-version.outputs.changed == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
