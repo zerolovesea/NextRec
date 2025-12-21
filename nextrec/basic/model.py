@@ -1420,6 +1420,11 @@ class BaseModel(FeatureSet, nn.Module):
         # Create DataLoader based on data type
         if isinstance(data, DataLoader):
             data_loader = data
+            if num_workers != 0:
+                logging.warning(
+                    "[Predict Warning] num_workers parameter is ignored when data is already a DataLoader. "
+                    "The DataLoader's existing num_workers configuration will be used."
+                )
         elif isinstance(data, (str, os.PathLike)):
             rec_loader = RecDataLoader(
                 dense_features=self.dense_features,
@@ -1577,6 +1582,14 @@ class BaseModel(FeatureSet, nn.Module):
             )
         else:
             data_loader = data
+
+            if hasattr(data_loader, 'num_workers') and data_loader.num_workers > 0:
+                if hasattr(data_loader.dataset, '__class__') and 'Streaming' in data_loader.dataset.__class__.__name__:
+                    logging.warning(
+                        f"[Predict Streaming Warning] Detected DataLoader with num_workers={data_loader.num_workers} "
+                        "and streaming dataset. This may cause data duplication! "
+                        "When using streaming mode, set num_workers=0 to avoid reading data multiple times."
+                    )
 
         suffix = ".csv" if save_format == "csv" else ".parquet"
         target_path = resolve_save_path(
