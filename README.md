@@ -9,7 +9,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.14-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.15-orange.svg)
 
 
 中文文档 | [English Version](README_en.md)
@@ -43,7 +43,7 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 
 ## NextRec近期进展
 
-- **21/12/2025** 在v0.4.14中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
+- **21/12/2025** 在v0.4.15中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
 - **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/representation/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](/nextrec_cli_preset/NextRec-CLI_zh.md)和[教学代码](/nextrec_cli_preset)
 - **03/12/2025** NextRec获得了100颗🌟！感谢大家的支持
@@ -185,11 +185,11 @@ nextrec --mode=train --train_config=path/to/train_config.yaml
 nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 ```
 
-> 截止当前版本0.4.14，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.4.15，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.4.14，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.4.15，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|

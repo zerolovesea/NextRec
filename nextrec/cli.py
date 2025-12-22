@@ -21,6 +21,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 import argparse
 import logging
 import pickle
+import resource
 import sys
 import time
 from pathlib import Path
@@ -624,6 +625,17 @@ def predict_model(predict_config_path: str) -> None:
 
 def main() -> None:
     """Parse CLI arguments and dispatch to train or predict mode."""
+
+    # Increase file descriptor limit to avoid "Too many open files" error
+    # when using DataLoader with multiple workers
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target_limit = 65535
+        if soft < target_limit:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (min(target_limit, hard), hard))
+    except (ValueError, OSError):
+        # If we can't set the limit, continue anyway
+        pass
 
     root = logging.getLogger()
     if not root.handlers:
