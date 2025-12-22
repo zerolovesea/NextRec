@@ -77,6 +77,8 @@ def check_user_id(*metric_sources: Any) -> bool:
 
 def compute_ks(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Compute Kolmogorov-Smirnov statistic."""
+    y_true = np.asarray(y_true).reshape(-1)
+    y_pred = np.asarray(y_pred).reshape(-1)
     sorted_indices = np.argsort(y_pred)[::-1]
     y_true_sorted = y_true[sorted_indices]
 

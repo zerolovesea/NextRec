@@ -481,7 +481,7 @@ class BaseModel(FeatureSet, nn.Module):
                         "[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup."
                     )
                 loss_weights = loss_weights[0]
-            self.loss_weights = [float(loss_weights)] # type: ignore
+            self.loss_weights = [float(loss_weights)]  # type: ignore
         else:
             if isinstance(loss_weights, (int, float)):
                 weights = [float(loss_weights)] * self.nums_task
@@ -591,8 +591,8 @@ class BaseModel(FeatureSet, nn.Module):
 
     def fit(
         self,
-        train_data = None,
-        valid_data = None,
+        train_data=None,
+        valid_data=None,
         metrics: (
             list[str] | dict[str, list[str]] | None
         ) = None,  # ['auc', 'logloss'] or {'target1': ['auc', 'logloss'], 'target2': ['mse']}
@@ -1583,8 +1583,11 @@ class BaseModel(FeatureSet, nn.Module):
         else:
             data_loader = data
 
-            if hasattr(data_loader, 'num_workers') and data_loader.num_workers > 0:
-                if hasattr(data_loader.dataset, '__class__') and 'Streaming' in data_loader.dataset.__class__.__name__:
+            if hasattr(data_loader, "num_workers") and data_loader.num_workers > 0:
+                if (
+                    hasattr(data_loader.dataset, "__class__")
+                    and "Streaming" in data_loader.dataset.__class__.__name__
+                ):
                     logging.warning(
                         f"[Predict Streaming Warning] Detected DataLoader with num_workers={data_loader.num_workers} "
                         "and streaming dataset. This may cause data duplication! "

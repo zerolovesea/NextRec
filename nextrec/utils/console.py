@@ -16,8 +16,9 @@ import numbers
 import os
 import platform
 import sys
+import time
 from datetime import datetime, timedelta
-from typing import Any, Callable, Iterable, Mapping, TypeVar
+from typing import Any, Callable, Mapping, TypeVar
 
 import numpy as np
 from rich import box
@@ -128,45 +129,85 @@ class BlackMofNCompleteColumn(MofNCompleteColumn):
         )
 
 
-def progress(
-    iterable: Iterable[T],
-    *,
-    description: str | None = None,
-    total: int | None = None,
-    disable: bool = False,
-) -> Iterable[T]:
+def progress(iterable, *, description=None, total=None, disable=False):
     if disable:
-        for item in iterable:
-            yield item
+        yield from iterable
         return
+
     resolved_total = total
     if resolved_total is None:
         try:
-            resolved_total = len(iterable)  # type: ignore[arg-type]
+            resolved_total = len(iterable)
         except TypeError:
             resolved_total = None
 
+    stream = sys.stderr
+
+    if not stream.isatty():
+        start_time = time.monotonic()
+        last_tick = start_time
+        min_interval_seconds = 10.0
+        max_interval_seconds = 300.0
+        target_steps = (
+            max(1, resolved_total // 20) if resolved_total is not None else 500
+        )
+        interval_seconds = min_interval_seconds
+        completed = 0
+
+        def emit(now: float):
+            elapsed = max(0.0, now - start_time)
+            speed = completed / elapsed if elapsed > 0 else 0.0
+            if resolved_total is not None and speed > 0:
+                remaining = max(0.0, resolved_total - completed)
+                eta_seconds = remaining / speed
+                eta_text = str(timedelta(seconds=int(eta_seconds)))
+            else:
+                eta_text = "--:--:--"
+            total_text = str(resolved_total) if resolved_total is not None else "?"
+            stream.write(
+                f"{description or 'Working'}: {completed}/{total_text} "
+                f"elapsed={timedelta(seconds=int(elapsed))} "
+                f"speed={speed:.2f}/s ETA={eta_text}\n"
+            )
+            stream.flush()
+            return speed
+
+        for item in iterable:
+            yield item
+            completed += 1
+            now = time.monotonic()
+            if now - last_tick >= interval_seconds:
+                speed = emit(now)
+                last_tick = now
+                if speed > 0:
+                    interval_seconds = min(
+                        max_interval_seconds,
+                        max(min_interval_seconds, target_steps / speed),
+                    )
+        end_now = time.monotonic()
+        if end_now - last_tick >= 1e-6:
+            emit(end_now)
+        return
+
+    # TTY: rich
+    console = Console(file=stream, force_terminal=True)
     progress_bar = Progress(
-        SpinnerColumn(style="black"),
-        TextColumn("{task.description}", style="black"),
-        BarColumn(
-            bar_width=36, style="black", complete_style="black", finished_style="black"
-        ),
-        TaskProgressColumn(style="black"),
-        BlackMofNCompleteColumn(),
-        BlackTimeElapsedColumn(),
-        BlackTimeRemainingColumn(),
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        BarColumn(bar_width=36),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
         refresh_per_second=12,
+        console=console,
     )
 
-    task_id = progress_bar.add_task(description or "Working", total=resolved_total)
-    progress_bar.start()
-    try:
+    with progress_bar:
+        task_id = progress_bar.add_task(description or "Working", total=resolved_total)
         for item in iterable:
             yield item
             progress_bar.advance(task_id, 1)
-    finally:
-        progress_bar.stop()
 
 
 def group_metrics_by_task(
