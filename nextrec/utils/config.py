@@ -28,7 +28,9 @@ if TYPE_CHECKING:
     from nextrec.data.preprocessor import DataProcessor
 
 
-def resolve_path(path_str: str | Path | None = None, base_dir: Path | None = None) -> Path:
+def resolve_path(
+    path_str: str | Path | None = None, base_dir: Path | None = None
+) -> Path:
     if path_str is None:
         return Path.cwd()
     path = Path(path_str).expanduser()
@@ -36,9 +38,16 @@ def resolve_path(path_str: str | Path | None = None, base_dir: Path | None = Non
         return path
     # Prefer resolving relative to current working directory when the path (or its parent)
     # already exists there; otherwise fall back to the config file's directory.
-    candidates = ((Path.cwd() / path).resolve(), ((base_dir or Path.cwd()) / path).resolve())
+    candidates = (
+        (Path.cwd() / path).resolve(),
+        ((base_dir or Path.cwd()) / path).resolve(),
+    )
     return next(
-        (candidate for candidate in candidates if candidate.exists() or candidate.parent.exists()),
+        (
+            candidate
+            for candidate in candidates
+            if candidate.exists() or candidate.parent.exists()
+        ),
         candidates[0],
     )
 
