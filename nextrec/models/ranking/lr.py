@@ -41,7 +41,8 @@ LR 是 CTR/排序任务中最经典的线性基线模型。它将稠密、稀疏
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import EmbeddingLayer, LR as LinearLayer, PredictionLayer
+from nextrec.basic.layers import EmbeddingLayer, LR as LinearLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -99,7 +100,7 @@ class LR(BaseModel):
         self.embedding = EmbeddingLayer(features=self.all_features)
         linear_input_dim = self.embedding.input_dim
         self.linear = LinearLayer(linear_input_dim)
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["linear"]

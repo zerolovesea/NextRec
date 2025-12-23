@@ -46,7 +46,8 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import MLP, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -172,7 +173,7 @@ class MMOE(BaseModel):
         for tower_params in tower_params_list:
             tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
-        self.prediction_layer = PredictionLayer(
+        self.prediction_layer = TaskHead(
             task_type=self.default_task, task_dims=[1] * self.num_tasks
         )
         # Register regularization weights

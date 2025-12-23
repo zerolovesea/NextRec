@@ -38,7 +38,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import LR, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import LR, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -295,7 +296,7 @@ class EulerNet(BaseModel):
         else:
             self.linear = None
 
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         modules = ["mapping", "layers", "w", "w_im"]
         if self.use_linear:

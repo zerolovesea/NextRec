@@ -45,7 +45,8 @@ embedding，无需手工构造交叉特征即可端到端训练，常用于 CTR/
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import FM, LR, MLP, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import FM, LR, MLP, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -111,7 +112,7 @@ class DeepFM(BaseModel):
         self.linear = LR(fm_emb_dim_total)
         self.fm = FM(reduce_sum=True)
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.default_task)
+        self.prediction_layer = TaskHead(task_type=self.default_task)
 
         # Register regularization weights
         self.register_regularization_weights(

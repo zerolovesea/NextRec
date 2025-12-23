@@ -56,7 +56,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import LR, MLP, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import LR, MLP, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -186,7 +187,7 @@ class xDeepFM(BaseModel):
             [getattr(f, "embedding_dim", 1) or 1 for f in dense_features]
         )
         self.mlp = MLP(input_dim=deep_emb_dim_total + dense_input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(

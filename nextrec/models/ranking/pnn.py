@@ -38,7 +38,8 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import MLP, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -136,7 +137,7 @@ class PNN(BaseModel):
             product_dim = 2 * self.num_pairs
 
         self.mlp = MLP(input_dim=linear_dim + product_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         modules = ["mlp"]
         if self.kernel is not None:

@@ -58,7 +58,8 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import EmbeddingLayer, MultiHeadSelfAttention, PredictionLayer
+from nextrec.basic.layers import EmbeddingLayer, MultiHeadSelfAttention
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -162,7 +163,7 @@ class AutoInt(BaseModel):
 
         # Final prediction layer
         self.fc = nn.Linear(num_fields * att_embedding_dim, 1)
-        self.prediction_layer = PredictionLayer(task_type=self.default_task)
+        self.prediction_layer = TaskHead(task_type=self.default_task)
 
         # Register regularization weights
         self.register_regularization_weights(

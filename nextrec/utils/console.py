@@ -203,11 +203,25 @@ def progress(iterable, *, description=None, total=None, disable=False):
         console=console,
     )
 
-    with progress_bar:
-        task_id = progress_bar.add_task(description or "Working", total=resolved_total)
-        for item in iterable:
-            yield item
-            progress_bar.advance(task_id, 1)
+    if hasattr(progress_bar, "__enter__"):
+        with progress_bar:
+            task_id = progress_bar.add_task(
+                description or "Working", total=resolved_total
+            )
+            for item in iterable:
+                yield item
+                progress_bar.advance(task_id, 1)
+    else:
+        progress_bar.start()
+        try:
+            task_id = progress_bar.add_task(
+                description or "Working", total=resolved_total
+            )
+            for item in iterable:
+                yield item
+                progress_bar.advance(task_id, 1)
+        finally:
+            progress_bar.stop()
 
 
 def group_metrics_by_task(
