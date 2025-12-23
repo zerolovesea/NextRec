@@ -58,7 +58,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import MLP, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -282,7 +283,7 @@ class MaskNet(BaseModel):
                 input_dim=self.num_blocks * block_hidden_dim, **mlp_params
             )
             self.output_layer = None
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         if self.architecture == "serial":
             self.register_regularization_weights(

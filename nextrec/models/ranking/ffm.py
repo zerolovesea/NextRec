@@ -43,7 +43,8 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import AveragePooling, InputMask, PredictionLayer, SumPooling
+from nextrec.basic.layers import AveragePooling, InputMask, SumPooling
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.torch_utils import get_initializer
 
@@ -140,7 +141,7 @@ class FFM(BaseModel):
             nn.Linear(dense_input_dim, 1, bias=True) if dense_input_dim > 0 else None
         )
 
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
         self.input_mask = InputMask()
         self.mean_pool = AveragePooling()
         self.sum_pool = SumPooling()

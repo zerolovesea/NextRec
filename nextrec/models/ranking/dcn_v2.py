@@ -47,7 +47,8 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import MLP, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -272,7 +273,7 @@ class DCNv2(BaseModel):
             final_input_dim = input_dim
 
         self.final_layer = nn.Linear(final_input_dim, 1)
-        self.prediction_layer = PredictionLayer(task_type=self.default_task)
+        self.prediction_layer = TaskHead(task_type=self.default_task)
 
         self.register_regularization_weights(
             embedding_attr="embedding",

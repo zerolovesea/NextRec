@@ -45,7 +45,8 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import MLP, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import MLP, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -139,7 +140,7 @@ class ESMM(BaseModel):
         # CVR tower
         self.cvr_tower = MLP(input_dim=input_dim, output_layer=True, **cvr_params)
         self.grad_norm_shared_modules = ["embedding"]
-        self.prediction_layer = PredictionLayer(
+        self.prediction_layer = TaskHead(
             task_type=self.default_task, task_dims=[1, 1]
         )
         # Register regularization weights

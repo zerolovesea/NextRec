@@ -38,6 +38,7 @@ from nextrec.basic.features import (
     SequenceFeature,
     SparseFeature,
 )
+from nextrec.basic.heads import RetrievalHead
 from nextrec.basic.loggers import TrainingLogger, colorize, format_kv, setup_logger
 from nextrec.basic.metrics import check_user_id, configure_metrics, evaluate_metrics
 from nextrec.basic.session import create_session, resolve_save_path
@@ -2115,6 +2116,12 @@ class BaseMatchModel(BaseModel):
         )
         self.user_feature_names = {feature.name for feature in self.user_features_all}
         self.item_feature_names = {feature.name for feature in self.item_features_all}
+        self.head = RetrievalHead(
+            similarity_metric=self.similarity_metric,
+            temperature=self.temperature,
+            training_mode=self.training_mode,
+            apply_sigmoid=True,
+        )
 
     def compile(
         self,
@@ -2244,15 +2251,9 @@ class BaseMatchModel(BaseModel):
         user_emb = self.user_tower(user_input)  # [B, D]
         item_emb = self.item_tower(item_input)  # [B, D]
 
-        if self.training and self.training_mode in ["pairwise", "listwise"]:
-            return user_emb, item_emb
-
-        similarity = self.compute_similarity(user_emb, item_emb)  # [B]
-
-        if self.training_mode == "pointwise":
-            return torch.sigmoid(similarity)
-        else:
-            return similarity
+        return self.head(
+            user_emb, item_emb, similarity_fn=self.compute_similarity
+        )
 
     def compute_loss(self, y_pred, y_true):
         if self.training_mode == "pointwise":

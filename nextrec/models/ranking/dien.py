@@ -55,8 +55,8 @@ from nextrec.basic.layers import (
     MLP,
     AttentionPoolingLayer,
     EmbeddingLayer,
-    PredictionLayer,
 )
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -346,7 +346,7 @@ class DIEN(BaseModel):
         )
 
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         self.register_regularization_weights(
             embedding_attr="embedding",

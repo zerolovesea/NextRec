@@ -42,7 +42,8 @@ Wide & Deep 同时使用宽线性部分（记忆共现/手工交叉）与深网�
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.layers import LR, MLP, EmbeddingLayer, PredictionLayer
+from nextrec.basic.layers import LR, MLP, EmbeddingLayer
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -114,7 +115,7 @@ class WideDeep(BaseModel):
         # deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
         # dense_input_dim = sum([getattr(f, "embedding_dim", 1) or 1 for f in dense_features])
         self.mlp = MLP(input_dim=input_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["linear", "mlp"]

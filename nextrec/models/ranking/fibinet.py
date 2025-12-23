@@ -50,9 +50,9 @@ from nextrec.basic.layers import (
     BiLinearInteractionLayer,
     EmbeddingLayer,
     HadamardInteractionLayer,
-    PredictionLayer,
     SENETLayer,
 )
+from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 
 
@@ -168,7 +168,7 @@ class FiBiNET(BaseModel):
         num_pairs = self.num_fields * (self.num_fields - 1) // 2
         interaction_dim = num_pairs * self.embedding_dim * 2
         self.mlp = MLP(input_dim=interaction_dim, **mlp_params)
-        self.prediction_layer = PredictionLayer(task_type=self.default_task)
+        self.prediction_layer = TaskHead(task_type=self.default_task)
 
         # Register regularization weights
         self.register_regularization_weights(

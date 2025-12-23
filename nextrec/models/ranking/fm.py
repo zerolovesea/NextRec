@@ -42,7 +42,8 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FM as FMInteraction
-from nextrec.basic.layers import LR, EmbeddingLayer, PredictionLayer
+from nextrec.basic.heads import TaskHead
+from nextrec.basic.layers import LR, EmbeddingLayer
 from nextrec.basic.model import BaseModel
 
 
@@ -105,7 +106,7 @@ class FM(BaseModel):
         fm_input_dim = sum([f.embedding_dim for f in self.fm_features])
         self.linear = LR(fm_input_dim)
         self.fm = FMInteraction(reduce_sum=True)
-        self.prediction_layer = PredictionLayer(task_type=self.task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(
