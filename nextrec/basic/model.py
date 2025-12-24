@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 20/12/2025
+Checkpoint: edit on 24/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -49,6 +49,7 @@ from nextrec.data.dataloader import (
     TensorDictDataset,
     build_tensors_from_data,
 )
+from nextrec.utils.data import check_streaming_support
 from nextrec.loss import (
     BPRLoss,
     GradNormLossWeighting,
@@ -69,6 +70,7 @@ from nextrec.utils.torch_utils import (
     init_process_group,
     to_tensor,
 )
+from nextrec.utils.model import compute_ranking_loss
 
 
 class BaseModel(FeatureSet, nn.Module):
@@ -88,13 +90,18 @@ class BaseModel(FeatureSet, nn.Module):
         target: list[str] | str | None = None,
         id_columns: list[str] | str | None = None,
         task: str | list[str] | None = None,
+        training_mode: (
+            Literal["pointwise", "pairwise", "listwise"]
+            | list[Literal["pointwise", "pairwise", "listwise"]]
+        ) = "pointwise",
         embedding_l1_reg: float = 0.0,
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
         dense_l2_reg: float = 0.0,
         device: str = "cpu",
         early_stop_patience: int = 20,
-        max_metrics_samples: int | None = 200000,
+        early_stop_monitor_task: str | None = None,
+        metrics_sample_limit: int | None = 200000,
         session_id: str | None = None,
         callbacks: list[Callback] | None = None,
         distributed: bool = False,
@@ -113,6 +120,7 @@ class BaseModel(FeatureSet, nn.Module):
             target: Target column name. e.g., 'label' or ['label1', 'label2'].
             id_columns: Identifier column name, only need to specify if GAUC is required. e.g., 'user_id'.
             task: Task types, e.g., 'binary', 'regression', or ['binary', 'regression']. If None, falls back to self.default_task.
+            training_mode: Training mode for ranking tasks; a single mode or a list per task.
 
             embedding_l1_reg: L1 regularization strength for embedding params. e.g., 1e-6.
             dense_l1_reg: L1 regularization strength for dense params. e.g., 1e-5.
@@ -121,7 +129,8 @@ class BaseModel(FeatureSet, nn.Module):
 
             device: Torch device string or torch.device. e.g., 'cpu', 'cuda:0'.
             early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
-            max_metrics_samples: Max samples to keep for training metrics. None disables limit.
+            early_stop_monitor_task: Task name to monitor for early stopping in multi-task scenario. If None, uses first target. e.g., 'click'.
+            metrics_sample_limit: Max samples to keep for training metrics. None disables limit.
             session_id: Session id for logging. If None, a default id with timestamps will be created. e.g., 'session_tutorial'.
             callbacks: List of callback instances. If None, default callbacks will be created. e.g., [EarlyStopper(), CheckpointSaver()].
 
@@ -150,9 +159,11 @@ class BaseModel(FeatureSet, nn.Module):
         self.session = create_session(session_id)
         self.session_path = self.session.root  # pwd/session_id, path for this session
         self.checkpoint_path = os.path.join(
-            self.session_path, self.model_name + "_checkpoint.pt"
+            self.session_path, self.model_name.upper() + "_checkpoint.pt"
         )  # e.g., pwd/session_id/DeepFM_checkpoint.pt
-        self.best_path = os.path.join(self.session_path, self.model_name + "_best.pt")
+        self.best_path = os.path.join(
+            self.session_path, self.model_name.upper() + "_best.pt"
+        )
         self.features_config_path = os.path.join(
             self.session_path, "features_config.pkl"
         )
@@ -162,6 +173,22 @@ class BaseModel(FeatureSet, nn.Module):
 
         self.task = self.default_task if task is None else task
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
+        if isinstance(training_mode, list):
+            if len(training_mode) != self.nums_task:
+                raise ValueError(
+                    "[BaseModel-init Error] training_mode list length must match number of tasks."
+                )
+            self.training_modes = list(training_mode)
+        else:
+            self.training_modes = [training_mode] * self.nums_task
+        for mode in self.training_modes:
+            if mode not in {"pointwise", "pairwise", "listwise"}:
+                raise ValueError(
+                    "[BaseModel-init Error] training_mode must be one of {'pointwise', 'pairwise', 'listwise'}."
+                )
+        self.training_mode = (
+            self.training_modes if self.nums_task > 1 else self.training_modes[0]
+        )
 
         self.embedding_l1_reg = embedding_l1_reg
         self.dense_l1_reg = dense_l1_reg
@@ -172,9 +199,10 @@ class BaseModel(FeatureSet, nn.Module):
         self.loss_weight = None
 
         self.early_stop_patience = early_stop_patience
+        self.early_stop_monitor_task = early_stop_monitor_task
         # max samples to keep for training metrics, in case of large training set
-        self.max_metrics_samples = (
-            None if max_metrics_samples is None else int(max_metrics_samples)
+        self.metrics_sample_limit = (
+            None if metrics_sample_limit is None else int(metrics_sample_limit)
         )
         self.max_gradient_norm = 1.0
         self.logger_initialized = False
@@ -398,6 +426,33 @@ class BaseModel(FeatureSet, nn.Module):
                 Use "grad_norm" or {"method": "grad_norm", ...} to enable GradNorm for multi-task loss balancing.
             callbacks: Additional callbacks to add to the existing callback list. e.g., [EarlyStopper(), CheckpointSaver()].
         """
+        default_losses = {
+            "pointwise": "bce",
+            "pairwise": "bpr",
+            "listwise": "listnet",
+        }
+        effective_loss = loss
+        if effective_loss is None:
+            loss_list = [default_losses[mode] for mode in self.training_modes]
+        elif isinstance(effective_loss, list):
+            if not effective_loss:
+                loss_list = [default_losses[mode] for mode in self.training_modes]
+            else:
+                if len(effective_loss) != self.nums_task:
+                    raise ValueError(
+                        f"[BaseModel-compile Error] Number of loss functions ({len(effective_loss)}) must match number of tasks ({self.nums_task})."
+                    )
+                loss_list = list(effective_loss)
+        else:
+            loss_list = [effective_loss] * self.nums_task
+
+        for idx, mode in enumerate(self.training_modes):
+            if isinstance(loss_list[idx], str) and loss_list[idx] in {
+                "bce",
+                "binary_crossentropy",
+            }:
+                if mode in {"pairwise", "listwise"}:
+                    loss_list[idx] = default_losses[mode]
         if loss_params is None:
             self.loss_params = {}
         else:
@@ -427,16 +482,8 @@ class BaseModel(FeatureSet, nn.Module):
             else None
         )
 
-        self.loss_config = loss
+        self.loss_config = loss_list if self.nums_task > 1 else loss_list[0]
         self.loss_params = loss_params or {}
-        if isinstance(loss, list):
-            if len(loss) != self.nums_task:
-                raise ValueError(
-                    f"[BaseModel-compile Error] Number of loss functions ({len(loss)}) must match number of tasks ({self.nums_task})."
-                )
-            loss_list = list(loss)
-        else:
-            loss_list = [loss] * self.nums_task
         if isinstance(self.loss_params, dict):
             loss_params_list = [self.loss_params] * self.nums_task
         else:
@@ -457,7 +504,7 @@ class BaseModel(FeatureSet, nn.Module):
                     "[BaseModel-compile Error] GradNorm requires multi-task setup."
                 )
             self.grad_norm = GradNormLossWeighting(
-                num_tasks=self.nums_task, device=self.device
+                nums_task=self.nums_task, device=self.device
             )
             self.loss_weights = None
         elif (
@@ -470,7 +517,7 @@ class BaseModel(FeatureSet, nn.Module):
             grad_norm_params = dict(loss_weights)
             grad_norm_params.pop("method", None)
             self.grad_norm = GradNormLossWeighting(
-                num_tasks=self.nums_task, device=self.device, **grad_norm_params
+                nums_task=self.nums_task, device=self.device, **grad_norm_params
             )
             self.loss_weights = None
         elif loss_weights is None:
@@ -508,6 +555,7 @@ class BaseModel(FeatureSet, nn.Module):
             raise ValueError(
                 "[BaseModel-compute_loss Error] Ground truth labels (y_true) are required."
             )
+        # single-task
         if self.nums_task == 1:
             if y_pred.dim() == 1:
                 y_pred = y_pred.view(-1, 1)
@@ -515,16 +563,30 @@ class BaseModel(FeatureSet, nn.Module):
                 y_true = y_true.view(-1, 1)
             if y_pred.shape != y_true.shape:
                 raise ValueError(f"Shape mismatch: {y_pred.shape} vs {y_true.shape}")
+            loss_fn = self.loss_fn[0] if getattr(self, "loss_fn", None) else None
+            if loss_fn is None:
+                raise ValueError(
+                    "[BaseModel-compute_loss Error] Loss function is not configured. Call compile() first."
+                )
+            mode = self.training_modes[0]
             task_dim = (
                 self.task_dims[0] if hasattr(self, "task_dims") else y_pred.shape[1]  # type: ignore
             )
-            if task_dim == 1:
-                loss = self.loss_fn[0](y_pred.view(-1), y_true.view(-1))
+            if mode in {"pairwise", "listwise"}:
+                loss = compute_ranking_loss(
+                    training_mode=mode,
+                    loss_fn=loss_fn,
+                    y_pred=y_pred,
+                    y_true=y_true,
+                )
+            elif task_dim == 1:
+                loss = loss_fn(y_pred.view(-1), y_true.view(-1))
             else:
-                loss = self.loss_fn[0](y_pred, y_true)
+                loss = loss_fn(y_pred, y_true)
             if self.loss_weights is not None:
                 loss *= self.loss_weights[0]
             return loss
+
         # multi-task
         if y_pred.shape != y_true.shape:
             raise ValueError(f"Shape mismatch: {y_pred.shape} vs {y_true.shape}")
@@ -537,7 +599,16 @@ class BaseModel(FeatureSet, nn.Module):
         for i, (start, end) in enumerate(slices):  # type: ignore
             y_pred_i = y_pred[:, start:end]
             y_true_i = y_true[:, start:end]
-            task_loss = self.loss_fn[i](y_pred_i, y_true_i)
+            mode = self.training_modes[i]
+            if mode in {"pairwise", "listwise"}:
+                task_loss = compute_ranking_loss(
+                    training_mode=mode,
+                    loss_fn=self.loss_fn[i],
+                    y_pred=y_pred_i,
+                    y_true=y_true_i,
+                )
+            else:
+                task_loss = self.loss_fn[i](y_pred_i, y_true_i)
             task_losses.append(task_loss)
         if self.grad_norm is not None:
             if self.grad_norm_shared_params is None:
@@ -603,8 +674,8 @@ class BaseModel(FeatureSet, nn.Module):
         user_id_column: str | None = None,
         validation_split: float | None = None,
         num_workers: int = 0,
-        tensorboard: bool = True,
-        auto_distributed_sampler: bool = True,
+        use_tensorboard: bool = True,
+        auto_ddp_sampler: bool = True,
         log_interval: int = 1,
     ):
         """
@@ -620,8 +691,8 @@ class BaseModel(FeatureSet, nn.Module):
             user_id_column: Column name for GAUC-style metrics;.
             validation_split: Ratio to split training data when valid_data is None.
             num_workers: DataLoader worker count.
-            tensorboard: Enable tensorboard logging.
-            auto_distributed_sampler: Attach DistributedSampler automatically when distributed, set False to when data is already sharded per rank.
+            use_tensorboard: Enable tensorboard logging.
+            auto_ddp_sampler: Attach DistributedSampler automatically when distributed, set False to when data is already sharded per rank.
             log_interval: Log validation metrics every N epochs (still computes metrics each epoch).
 
         Notes:
@@ -663,7 +734,7 @@ class BaseModel(FeatureSet, nn.Module):
             setup_logger(session_id=self.session_id)
             self.logger_initialized = True
         self.training_logger = (
-            TrainingLogger(session=self.session, enable_tensorboard=tensorboard)
+            TrainingLogger(session=self.session, use_tensorboard=use_tensorboard)
             if self.is_main_process
             else None
         )
@@ -681,18 +752,21 @@ class BaseModel(FeatureSet, nn.Module):
         if self.nums_task == 1:
             monitor_metric = f"val_{self.metrics[0]}"
         else:
-            monitor_metric = f"val_{self.metrics[0]}_{self.target_columns[0]}"
+            # Determine which task to monitor for early stopping
+            monitor_task = self.early_stop_monitor_task
+            if monitor_task is None:
+                monitor_task = self.target_columns[0]
+            elif monitor_task not in self.target_columns:
+                raise ValueError(
+                    f"[BaseModel-fit Error] early_stop_monitor_task '{monitor_task}' not found in target_columns {self.target_columns}."
+                )
+            monitor_metric = f"val_{self.metrics[0]}_{monitor_task}"
 
         existing_callbacks = self.callbacks.callbacks
-        has_early_stop = any(isinstance(cb, EarlyStopper) for cb in existing_callbacks)
-        has_checkpoint = any(
-            isinstance(cb, CheckpointSaver) for cb in existing_callbacks
-        )
-        has_lr_scheduler = any(
-            isinstance(cb, LearningRateScheduler) for cb in existing_callbacks
-        )
 
-        if self.early_stop_patience > 0 and not has_early_stop:
+        if self.early_stop_patience > 0 and not any(
+            isinstance(cb, EarlyStopper) for cb in existing_callbacks
+        ):
             self.callbacks.append(
                 EarlyStopper(
                     monitor=monitor_metric,
@@ -703,7 +777,9 @@ class BaseModel(FeatureSet, nn.Module):
                 )
             )
 
-        if self.is_main_process and not has_checkpoint:
+        if self.is_main_process and not any(
+            isinstance(cb, CheckpointSaver) for cb in existing_callbacks
+        ):
             self.callbacks.append(
                 CheckpointSaver(
                     best_path=self.best_path,
@@ -715,7 +791,9 @@ class BaseModel(FeatureSet, nn.Module):
                 )
             )
 
-        if self.scheduler_fn is not None and not has_lr_scheduler:
+        if self.scheduler_fn is not None and not any(
+            isinstance(cb, LearningRateScheduler) for cb in existing_callbacks
+        ):
             self.callbacks.append(
                 LearningRateScheduler(
                     scheduler=self.scheduler_fn,
@@ -738,16 +816,16 @@ class BaseModel(FeatureSet, nn.Module):
         self.stop_training = False
         self.best_checkpoint_path = self.best_path
         use_ddp_sampler = (
-            auto_distributed_sampler
+            auto_ddp_sampler
             and self.distributed
             and dist.is_available()
             and dist.is_initialized()
         )
 
-        if not auto_distributed_sampler and self.distributed and self.is_main_process:
+        if not auto_ddp_sampler and self.distributed and self.is_main_process:
             logging.info(
                 colorize(
-                    "[Distributed Info] auto_distributed_sampler=False; assuming data is already sharded per rank.",
+                    "[Distributed Info] auto_ddp_sampler=False; assuming data is already sharded per rank.",
                     color="yellow",
                 )
             )
@@ -826,12 +904,12 @@ class BaseModel(FeatureSet, nn.Module):
         # If split-based loader was built without sampler, attach here when enabled
         if (
             self.distributed
-            and auto_distributed_sampler
+            and auto_ddp_sampler
             and isinstance(train_loader, DataLoader)
             and train_sampler is None
         ):
             raise NotImplementedError(
-                "[BaseModel-fit Error] auto_distributed_sampler with pre-defined DataLoader is not supported yet."
+                "[BaseModel-fit Error] auto_ddp_sampler with pre-defined DataLoader is not supported yet."
             )
             # train_loader, train_sampler = add_distributed_sampler(train_loader, distributed=self.distributed, world_size=self.world_size, rank=self.rank, shuffle=shuffle, drop_last=True, default_batch_size=batch_size, is_main_process=self.is_main_process)
 
@@ -841,7 +919,7 @@ class BaseModel(FeatureSet, nn.Module):
             needs_user_ids=self.needs_user_ids,
             user_id_column=user_id_column,
             num_workers=num_workers,
-            auto_distributed_sampler=auto_distributed_sampler,
+            auto_ddp_sampler=auto_ddp_sampler,
         )
         try:
             self.steps_per_epoch = len(train_loader)
@@ -863,7 +941,7 @@ class BaseModel(FeatureSet, nn.Module):
             logging.info("")
             tb_dir = (
                 self.training_logger.tensorboard_logdir
-                if self.training_logger and self.training_logger.enable_tensorboard
+                if self.training_logger and self.training_logger.use_tensorboard
                 else None
             )
             if tb_dir:
@@ -1055,7 +1133,7 @@ class BaseModel(FeatureSet, nn.Module):
         y_true_list = []
         y_pred_list = []
         collect_metrics = getattr(self, "collect_train_metrics", True)
-        max_samples = getattr(self, "max_metrics_samples", None)
+        max_samples = getattr(self, "metrics_sample_limit", None)
         collected_samples = 0
         metrics_capped = False
 
@@ -1184,14 +1262,14 @@ class BaseModel(FeatureSet, nn.Module):
         needs_user_ids: bool,
         user_id_column: str | None = "user_id",
         num_workers: int = 0,
-        auto_distributed_sampler: bool = True,
+        auto_ddp_sampler: bool = True,
     ) -> tuple[DataLoader | None, np.ndarray | None]:
         if valid_data is None:
             return None, None
         if isinstance(valid_data, DataLoader):
-            if auto_distributed_sampler and self.distributed:
+            if auto_ddp_sampler and self.distributed:
                 raise NotImplementedError(
-                    "[BaseModel-prepare_validation_data Error] auto_distributed_sampler with pre-defined DataLoader is not supported yet."
+                    "[BaseModel-prepare_validation_data Error] auto_ddp_sampler with pre-defined DataLoader is not supported yet."
                 )
                 # valid_loader, _ = add_distributed_sampler(valid_data, distributed=self.distributed, world_size=self.world_size, rank=self.rank, shuffle=False, drop_last=False, default_batch_size=batch_size, is_main_process=self.is_main_process)
             else:
@@ -1200,7 +1278,7 @@ class BaseModel(FeatureSet, nn.Module):
         valid_sampler = None
         valid_loader, valid_dataset = self.prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False, num_workers=num_workers, return_dataset=True)  # type: ignore
         if (
-            auto_distributed_sampler
+            auto_ddp_sampler
             and self.distributed
             and valid_dataset is not None
             and dist.is_available()
@@ -1373,11 +1451,11 @@ class BaseModel(FeatureSet, nn.Module):
         data: str | dict | pd.DataFrame | DataLoader,
         batch_size: int = 32,
         save_path: str | os.PathLike | None = None,
-        save_format: Literal["csv", "parquet"] = "csv",
+        save_format: str = "csv",
         include_ids: bool | None = None,
         id_columns: str | list[str] | None = None,
         return_dataframe: bool = True,
-        streaming_chunk_size: int = 10000,
+        stream_chunk_size: int = 10000,
         num_workers: int = 0,
     ) -> pd.DataFrame | np.ndarray | Path | None:
         """
@@ -1392,7 +1470,7 @@ class BaseModel(FeatureSet, nn.Module):
             include_ids: Whether to include ID columns in the output; if None, includes if id_columns are set.
             id_columns: Column name(s) to use as IDs; if None, uses model's id_columns.
             return_dataframe: Whether to return predictions as a pandas DataFrame; if False, returns a NumPy array.
-            streaming_chunk_size: Number of rows per chunk when using streaming mode for large datasets.
+            stream_chunk_size: Number of rows per chunk when using streaming mode for large datasets.
             num_workers: DataLoader worker count.
         """
         self.eval()
@@ -1413,7 +1491,7 @@ class BaseModel(FeatureSet, nn.Module):
                 save_path=save_path,
                 save_format=save_format,
                 include_ids=include_ids,
-                streaming_chunk_size=streaming_chunk_size,
+                stream_chunk_size=stream_chunk_size,
                 return_dataframe=return_dataframe,
                 id_columns=predict_id_columns,
             )
@@ -1439,7 +1517,7 @@ class BaseModel(FeatureSet, nn.Module):
                 batch_size=batch_size,
                 shuffle=False,
                 streaming=True,
-                chunk_size=streaming_chunk_size,
+                chunk_size=stream_chunk_size,
             )
         else:
             data_loader = self.prepare_data_loader(
@@ -1517,11 +1595,18 @@ class BaseModel(FeatureSet, nn.Module):
                 else y_pred_all
             )
         if save_path is not None:
-            if save_format not in ("csv", "parquet"):
-                raise ValueError(
-                    f"[BaseModel-predict Error] Unsupported save_format '{save_format}'. Choose from 'csv' or 'parquet'."
+            # Check streaming write support
+            if not check_streaming_support(save_format):
+                logging.warning(
+                    f"[BaseModel-predict Warning] Format '{save_format}' does not support streaming writes. "
+                    "The entire result will be saved at once. Use csv or parquet for large datasets."
                 )
-            suffix = ".csv" if save_format == "csv" else ".parquet"
+
+            # Get file extension from format
+            from nextrec.utils.data import FILE_FORMAT_CONFIG
+
+            suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
+
             target_path = resolve_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
@@ -1540,10 +1625,21 @@ class BaseModel(FeatureSet, nn.Module):
                             f"[BaseModel-predict Error] Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_to_save)})."
                         )
                     df_to_save = pd.concat([id_df, df_to_save], axis=1)
+
+            # Save based on format
             if save_format == "csv":
                 df_to_save.to_csv(target_path, index=False)
-            else:
+            elif save_format == "parquet":
                 df_to_save.to_parquet(target_path, index=False)
+            elif save_format == "feather":
+                df_to_save.to_feather(target_path)
+            elif save_format == "excel":
+                df_to_save.to_excel(target_path, index=False)
+            elif save_format == "hdf5":
+                df_to_save.to_hdf(target_path, key="predictions", mode="w")
+            else:
+                raise ValueError(f"Unsupported save format: {save_format}")
+
             logging.info(
                 colorize(f"Predictions saved to: {target_path}", color="green")
             )
@@ -1554,9 +1650,9 @@ class BaseModel(FeatureSet, nn.Module):
         data: str | dict | pd.DataFrame | DataLoader,
         batch_size: int,
         save_path: str | os.PathLike,
-        save_format: Literal["csv", "parquet"],
+        save_format: str,
         include_ids: bool,
-        streaming_chunk_size: int,
+        stream_chunk_size: int,
         return_dataframe: bool,
         id_columns: list[str] | None = None,
     ) -> pd.DataFrame | Path:
@@ -1573,7 +1669,7 @@ class BaseModel(FeatureSet, nn.Module):
                 batch_size=batch_size,
                 shuffle=False,
                 streaming=True,
-                chunk_size=streaming_chunk_size,
+                chunk_size=stream_chunk_size,
             )
         elif not isinstance(data, DataLoader):
             data_loader = self.prepare_data_loader(
@@ -1595,7 +1691,17 @@ class BaseModel(FeatureSet, nn.Module):
                         "When using streaming mode, set num_workers=0 to avoid reading data multiple times."
                     )
 
-        suffix = ".csv" if save_format == "csv" else ".parquet"
+        # Check streaming support and prepare file path
+        if not check_streaming_support(save_format):
+            logging.warning(
+                f"[Predict Streaming Warning] Format '{save_format}' does not support streaming writes. "
+                "Results will be collected in memory and saved at the end. Use csv or parquet for true streaming."
+            )
+
+        from nextrec.utils.data import FILE_FORMAT_CONFIG
+
+        suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
+
         target_path = resolve_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
@@ -1606,9 +1712,10 @@ class BaseModel(FeatureSet, nn.Module):
         target_path.parent.mkdir(parents=True, exist_ok=True)
         header_written = target_path.exists() and target_path.stat().st_size > 0
         parquet_writer = None
-
         pred_columns = None
-        collected_frames = []  # only used when return_dataframe is True
+        collected_frames = (
+            []
+        )  # used when return_dataframe=True or for non-streaming formats
 
         with torch.no_grad():
             for batch_data in progress(data_loader, description="Predicting"):
@@ -1650,27 +1757,48 @@ class BaseModel(FeatureSet, nn.Module):
                         )
                     df_batch = pd.concat([id_df, df_batch], axis=1)
 
+                # Streaming save based on format
                 if save_format == "csv":
                     df_batch.to_csv(
                         target_path, mode="a", header=not header_written, index=False
                     )
                     header_written = True
-                else:
+                elif save_format == "parquet":
                     try:
                         import pyarrow as pa
                         import pyarrow.parquet as pq
                     except ImportError as exc:  # pragma: no cover
                         raise ImportError(
-                            "[BaseModel-predict-streaming Error] Parquet streaming save requires pyarrow to be installed."
+                            "[BaseModel-predict-streaming Error] Parquet streaming save requires pyarrow."
                         ) from exc
                     table = pa.Table.from_pandas(df_batch, preserve_index=False)
                     if parquet_writer is None:
                         parquet_writer = pq.ParquetWriter(target_path, table.schema)
                     parquet_writer.write_table(table)
-                if return_dataframe:
+                else:
+                    # Non-streaming formats: collect all data
                     collected_frames.append(df_batch)
+
+                if return_dataframe:
+                    if (
+                        save_format in ["csv", "parquet"]
+                        and df_batch not in collected_frames
+                    ):
+                        collected_frames.append(df_batch)
+
+        # Close writers
         if parquet_writer is not None:
             parquet_writer.close()
+        # For non-streaming formats, save collected data
+        if save_format in ["feather", "excel", "hdf5"] and collected_frames:
+            combined_df = pd.concat(collected_frames, ignore_index=True)
+            if save_format == "feather":
+                combined_df.to_feather(target_path)
+            elif save_format == "excel":
+                combined_df.to_excel(target_path, index=False)
+            elif save_format == "hdf5":
+                combined_df.to_hdf(target_path, key="predictions", mode="w")
+
         logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         if return_dataframe:
             return (
@@ -1691,7 +1819,7 @@ class BaseModel(FeatureSet, nn.Module):
         target_path = resolve_save_path(
             path=save_path,
             default_dir=self.session_path,
-            default_name=self.model_name,
+            default_name=self.model_name.upper(),
             suffix=".pt",
             add_timestamp=add_timestamp,
         )
@@ -1845,7 +1973,9 @@ class BaseModel(FeatureSet, nn.Module):
         logger.info("")
         logger.info(
             colorize(
-                f"Model Summary: {self.model_name}", color="bright_blue", bold=True
+                f"Model Summary: {self.model_name.upper()}",
+                color="bright_blue",
+                bold=True,
             )
         )
         logger.info("")
@@ -1976,7 +2106,7 @@ class BaseModel(FeatureSet, nn.Module):
         logger.info("Other Settings:")
         logger.info(f"  Early Stop Patience:   {self.early_stop_patience}")
         logger.info(f"  Max Gradient Norm:     {self.max_gradient_norm}")
-        logger.info(f"  Max Metrics Samples:   {self.max_metrics_samples}")
+        logger.info(f"  Max Metrics Samples:   {self.metrics_sample_limit}")
         logger.info(f"  Session ID:            {self.session_id}")
         logger.info(f"  Features Config Path:  {self.features_config_path}")
         logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")
@@ -2146,7 +2276,7 @@ class BaseMatchModel(BaseModel):
         """
         if self.training_mode not in self.support_training_modes:
             raise ValueError(
-                f"{self.model_name} does not support training_mode='{self.training_mode}'. Supported modes: {self.support_training_modes}"
+                f"{self.model_name.upper()} does not support training_mode='{self.training_mode}'. Supported modes: {self.support_training_modes}"
             )
 
         default_loss_by_mode: dict[str, str] = {
@@ -2251,9 +2381,7 @@ class BaseMatchModel(BaseModel):
         user_emb = self.user_tower(user_input)  # [B, D]
         item_emb = self.item_tower(item_input)  # [B, D]
 
-        return self.head(
-            user_emb, item_emb, similarity_fn=self.compute_similarity
-        )
+        return self.head(user_emb, item_emb, similarity_fn=self.compute_similarity)
 
     def compute_loss(self, y_pred, y_true):
         if self.training_mode == "pointwise":
@@ -2309,7 +2437,7 @@ class BaseMatchModel(BaseModel):
         features: list,
         batch_size: int,
         num_workers: int = 0,
-        streaming_chunk_size: int = 10000,
+        stream_chunk_size: int = 10000,
     ) -> DataLoader:
         """Prepare data loader for specific features."""
         if isinstance(data, DataLoader):
@@ -2330,7 +2458,7 @@ class BaseMatchModel(BaseModel):
                 batch_size=batch_size,
                 shuffle=False,
                 streaming=True,
-                chunk_size=streaming_chunk_size,
+                chunk_size=stream_chunk_size,
                 num_workers=num_workers,
             )
         tensors = build_tensors_from_data(
@@ -2383,7 +2511,7 @@ class BaseMatchModel(BaseModel):
         ),
         batch_size: int = 512,
         num_workers: int = 0,
-        streaming_chunk_size: int = 10000,
+        stream_chunk_size: int = 10000,
     ) -> np.ndarray:
         self.eval()
         data_loader = self.prepare_feature_data(
@@ -2391,7 +2519,7 @@ class BaseMatchModel(BaseModel):
             self.user_features_all,
             batch_size,
             num_workers=num_workers,
-            streaming_chunk_size=streaming_chunk_size,
+            stream_chunk_size=stream_chunk_size,
         )
 
         embeddings_list = []
@@ -2417,7 +2545,7 @@ class BaseMatchModel(BaseModel):
         ),
         batch_size: int = 512,
         num_workers: int = 0,
-        streaming_chunk_size: int = 10000,
+        stream_chunk_size: int = 10000,
     ) -> np.ndarray:
         self.eval()
         data_loader = self.prepare_feature_data(
@@ -2425,7 +2553,7 @@ class BaseMatchModel(BaseModel):
             self.item_features_all,
             batch_size,
             num_workers=num_workers,
-            streaming_chunk_size=streaming_chunk_size,
+            stream_chunk_size=stream_chunk_size,
         )
 
         embeddings_list = []

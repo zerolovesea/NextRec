@@ -1,5 +1,6 @@
 """
 Date: create on 28/11/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 [1] Wang et al. "POSO: Personalized Cold Start Modules for Large-scale Recommender Systems", 2021.
@@ -196,7 +197,7 @@ class POSOMMoE(nn.Module):
         pc_dim: int,  # for poso feature dimension
         num_experts: int,
         expert_hidden_dims: list[int],
-        num_tasks: int,
+        nums_task: int,
         activation: str = "relu",
         expert_dropout: float = 0.0,
         gate_hidden_dim: int = 32,  # for poso gate hidden dimension
@@ -205,7 +206,7 @@ class POSOMMoE(nn.Module):
     ) -> None:
         super().__init__()
         self.num_experts = num_experts
-        self.num_tasks = num_tasks
+        self.nums_task = nums_task
 
         # Experts built with framework MLP, same as standard MMoE
         self.experts = nn.ModuleList(
@@ -226,7 +227,7 @@ class POSOMMoE(nn.Module):
 
         # Task-specific gates: gate_t(x) over experts
         self.gates = nn.ModuleList(
-            [nn.Linear(input_dim, num_experts) for _ in range(num_tasks)]
+            [nn.Linear(input_dim, num_experts) for _ in range(nums_task)]
         )
         self.gate_use_softmax = gate_use_softmax
 
@@ -248,7 +249,7 @@ class POSOMMoE(nn.Module):
         """
         x:  (B, input_dim)
         pc: (B, pc_dim)
-        return: list of task outputs z_t with length num_tasks, each (B, D)
+        return: list of task outputs z_t with length nums_task, each (B, D)
         """
         # 1) Expert outputs with POSO PC gate
         masked_expert_outputs = []
@@ -262,7 +263,7 @@ class POSOMMoE(nn.Module):
 
         # 2) Task gates depend on x as in standard MMoE
         task_outputs: list[torch.Tensor] = []
-        for t in range(self.num_tasks):
+        for t in range(self.nums_task):
             logits = self.gates[t](x)  # (B, E)
             if self.gate_use_softmax:
                 gate = F.softmax(logits, dim=1)
@@ -289,9 +290,9 @@ class POSO(BaseModel):
 
     @property
     def default_task(self) -> list[str]:
-        num_tasks = getattr(self, "num_tasks", None)
-        if num_tasks is not None and num_tasks > 0:
-            return ["binary"] * num_tasks
+        nums_task = getattr(self, "nums_task", None)
+        if nums_task is not None and nums_task > 0:
+            return ["binary"] * nums_task
         return ["binary"]
 
     def __init__(
@@ -333,24 +334,24 @@ class POSO(BaseModel):
         dense_l2_reg: float = 1e-4,
         **kwargs,
     ):
-        self.num_tasks = len(target)
+        self.nums_task = len(target)
 
-        # Normalize task to match num_tasks
+        # Normalize task to match nums_task
         resolved_task = task
         if resolved_task is None:
             resolved_task = self.default_task
         elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.num_tasks
-        elif len(resolved_task) == 1 and self.num_tasks > 1:
-            resolved_task = resolved_task * self.num_tasks
-        elif len(resolved_task) != self.num_tasks:
+            resolved_task = [resolved_task] * self.nums_task
+        elif len(resolved_task) == 1 and self.nums_task > 1:
+            resolved_task = resolved_task * self.nums_task
+        elif len(resolved_task) != self.nums_task:
             raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
             )
 
-        if len(tower_params_list) != self.num_tasks:
+        if len(tower_params_list) != self.nums_task:
             raise ValueError(
-                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
+                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.nums_task})"
             )
 
         super().__init__(
@@ -466,7 +467,7 @@ class POSO(BaseModel):
                 pc_dim=self.pc_input_dim,
                 num_experts=num_experts,
                 expert_hidden_dims=expert_hidden_dims,
-                num_tasks=self.num_tasks,
+                nums_task=self.nums_task,
                 activation=expert_activation,
                 expert_dropout=expert_dropout,
                 gate_hidden_dim=expert_gate_hidden_dim,
@@ -490,7 +491,7 @@ class POSO(BaseModel):
             self.grad_norm_shared_modules = ["embedding", "mmoe"]
         self.prediction_layer = TaskHead(
             task_type=self.default_task,
-            task_dims=[1] * self.num_tasks,
+            task_dims=[1] * self.nums_task,
         )
         include_modules = (
             ["towers", "tower_heads"]

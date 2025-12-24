@@ -395,7 +395,7 @@ def train_model(train_config_path: str) -> None:
         shuffle=train_cfg.get("shuffle", True),
         num_workers=dataloader_cfg.get("num_workers", 0),
         user_id_column=id_column,
-        tensorboard=False,
+        use_tensorboard=False,
     )
 
 

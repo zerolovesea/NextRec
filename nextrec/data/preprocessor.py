@@ -2,7 +2,7 @@
 DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
 
 Date: create on 13/11/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 24/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -34,6 +34,8 @@ from nextrec.basic.session import resolve_save_path
 from nextrec.data.data_processing import hash_md5_mod
 from nextrec.utils.console import progress
 from nextrec.utils.data import (
+    FILE_FORMAT_CONFIG,
+    check_streaming_support,
     default_output_dir,
     iter_file_chunks,
     load_dataframes,
@@ -239,17 +241,9 @@ class DataProcessor(FeatureSet):
                     dtype=np.int64,
                     count=sparse_series.size,
                 )
-            le = self.label_encoders.get(name)
-            if le is None:
-                raise ValueError(
-                    f"[Data Processor Error] LabelEncoder for {name} not fitted"
-                )
-            cat = pd.Categorical(sparse_series, categories=le.classes_)
-            codes = cat.codes  # -1 indicates unknown category
-            unk_index = 0
-            if "<UNK>" in le.classes_:
-                unk_index = int(list(le.classes_).index("<UNK>"))
-            return np.where(codes < 0, unk_index, codes).astype(np.int64, copy=False)
+            raise ValueError(
+                f"[Data Processor Error] Token index for {name} not fitted"
+            )
 
         if encode_method == "hash":
             hash_size = config["hash_size"]
@@ -298,13 +292,11 @@ class DataProcessor(FeatureSet):
         split_fn = str.split
         is_nan = np.isnan
         if encode_method == "label":
-            class_to_idx = config.get("_token_to_idx") or config.get("_class_to_idx")
+            class_to_idx = config.get("_token_to_idx")
             if class_to_idx is None:
-                le = self.label_encoders.get(name)
-                if le is None:
-                    raise ValueError(f"LabelEncoder for {name} not fitted")
-                class_to_idx = {cls: idx for idx, cls in enumerate(le.classes_)}
-                config["_class_to_idx"] = class_to_idx
+                raise ValueError(
+                    f"[Data Processor Error] Token index for {name} not fitted"
+                )
             unk_index = int(config.get("_unk_index", class_to_idx.get("<UNK>", 0)))
         else:
             class_to_idx = None  # type: ignore
@@ -429,6 +421,12 @@ class DataProcessor(FeatureSet):
             )
         )
         file_paths, file_type = resolve_file_paths(path)
+        if not check_streaming_support(file_type):
+            raise ValueError(
+                f"[DataProcessor Error] Format '{file_type}' does not support streaming. "
+                "fit_from_path only supports streaming formats (csv, parquet) to avoid high memory usage. "
+                "Use fit(dataframe) with in-memory data or convert the data format."
+            )
 
         numeric_acc: Dict[str, Dict[str, float]] = {}
         for name in self.numeric_features.keys():
@@ -607,17 +605,16 @@ class DataProcessor(FeatureSet):
         data: Union[pd.DataFrame, Dict[str, Any]],
         return_dict: bool,
         persist: bool,
-        save_format: Optional[Literal["csv", "parquet"]],
+        save_format: Optional[str],
         output_path: Optional[str],
         warn_missing: bool = True,
     ):
         logger = logging.getLogger()
-        is_dataframe = isinstance(data, pd.DataFrame)
         data_dict = data if isinstance(data, dict) else None
 
-        result_dict: Dict[str, np.ndarray] = {}
-        if is_dataframe:
-            df: pd.DataFrame = data  # type: ignore[assignment]
+        result_dict = {}
+        if isinstance(data, pd.DataFrame):
+            df = data  # type: ignore[assignment]
             for col in df.columns:
                 result_dict[col] = df[col].to_numpy(copy=False)
         else:
@@ -631,7 +628,7 @@ class DataProcessor(FeatureSet):
                 else:
                     result_dict[key] = np.asarray(value)
 
-        data_columns = data.columns if is_dataframe else data_dict
+        data_columns = data.columns if isinstance(data, pd.DataFrame) else data_dict
         feature_groups = [
             ("Numeric", self.numeric_features, self.process_numeric_feature_transform),
             ("Sparse", self.sparse_features, self.process_sparse_feature_transform),
@@ -651,7 +648,7 @@ class DataProcessor(FeatureSet):
                     continue
                 series_data = (
                     data[name]
-                    if is_dataframe
+                    if isinstance(data, pd.DataFrame)
                     else pd.Series(result_dict[name], name=name)
                 )
                 result_dict[name] = transform_fn(series_data, config)
@@ -666,8 +663,6 @@ class DataProcessor(FeatureSet):
                     columns_dict[key] = value
             return pd.DataFrame(columns_dict)
 
-        if save_format not in [None, "csv", "parquet"]:
-            raise ValueError("save_format must be either 'csv', 'parquet', or None")
         effective_format = save_format
         if persist:
             effective_format = save_format or "parquet"
@@ -675,6 +670,8 @@ class DataProcessor(FeatureSet):
         if (not return_dict) or persist:
             result_df = dict_to_dataframe(result_dict)
         if persist:
+            if effective_format not in FILE_FORMAT_CONFIG:
+                raise ValueError(f"Unsupported save format: {effective_format}")
             if output_path is None:
                 raise ValueError(
                     "[Data Processor Error] output_path must be provided when persisting transformed data."
@@ -683,12 +680,25 @@ class DataProcessor(FeatureSet):
             if output_dir.suffix:
                 output_dir = output_dir.parent
             output_dir.mkdir(parents=True, exist_ok=True)
-            save_path = output_dir / f"transformed_data.{effective_format}"
+
+            suffix = FILE_FORMAT_CONFIG[effective_format]["extension"][0]
+            save_path = output_dir / f"transformed_data{suffix}"
             assert result_df is not None, "DataFrame conversion failed"
-            if effective_format == "parquet":
-                result_df.to_parquet(save_path, index=False)
-            else:
+
+            # Save based on format
+            if effective_format == "csv":
                 result_df.to_csv(save_path, index=False)
+            elif effective_format == "parquet":
+                result_df.to_parquet(save_path, index=False)
+            elif effective_format == "feather":
+                result_df.to_feather(save_path)
+            elif effective_format == "excel":
+                result_df.to_excel(save_path, index=False)
+            elif effective_format == "hdf5":
+                result_df.to_hdf(save_path, key="data", mode="w")
+            else:
+                raise ValueError(f"Unsupported save format: {effective_format}")
+
             logger.info(
                 colorize(
                     f"Transformed data saved to: {save_path.resolve()}", color="green"
@@ -703,7 +713,7 @@ class DataProcessor(FeatureSet):
         self,
         input_path: str,
         output_path: Optional[str],
-        save_format: Optional[Literal["csv", "parquet"]],
+        save_format: Optional[str],
         chunk_size: int = 200000,
     ):
         """Transform data from files under a path and save them to a new location.
@@ -713,8 +723,21 @@ class DataProcessor(FeatureSet):
         logger = logging.getLogger()
         file_paths, file_type = resolve_file_paths(input_path)
         target_format = save_format or file_type
-        if target_format not in ["csv", "parquet"]:
-            raise ValueError("save_format must be either 'csv' or 'parquet'")
+        if target_format not in FILE_FORMAT_CONFIG:
+            raise ValueError(f"Unsupported format: {target_format}")
+        if chunk_size > 0 and not check_streaming_support(file_type):
+            raise ValueError(
+                f"Input format '{file_type}' does not support streaming reads. "
+                "Set chunk_size<=0 to use full-load transform."
+            )
+
+        # Warn about streaming support
+        if not check_streaming_support(target_format):
+            logger.warning(
+                f"[Data Processor Warning] Format '{target_format}' does not support streaming writes. "
+                "Large files may require more memory. Use csv or parquet for better streaming support."
+            )
+
         base_output_dir = (
             Path(output_path) if output_path else default_output_dir(input_path)
         )
@@ -725,10 +748,10 @@ class DataProcessor(FeatureSet):
         saved_paths = []
         for file_path in progress(file_paths, description="Transforming files"):
             source_path = Path(file_path)
-            target_file = output_root / f"{source_path.stem}.{target_format}"
+            suffix = FILE_FORMAT_CONFIG[target_format]["extension"][0]
+            target_file = output_root / f"{source_path.stem}{suffix}"
 
             # Stream transform for large files
-
             if chunk_size <= 0:
                 # fallback to full load behavior
                 df = read_table(file_path, file_type)
@@ -743,16 +766,28 @@ class DataProcessor(FeatureSet):
                 assert isinstance(
                     transformed_df, pd.DataFrame
                 ), "[Data Processor Error] Expected DataFrame when return_dict=False"
+
+                # Save based on format
                 if target_format == "csv":
                     transformed_df.to_csv(target_file, index=False)
-                else:
+                elif target_format == "parquet":
                     transformed_df.to_parquet(target_file, index=False)
+                elif target_format == "feather":
+                    transformed_df.to_feather(target_file)
+                elif target_format == "excel":
+                    transformed_df.to_excel(target_file, index=False)
+                elif target_format == "hdf5":
+                    transformed_df.to_hdf(target_file, key="data", mode="w")
+                else:
+                    raise ValueError(f"Unsupported format: {target_format}")
+
                 saved_paths.append(str(target_file.resolve()))
                 continue
 
             first_chunk = True
+            # Streaming write for supported formats
             if target_format == "parquet":
-                writer: pq.ParquetWriter | None = None
+                parquet_writer = None
                 try:
                     for chunk in iter_file_chunks(file_path, file_type, chunk_size):
                         transformed_df = self.transform_in_memory(
@@ -769,16 +804,15 @@ class DataProcessor(FeatureSet):
                         table = pa.Table.from_pandas(
                             transformed_df, preserve_index=False
                         )
-                        if writer is None:
-                            writer = pq.ParquetWriter(target_file, table.schema)
-                        writer.write_table(table)
+                        if parquet_writer is None:
+                            parquet_writer = pq.ParquetWriter(target_file, table.schema)
+                        parquet_writer.write_table(table)
                         first_chunk = False
                 finally:
-                    if writer is not None:
-                        writer.close()
-            else:
+                    if parquet_writer is not None:
+                        parquet_writer.close()
+            elif target_format == "csv":
                 # CSV: append chunks; header only once
-                # (truncate first to avoid mixing with existing files)
                 target_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(target_file, "w", encoding="utf-8", newline="") as f:
                     f.write("")
@@ -798,6 +832,34 @@ class DataProcessor(FeatureSet):
                         target_file, index=False, mode="a", header=first_chunk
                     )
                     first_chunk = False
+            else:
+                # Non-streaming formats: collect all chunks and save once
+                logger.warning(
+                    f"Format '{target_format}' doesn't support streaming writes. "
+                    f"Collecting all chunks in memory before saving."
+                )
+                all_chunks = []
+                for chunk in iter_file_chunks(file_path, file_type, chunk_size):
+                    transformed_df = self.transform_in_memory(
+                        chunk,
+                        return_dict=False,
+                        persist=False,
+                        save_format=None,
+                        output_path=None,
+                        warn_missing=first_chunk,
+                    )
+                    assert isinstance(transformed_df, pd.DataFrame)
+                    all_chunks.append(transformed_df)
+                    first_chunk = False
+
+                if all_chunks:
+                    combined_df = pd.concat(all_chunks, ignore_index=True)
+                    if target_format == "feather":
+                        combined_df.to_feather(target_file)
+                    elif target_format == "excel":
+                        combined_df.to_excel(target_file, index=False)
+                    elif target_format == "hdf5":
+                        combined_df.to_hdf(target_file, key="data", mode="w")
 
             saved_paths.append(str(target_file.resolve()))
         logger.info(
@@ -849,7 +911,7 @@ class DataProcessor(FeatureSet):
         self,
         data: Union[pd.DataFrame, Dict[str, Any], str, os.PathLike],
         return_dict: bool = True,
-        save_format: Optional[Literal["csv", "parquet"]] = None,
+        save_format: Optional[str] = None,
         output_path: Optional[str] = None,
         chunk_size: int = 200000,
     ):
@@ -877,7 +939,7 @@ class DataProcessor(FeatureSet):
         self,
         data: Union[pd.DataFrame, Dict[str, Any], str, os.PathLike],
         return_dict: bool = True,
-        save_format: Optional[Literal["csv", "parquet"]] = None,
+        save_format: Optional[str] = None,
         output_path: Optional[str] = None,
         chunk_size: int = 200000,
     ):

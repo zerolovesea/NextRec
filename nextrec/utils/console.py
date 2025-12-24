@@ -228,7 +228,7 @@ def group_metrics_by_task(
     metrics: Mapping[str, Any] | None,
     target_names: list[str] | str | None,
     default_task_name: str = "overall",
-) -> tuple[list[str], dict[str, dict[str, float]]]:
+):
     if not metrics:
         return [], {}
 

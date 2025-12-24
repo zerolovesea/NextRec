@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 [1] Ma J, Zhao Z, Yi X, et al. Modeling task relationships in multi-task learning with
@@ -67,9 +67,9 @@ class MMOE(BaseModel):
 
     @property
     def default_task(self):
-        num_tasks = getattr(self, "num_tasks", None)
-        if num_tasks is not None and num_tasks > 0:
-            return ["binary"] * num_tasks
+        nums_task = getattr(self, "nums_task", None)
+        if nums_task is not None and nums_task > 0:
+            return ["binary"] * nums_task
         return ["binary"]
 
     def __init__(
@@ -107,18 +107,18 @@ class MMOE(BaseModel):
         elif isinstance(target, str):
             target = [target]
 
-        self.num_tasks = len(target) if target else 1
+        self.nums_task = len(target) if target else 1
 
         resolved_task = task
         if resolved_task is None:
             resolved_task = self.default_task
         elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.num_tasks
-        elif len(resolved_task) == 1 and self.num_tasks > 1:
-            resolved_task = resolved_task * self.num_tasks
-        elif len(resolved_task) != self.num_tasks:
+            resolved_task = [resolved_task] * self.nums_task
+        elif len(resolved_task) == 1 and self.nums_task > 1:
+            resolved_task = resolved_task * self.nums_task
+        elif len(resolved_task) != self.nums_task:
             raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
             )
 
         super(MMOE, self).__init__(
@@ -138,12 +138,12 @@ class MMOE(BaseModel):
         self.loss = loss
 
         # Number of tasks and experts
-        self.num_tasks = len(target)
+        self.nums_task = len(target)
         self.num_experts = num_experts
 
-        if len(tower_params_list) != self.num_tasks:
+        if len(tower_params_list) != self.nums_task:
             raise ValueError(
-                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
+                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.nums_task})"
             )
 
         self.embedding = EmbeddingLayer(features=self.all_features)
@@ -163,7 +163,7 @@ class MMOE(BaseModel):
 
         # Task-specific gates
         self.gates = nn.ModuleList()
-        for _ in range(self.num_tasks):
+        for _ in range(self.nums_task):
             gate = nn.Sequential(nn.Linear(input_dim, num_experts), nn.Softmax(dim=1))
             self.gates.append(gate)
         self.grad_norm_shared_modules = ["embedding", "experts", "gates"]
@@ -174,7 +174,7 @@ class MMOE(BaseModel):
             tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
-            task_type=self.default_task, task_dims=[1] * self.num_tasks
+            task_type=self.default_task, task_dims=[1] * self.nums_task
         )
         # Register regularization weights
         self.register_regularization_weights(
@@ -199,7 +199,7 @@ class MMOE(BaseModel):
 
         # Task-specific processing
         task_outputs = []
-        for task_idx in range(self.num_tasks):
+        for task_idx in range(self.nums_task):
             # Gate weights for this task: [B, num_experts]
             gate_weights = self.gates[task_idx](input_flat)  # [B, num_experts]
 
@@ -218,6 +218,6 @@ class MMOE(BaseModel):
             tower_output = self.towers[task_idx](gated_output)  # [B, 1]
             task_outputs.append(tower_output)
 
-        # Stack outputs: [B, num_tasks]
+        # Stack outputs: [B, nums_task]
         y = torch.cat(task_outputs, dim=1)
         return self.prediction_layer(y)

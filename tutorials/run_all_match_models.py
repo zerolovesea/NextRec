@@ -56,7 +56,7 @@ def train_model(
             epochs=1,
             batch_size=512,
             shuffle=True,
-            tensorboard=False,
+            use_tensorboard=False,
             user_id_column="user_id",
         )
 

@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Wang Z, She Q, Zhang J. MaskNet: Introducing Feature-Wise
@@ -290,7 +290,6 @@ class MaskNet(BaseModel):
                 embedding_attr="embedding",
                 include_modules=["mask_blocks", "output_layer"],
             )
-        # serial
         else:
             self.register_regularization_weights(
                 embedding_attr="embedding", include_modules=["mask_blocks", "final_mlp"]
@@ -315,7 +314,6 @@ class MaskNet(BaseModel):
                 block_outputs.append(h)
             concat_hidden = torch.cat(block_outputs, dim=-1)
             logit = self.final_mlp(concat_hidden)  # [B, 1]
-        # serial
         else:
             hidden = self.first_block(field_emb, v_emb_flat)
             hidden = self.block_dropout(hidden)

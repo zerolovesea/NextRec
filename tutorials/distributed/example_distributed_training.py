@@ -111,7 +111,7 @@ def main():
         shuffle=True,
         metrics=["auc", "logloss"],
         num_workers=4,  # DataLoader workers per process
-        tensorboard=True,
+        use_tensorboard=True,
     )
 
     # Synchronize all processes after training

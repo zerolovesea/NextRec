@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from nextrec.data.preprocessor import DataProcessor
 
@@ -104,3 +105,33 @@ def test_fit_from_path_streams_and_transforms(tmp_path: Path):
     transformed = processor.transform(df, return_dict=True)
     assert transformed["age"].shape == (len(df),)
     assert transformed["hist"].shape == (len(df), 3)
+
+
+def _write_non_streaming(df: pd.DataFrame, path: Path, fmt: str) -> None:
+    if fmt == "feather":
+        pytest.importorskip("pyarrow")
+        df.to_feather(path)
+        return
+    if fmt == "excel":
+        pytest.importorskip("openpyxl", reason="openpyxl required for Excel I/O")
+        df.to_excel(path, index=False)
+        return
+    if fmt == "hdf5":
+        pytest.importorskip("tables", reason="tables required for HDF5 I/O")
+        df.to_hdf(path, key="data", mode="w")
+        return
+    raise ValueError(f"Unsupported format in test: {fmt}")
+
+
+@pytest.mark.parametrize(
+    "fmt,suffix",
+    [("feather", ".feather"), ("excel", ".xlsx"), ("hdf5", ".h5")],
+)
+def test_fit_from_path_non_streaming_raises(tmp_path: Path, fmt: str, suffix: str):
+    df = _sample_dataframe()
+    processor = _build_processor()
+    input_path = tmp_path / f"non_stream{suffix}"
+    _write_non_streaming(df, input_path, fmt)
+
+    with pytest.raises(ValueError, match="does not support streaming"):
+        processor.fit(str(input_path), chunk_size=2)

@@ -2,7 +2,7 @@
 GradNorm loss weighting for multi-task learning.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 20/12/2025
+Checkpoint: edit on 24/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 
 Reference:
@@ -45,7 +45,7 @@ class GradNormLossWeighting:
     Adaptive multi-task loss weighting with GradNorm.
 
     Args:
-        num_tasks: Number of tasks.
+        nums_task: Number of tasks.
         alpha: GradNorm balancing strength.
         lr: Learning rate for the weight optimizer.
         init_weights: Optional initial weights per task.
@@ -58,7 +58,7 @@ class GradNormLossWeighting:
 
     def __init__(
         self,
-        num_tasks: int,
+        nums_task: int,
         alpha: float = 1.5,
         lr: float = 0.025,
         init_weights: Iterable[float] | None = None,
@@ -68,9 +68,9 @@ class GradNormLossWeighting:
         init_ema_decay: float = 0.9,
         eps: float = 1e-8,
     ) -> None:
-        if num_tasks <= 1:
-            raise ValueError("GradNorm requires num_tasks > 1.")
-        self.num_tasks = num_tasks
+        if nums_task <= 1:
+            raise ValueError("GradNorm requires nums_task > 1.")
+        self.nums_task = nums_task
         self.alpha = alpha
         self.eps = eps
         if ema_decay is not None:
@@ -87,12 +87,12 @@ class GradNormLossWeighting:
         self.init_ema_count = 0
 
         if init_weights is None:
-            weights = torch.ones(self.num_tasks, dtype=torch.float32)
+            weights = torch.ones(self.nums_task, dtype=torch.float32)
         else:
             weights = torch.tensor(list(init_weights), dtype=torch.float32)
-            if weights.numel() != self.num_tasks:
+            if weights.numel() != self.nums_task:
                 raise ValueError(
-                    "init_weights length must match num_tasks for GradNorm."
+                    "init_weights length must match nums_task for GradNorm."
                 )
         if device is not None:
             weights = weights.to(device)
@@ -123,9 +123,9 @@ class GradNormLossWeighting:
         """
         Return weighted total loss and update task weights with GradNorm.
         """
-        if len(task_losses) != self.num_tasks:
+        if len(task_losses) != self.nums_task:
             raise ValueError(
-                f"Expected {self.num_tasks} task losses, got {len(task_losses)}."
+                f"Expected {self.nums_task} task losses, got {len(task_losses)}."
             )
         shared_params = [p for p in shared_params if p.requires_grad]
         if not shared_params:
@@ -152,7 +152,7 @@ class GradNormLossWeighting:
 
         weights_detached = self.weights.detach()
         weighted_losses = [
-            weights_detached[i] * task_losses[i] for i in range(self.num_tasks)
+            weights_detached[i] * task_losses[i] for i in range(self.nums_task)
         ]
         total_loss = torch.stack(weighted_losses).sum()
 
@@ -226,7 +226,7 @@ class GradNormLossWeighting:
 
         with torch.no_grad():
             w = self.weights.clamp(min=self.eps)
-            w = w * self.num_tasks / (w.sum() + self.eps)
+            w = w * self.nums_task / (w.sum() + self.eps)
             self.weights.copy_(w)
 
         self.pending_grad = None

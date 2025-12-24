@@ -103,7 +103,7 @@ def train_model(
             epochs=1,
             batch_size=512,
             shuffle=True,
-            tensorboard=False,
+            use_tensorboard=False,
         )
 
         metrics = model.evaluate(valid_df, metrics=["auc", "logloss"], batch_size=512)

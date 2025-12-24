@@ -142,8 +142,8 @@ def main():
         shuffle=True,
         metrics=["auc", "logloss"],
         num_workers=4,
-        tensorboard=True,
-        auto_distributed_sampler=False,  # data already sharded per rank
+        use_tensorboard=True,
+        auto_ddp_sampler=False,  # data already sharded per rank
     )
 
     if is_distributed and dist.is_initialized():

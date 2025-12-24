@@ -4,7 +4,7 @@ Data utilities for NextRec.
 This module provides file I/O helpers and synthetic data generation.
 
 Date: create on 19/12/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 24/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -19,6 +19,46 @@ import pyarrow.parquet as pq
 import torch
 import yaml
 
+FILE_FORMAT_CONFIG = {
+    "csv": {
+        "extension": [".csv", ".txt"],
+        "streaming": True,
+    },
+    "parquet": {
+        "extension": [".parquet"],
+        "streaming": True,
+    },
+    "feather": {
+        "extension": [".feather", ".ftr"],
+        "streaming": False,
+    },
+    "excel": {
+        "extension": [".xlsx", ".xls"],
+        "streaming": False,
+    },
+    "hdf5": {
+        "extension": [".h5", ".hdf5"],
+        "streaming": False,
+    },
+}
+
+
+def get_file_format_from_extension(ext: str) -> str | None:
+    """Get file format from extension."""
+    return {
+        ext.lstrip("."): fmt
+        for fmt, config in FILE_FORMAT_CONFIG.items()
+        for ext in config["extension"]
+    }.get(ext.lower().lstrip("."))
+
+
+def check_streaming_support(file_format: str) -> bool:
+    """Check if a format supports streaming."""
+    file_format = file_format.lower()
+    if file_format not in FILE_FORMAT_CONFIG:
+        return False
+    return FILE_FORMAT_CONFIG[file_format].get("streaming", False)
+
 
 def resolve_file_paths(path: str) -> tuple[list[str], str]:
     """
@@ -30,29 +70,39 @@ def resolve_file_paths(path: str) -> tuple[list[str], str]:
     path_obj = Path(path)
 
     if path_obj.is_file():
-        file_type = path_obj.suffix.lower().lstrip(".")
-        assert file_type in [
-            "csv",
-            "parquet",
-        ], f"Unsupported file extension: {file_type}"
-        return [str(path_obj)], file_type
+        file_format = get_file_format_from_extension(path_obj.suffix)
+        if file_format is None:
+            raise ValueError(
+                f"Unsupported file extension: {path_obj.suffix}. "
+                f"Supported formats: {', '.join(FILE_FORMAT_CONFIG.keys())}"
+            )
+        return [str(path_obj)], file_format
 
     if path_obj.is_dir():
         collected_files = [p for p in path_obj.iterdir() if p.is_file()]
-        csv_files = [str(p) for p in collected_files if p.suffix.lower() == ".csv"]
-        parquet_files = [
-            str(p) for p in collected_files if p.suffix.lower() == ".parquet"
-        ]
+        # Group files by format
+        format_groups: Dict[str, List[str]] = {}
+        for file in collected_files:
+            file_format = get_file_format_from_extension(file.suffix)
+            if file_format:
+                format_groups.setdefault(file_format, []).append(str(file))
 
-        if csv_files and parquet_files:
+        if len(format_groups) > 1:
+            formats = ", ".join(format_groups.keys())
             raise ValueError(
-                "Directory contains both CSV and Parquet files. Please keep a single format."
+                f"Directory contains mixed file formats: {formats}. "
+                "Please keep a single format per directory."
             )
-        file_paths = csv_files if csv_files else parquet_files
-        if not file_paths:
-            raise ValueError(f"No CSV or Parquet files found in directory: {path}")
+
+        if not format_groups:
+            raise ValueError(
+                f"No supported data files found in directory: {path}. "
+                f"Supported formats: {', '.join(FILE_FORMAT_CONFIG.keys())}"
+            )
+
+        file_type = list(format_groups.keys())[0]
+        file_paths = format_groups[file_type]
         file_paths.sort()
-        file_type = "csv" if csv_files else "parquet"
         return file_paths, file_type
 
     raise ValueError(f"Invalid path: {path}")
@@ -60,15 +110,55 @@ def resolve_file_paths(path: str) -> tuple[list[str], str]:
 
 def read_table(path: str | Path, data_format: str | None = None) -> pd.DataFrame:
     data_path = Path(path)
-    fmt = data_format.lower() if data_format else data_path.suffix.lower().lstrip(".")
-    if data_path.is_dir() and not fmt:
-        fmt = "parquet"
-    if fmt in {"parquet", ""}:
-        return pd.read_parquet(data_path)
-    if fmt in {"csv", "txt"}:
-        # Use low_memory=False to avoid mixed-type DtypeWarning on wide CSVs
-        return pd.read_csv(data_path, low_memory=False)
-    raise ValueError(f"Unsupported data format: {data_path}")
+
+    # Determine format
+    if data_format:
+        fmt = data_format.lower()
+    elif data_path.is_dir():
+        _, fmt = resolve_file_paths(str(data_path))
+    else:
+        fmt = get_file_format_from_extension(data_path.suffix)
+        if fmt is None:
+            raise ValueError(
+                f"Cannot determine format for {data_path}. "
+                f"Please specify data_format parameter."
+            )
+
+    if data_path.is_dir():
+        file_paths, _ = resolve_file_paths(str(data_path))
+        dataframes = [read_table(fp, fmt) for fp in file_paths]
+        if not dataframes:
+            raise ValueError(f"No supported data files found in directory: {data_path}")
+        if len(dataframes) == 1:
+            return dataframes[0]
+        return pd.concat(dataframes, ignore_index=True)
+
+    # Read based on format
+    try:
+        if fmt == "hdf5":
+            # HDF5 requires a key; use the first available key
+            with pd.HDFStore(data_path, mode="r") as store:
+                if len(store.keys()) == 0:
+                    raise ValueError(f"HDF5 file {data_path} contains no datasets")
+                return pd.read_hdf(data_path, key=store.keys()[0])
+        reader = {
+            "parquet": pd.read_parquet,
+            "csv": lambda p: pd.read_csv(p, low_memory=False),
+            "feather": pd.read_feather,
+            "excel": pd.read_excel,
+        }.get(fmt)
+        if reader:
+            return reader(data_path)
+        raise ValueError(
+            f"Unsupported format: {fmt}. "
+            f"Supported: {', '.join(FILE_FORMAT_CONFIG.keys())}"
+        )
+    except ImportError as e:
+        raise ImportError(
+            f"Format '{fmt}' requires additional dependencies. "
+            f"Install with: pip install pandas[{fmt}] or check documentation. "
+            f"Original error: {e}"
+        ) from e
 
 
 def load_dataframes(file_paths: list[str], file_type: str) -> list[pd.DataFrame]:
@@ -78,12 +168,44 @@ def load_dataframes(file_paths: list[str], file_type: str) -> list[pd.DataFrame]
 def iter_file_chunks(
     file_path: str, file_type: str, chunk_size: int
 ) -> Generator[pd.DataFrame, None, None]:
-    if file_type == "csv":
-        yield from pd.read_csv(file_path, chunksize=chunk_size)
-        return
-    parquet_file = pq.ParquetFile(file_path)
-    for batch in parquet_file.iter_batches(batch_size=chunk_size):
-        yield batch.to_pandas()
+    """Iterate over file in chunks for streaming reading.
+
+    Args:
+        file_path: Path to the file
+        file_type: Format type (csv, parquet)
+        chunk_size: Number of rows per chunk
+
+    Yields:
+        DataFrame chunks
+
+    Raises:
+        ValueError: If format doesn't support streaming
+    """
+    file_type = file_type.lower()
+    if not check_streaming_support(file_type):
+        raise ValueError(
+            f"Format '{file_type}' does not support streaming reads. "
+            "Formats with streaming support: csv, parquet"
+        )
+
+    try:
+        if file_type == "csv":
+            yield from pd.read_csv(file_path, chunksize=chunk_size)
+        elif file_type == "parquet":
+            parquet_file = pq.ParquetFile(file_path)
+            for batch in parquet_file.iter_batches(batch_size=chunk_size):
+                yield batch.to_pandas()
+        else:
+            raise ValueError(
+                f"Format '{file_type}' does not support streaming. "
+                f"Use read_table() to load the entire file into memory."
+            )
+    except ImportError as e:
+        raise ImportError(
+            f"Streaming format '{file_type}' requires additional dependencies. "
+            f"Install with: pip install pandas[{file_type}] pyarrow. "
+            f"Original error: {e}"
+        ) from e
 
 
 def default_output_dir(path: str) -> Path:

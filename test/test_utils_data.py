@@ -47,9 +47,9 @@ def test_resolve_file_paths_parquet_and_errors(tmp_path):
     with pytest.raises(ValueError):
         data_utils.resolve_file_paths(str(tmp_path / "missing"))
 
-    bad_ext = tmp_path / "data.txt"
-    bad_ext.write_text("a\n1\n")
-    with pytest.raises(AssertionError):
+    bad_ext = tmp_path / "data.json"
+    bad_ext.write_text('{"a": 1}\n')
+    with pytest.raises(ValueError):
         data_utils.resolve_file_paths(str(bad_ext))
 
 
@@ -96,6 +96,26 @@ def test_iter_file_chunks_csv_and_parquet(tmp_path):
         data_utils.iter_file_chunks(str(parquet_path), "parquet", chunk_size=2)
     )
     assert sum(len(chunk) for chunk in parquet_chunks) == len(df)
+
+
+def test_iter_file_chunks_orc(tmp_path):
+    pytest.importorskip("pyarrow")
+    import pyarrow as pa
+    import pyarrow.orc as orc
+
+    df = pd.DataFrame({"a": list(range(5))})
+    orc_path = tmp_path / "data.orc"
+    table = pa.Table.from_pandas(df)
+    orc.write_table(table, str(orc_path))
+
+    orc_chunks = list(data_utils.iter_file_chunks(str(orc_path), "orc", chunk_size=2))
+    assert sum(len(chunk) for chunk in orc_chunks) == len(df)
+
+
+def test_iter_file_chunks_non_streaming_raises():
+    for fmt in ["feather", "excel", "hdf5"]:
+        with pytest.raises(ValueError):
+            list(data_utils.iter_file_chunks("unused", fmt, chunk_size=2))
 
 
 def test_default_output_dir(tmp_path):
@@ -215,3 +235,37 @@ def test_generate_synthetic_embeddings():
     assert item_ids.tolist() == [0, 1, 2, 3]
     assert embeddings.shape == (4, 3)
     assert embeddings.dtype == torch.float32
+
+
+def test_read_table_feather_and_orc(tmp_path):
+    df = _make_df()
+    pytest.importorskip("pyarrow")
+
+    feather_path = tmp_path / "data.feather"
+    df.to_feather(feather_path)
+    assert_frame_equal(data_utils.read_table(feather_path), df, check_dtype=False)
+
+    import pyarrow as pa
+    import pyarrow.orc as orc
+
+    orc_path = tmp_path / "data.orc"
+    orc.write_table(pa.Table.from_pandas(df), str(orc_path))
+    assert_frame_equal(data_utils.read_table(orc_path), df, check_dtype=False)
+
+
+def test_read_table_excel(tmp_path):
+    df = _make_df()
+    pytest.importorskip("openpyxl", reason="openpyxl required for Excel I/O")
+
+    excel_path = tmp_path / "data.xlsx"
+    df.to_excel(excel_path, index=False)
+    assert_frame_equal(data_utils.read_table(excel_path), df, check_dtype=False)
+
+
+def test_read_table_hdf5(tmp_path):
+    df = _make_df()
+    pytest.importorskip("tables", reason="tables required for HDF5 I/O")
+
+    hdf_path = tmp_path / "data.h5"
+    df.to_hdf(hdf_path, key="data", mode="w")
+    assert_frame_equal(data_utils.read_table(hdf_path), df, check_dtype=False)

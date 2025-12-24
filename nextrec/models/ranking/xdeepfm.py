@@ -1,7 +1,7 @@
 """
 Date: create on 09/11/2025
-Author:
-Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 23/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions
 for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on
