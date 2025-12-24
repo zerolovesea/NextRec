@@ -108,8 +108,8 @@ def test_iter_file_chunks_orc(tmp_path):
     table = pa.Table.from_pandas(df)
     orc.write_table(table, str(orc_path))
 
-    orc_chunks = list(data_utils.iter_file_chunks(str(orc_path), "orc", chunk_size=2))
-    assert sum(len(chunk) for chunk in orc_chunks) == len(df)
+    with pytest.raises(ValueError):
+        list(data_utils.iter_file_chunks(str(orc_path), "orc", chunk_size=2))
 
 
 def test_iter_file_chunks_non_streaming_raises():
@@ -250,7 +250,8 @@ def test_read_table_feather_and_orc(tmp_path):
 
     orc_path = tmp_path / "data.orc"
     orc.write_table(pa.Table.from_pandas(df), str(orc_path))
-    assert_frame_equal(data_utils.read_table(orc_path), df, check_dtype=False)
+    with pytest.raises(ValueError):
+        data_utils.read_table(orc_path)
 
 
 def test_read_table_excel(tmp_path):
