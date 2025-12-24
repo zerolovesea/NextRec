@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 24/11/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 [1] Caruana R. Multitask learning[J]. Machine Learning, 1997, 28: 41-75.
@@ -55,9 +55,9 @@ class ShareBottom(BaseModel):
 
     @property
     def default_task(self):
-        num_tasks = getattr(self, "num_tasks", None)
-        if num_tasks is not None and num_tasks > 0:
-            return ["binary"] * num_tasks
+        nums_task = getattr(self, "nums_task", None)
+        if nums_task is not None and nums_task > 0:
+            return ["binary"] * nums_task
         return ["binary"]
 
     def __init__(
@@ -83,18 +83,18 @@ class ShareBottom(BaseModel):
 
         optimizer_params = optimizer_params or {}
 
-        self.num_tasks = len(target)
+        self.nums_task = len(target)
 
         resolved_task = task
         if resolved_task is None:
             resolved_task = self.default_task
         elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.num_tasks
-        elif len(resolved_task) == 1 and self.num_tasks > 1:
-            resolved_task = resolved_task * self.num_tasks
-        elif len(resolved_task) != self.num_tasks:
+            resolved_task = [resolved_task] * self.nums_task
+        elif len(resolved_task) == 1 and self.nums_task > 1:
+            resolved_task = resolved_task * self.nums_task
+        elif len(resolved_task) != self.nums_task:
             raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
             )
 
         super(ShareBottom, self).__init__(
@@ -115,10 +115,10 @@ class ShareBottom(BaseModel):
         if self.loss is None:
             self.loss = "bce"
         # Number of tasks
-        self.num_tasks = len(target)
-        if len(tower_params_list) != self.num_tasks:
+        self.nums_task = len(target)
+        if len(tower_params_list) != self.nums_task:
             raise ValueError(
-                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
+                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.nums_task})"
             )
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
@@ -144,7 +144,7 @@ class ShareBottom(BaseModel):
             tower = MLP(input_dim=bottom_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
-            task_type=self.default_task, task_dims=[1] * self.num_tasks
+            task_type=self.default_task, task_dims=[1] * self.nums_task
         )
         # Register regularization weights
         self.register_regularization_weights(
@@ -170,6 +170,6 @@ class ShareBottom(BaseModel):
             tower_output = tower(bottom_output)  # [B, 1]
             task_outputs.append(tower_output)
 
-        # Stack outputs: [B, num_tasks]
+        # Stack outputs: [B, nums_task]
         y = torch.cat(task_outputs, dim=1)
         return self.prediction_layer(y)

@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 [1] Ma X, Zhao L, Huang G, et al. Entire space multi-task model: An effective approach
@@ -101,17 +101,17 @@ class ESMM(BaseModel):
                 f"ESMM requires exactly 2 targets (ctr and ctcvr), got {len(target)}"
             )
 
-        self.num_tasks = len(target)
+        self.nums_task = len(target)
         resolved_task = task
         if resolved_task is None:
             resolved_task = self.default_task
         elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.num_tasks
-        elif len(resolved_task) == 1 and self.num_tasks > 1:
-            resolved_task = resolved_task * self.num_tasks
-        elif len(resolved_task) != self.num_tasks:
+            resolved_task = [resolved_task] * self.nums_task
+        elif len(resolved_task) == 1 and self.nums_task > 1:
+            resolved_task = resolved_task * self.nums_task
+        elif len(resolved_task) != self.nums_task:
             raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
             )
         # resolved_task is now guaranteed to be a list[str]
 
@@ -140,9 +140,7 @@ class ESMM(BaseModel):
         # CVR tower
         self.cvr_tower = MLP(input_dim=input_dim, output_layer=True, **cvr_params)
         self.grad_norm_shared_modules = ["embedding"]
-        self.prediction_layer = TaskHead(
-            task_type=self.default_task, task_dims=[1, 1]
-        )
+        self.prediction_layer = TaskHead(task_type=self.default_task, task_dims=[1, 1])
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["ctr_tower", "cvr_tower"]

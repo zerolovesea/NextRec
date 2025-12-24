@@ -2,7 +2,7 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Checkpoint: edit on 20/12/2025
+Checkpoint: edit on 24/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -148,18 +148,18 @@ class TrainingLogger:
     def __init__(
         self,
         session: Session,
-        enable_tensorboard: bool,
+        use_tensorboard: bool,
         log_name: str = "training_metrics.jsonl",
     ) -> None:
         self.session = session
-        self.enable_tensorboard = enable_tensorboard
+        self.use_tensorboard = use_tensorboard
         self.log_path = session.metrics_dir / log_name
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.tb_writer = None
         self.tb_dir = None
 
-        if self.enable_tensorboard:
+        if self.use_tensorboard:
             self._init_tensorboard()
 
     def _init_tensorboard(self) -> None:
@@ -169,7 +169,7 @@ class TrainingLogger:
             logging.warning(
                 "[TrainingLogger] tensorboard not installed, disable tensorboard logging."
             )
-            self.enable_tensorboard = False
+            self.use_tensorboard = False
             return
         tb_dir = self.session.logs_dir / "tensorboard"
         tb_dir.mkdir(parents=True, exist_ok=True)

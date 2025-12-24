@@ -2,7 +2,7 @@
 Dataloader definitions
 
 Date: create on 27/10/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 24/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -13,7 +13,6 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 
@@ -26,7 +25,12 @@ from nextrec.basic.features import (
 from nextrec.data.batch_utils import collate_fn
 from nextrec.data.data_processing import get_column_data
 from nextrec.data.preprocessor import DataProcessor
-from nextrec.utils.data import read_table, resolve_file_paths
+from nextrec.utils.data import (
+    check_streaming_support,
+    iter_file_chunks,
+    read_table,
+    resolve_file_paths,
+)
 from nextrec.utils.torch_utils import to_tensor
 
 
@@ -72,22 +76,34 @@ class TensorDictDataset(Dataset):
 class FileDataset(FeatureSet, IterableDataset):
     def __init__(
         self,
-        file_paths: list[str],  # file paths to read, containing CSV or Parquet files
-        dense_features: list[DenseFeature],  # dense feature definitions
-        sparse_features: list[SparseFeature],  # sparse feature definitions
-        sequence_features: list[SequenceFeature],  # sequence feature definitions
-        target_columns: list[str],  # target column names
-        id_columns: (
-            list[str] | None
-        ) = None,  # id columns to carry through (not used for model inputs)
+        file_paths: list[str],
+        dense_features: list[DenseFeature],
+        sparse_features: list[SparseFeature],
+        sequence_features: list[SequenceFeature],
+        target_columns: list[str],
+        id_columns: list[str] | None = None,
         chunk_size: int = 10000,
         file_type: str = "csv",
         processor: DataProcessor | None = None,
-    ):  # optional DataProcessor for transformation
+    ):
+        """Streaming dataset for reading files in chunks.
+
+        Args:
+            file_paths: List of file paths to read
+            dense_features: Dense feature definitions
+            sparse_features: Sparse feature definitions
+            sequence_features: Sequence feature definitions
+            target_columns: Target column names
+            id_columns: ID columns to carry through
+            chunk_size: Number of rows per chunk
+            file_type: Format type (csv, parquet, etc.)
+            processor: Optional DataProcessor for transformation
+        """
         self.file_paths = file_paths
         self.chunk_size = chunk_size
         self.file_type = file_type
         self.processor = processor
+
         self.set_all_features(
             dense_features,
             sparse_features,
@@ -102,26 +118,11 @@ class FileDataset(FeatureSet, IterableDataset):
         self.current_file_index = 0
         for file_path in self.file_paths:
             self.current_file_index += 1
-            # Don't log file processing here to avoid interrupting progress bars
-            # File information is already displayed in the CLI data section
-            if self.file_type == "csv":
-                yield from self.read_csv_chunks(file_path)
-            elif self.file_type == "parquet":
-                yield from self.read_parquet_chunks(file_path)
-
-    def read_csv_chunks(self, file_path: str):
-        chunk_iterator = pd.read_csv(file_path, chunksize=self.chunk_size)
-        for chunk in chunk_iterator:
-            tensors = self.dataframeto_tensors(chunk)
-            yield tensors
-
-    def read_parquet_chunks(self, file_path: str):
-        parquet_file = pq.ParquetFile(file_path)
-        for batch in parquet_file.iter_batches(batch_size=self.chunk_size):
-            chunk = batch.to_pandas()
-            tensors = self.dataframeto_tensors(chunk)
-            yield tensors
-            del chunk
+            for chunk in iter_file_chunks(file_path, self.file_type, self.chunk_size):
+                tensors = self.dataframeto_tensors(chunk)
+                if tensors is not None:
+                    yield tensors
+                del chunk
 
     def dataframeto_tensors(self, df: pd.DataFrame) -> dict | None:
         if self.processor is not None:
@@ -209,8 +210,6 @@ class RecDataLoader(FeatureSet):
         Returns:
             DataLoader instance.
         """
-
-        # Enforce num_workers=0 for streaming mode to prevent data duplication
         if streaming and num_workers > 0:
             logging.warning(
                 f"[RecDataLoader Warning] num_workers={num_workers} is not compatible with streaming=True. "
@@ -221,20 +220,13 @@ class RecDataLoader(FeatureSet):
 
         if isinstance(data, DataLoader):
             return data
-        elif isinstance(data, (str, os.PathLike)):
-            return self.create_from_path(
-                path=data,
-                batch_size=batch_size,
-                shuffle=shuffle,
-                streaming=streaming,
-                chunk_size=chunk_size,
-                num_workers=num_workers,
-            )
-        elif (
+
+        is_path_list = (
             isinstance(data, list)
             and data
             and all(isinstance(p, (str, os.PathLike)) for p in data)
-        ):
+        )
+        if isinstance(data, (str, os.PathLike)) or is_path_list:
             return self.create_from_path(
                 path=data,
                 batch_size=batch_size,
@@ -243,7 +235,8 @@ class RecDataLoader(FeatureSet):
                 chunk_size=chunk_size,
                 num_workers=num_workers,
             )
-        elif isinstance(data, (dict, pd.DataFrame)):
+
+        if isinstance(data, (dict, pd.DataFrame)):
             return self.create_from_memory(
                 data=data,
                 batch_size=batch_size,
@@ -251,10 +244,8 @@ class RecDataLoader(FeatureSet):
                 num_workers=num_workers,
                 sampler=sampler,
             )
-        else:
-            raise ValueError(
-                f"[RecDataLoader Error] Unsupported data type: {type(data)}"
-            )
+
+        raise ValueError(f"[RecDataLoader Error] Unsupported data type: {type(data)}")
 
     def create_from_memory(
         self,
@@ -264,7 +255,6 @@ class RecDataLoader(FeatureSet):
         num_workers: int = 0,
         sampler=None,
     ) -> DataLoader:
-
         raw_data = data
 
         if self.processor is not None:
@@ -309,17 +299,24 @@ class RecDataLoader(FeatureSet):
             file_paths = [str(Path(p)) for p in path]
             if not file_paths:
                 raise ValueError("[RecDataLoader Error] Empty file path list provided.")
-            suffixes = {Path(p).suffix.lower() for p in file_paths}
-            if len(suffixes) != 1:
+
+            from nextrec.utils.data import get_file_format_from_extension
+
+            file_formats = set()
+            for p in file_paths:
+                fmt = get_file_format_from_extension(Path(p).suffix)
+                if fmt is None:
+                    raise ValueError(
+                        f"[RecDataLoader Error] Unsupported file extension: {Path(p).suffix}"
+                    )
+                file_formats.add(fmt)
+
+            if len(file_formats) != 1:
                 raise ValueError(
-                    "[RecDataLoader Error] Mixed file types in provided list; please use only CSV or only Parquet."
+                    f"[RecDataLoader Error] Mixed file types in provided list: {', '.join(file_formats)}. "
+                    "Please use a single format per DataLoader."
                 )
-            suffix = suffixes.pop()
-            if suffix not in {".csv", ".parquet"}:
-                raise ValueError(
-                    f"[RecDataLoader Error] Unsupported file extension in list: {suffix}"
-                )
-            file_type = "csv" if suffix == ".csv" else "parquet"
+            file_type = file_formats.pop()
         if streaming:
             return self.load_files_streaming(
                 file_paths,
@@ -329,31 +326,30 @@ class RecDataLoader(FeatureSet):
                 shuffle,
                 num_workers=num_workers,
             )
-        # Load full data into memory
-        else:
-            dfs = []
-            total_bytes = 0
-            for file_path in file_paths:
-                try:
-                    total_bytes += os.path.getsize(file_path)
-                except OSError:
-                    pass
-                try:
-                    df = read_table(file_path, data_format=file_type)
-                    dfs.append(df)
-                except MemoryError as exc:
-                    raise MemoryError(
-                        f"[RecDataLoader Error] Out of memory while reading {file_path}. Consider using streaming=True."
-                    ) from exc
+
+        dfs = []
+        total_bytes = 0
+        for file_path in file_paths:
             try:
-                combined_df = pd.concat(dfs, ignore_index=True)
+                total_bytes += os.path.getsize(file_path)
+            except OSError:
+                pass
+            try:
+                df = read_table(file_path, data_format=file_type)
+                dfs.append(df)
             except MemoryError as exc:
                 raise MemoryError(
-                    f"[RecDataLoader Error] Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use streaming=True or reduce chunk_size."
+                    f"[RecDataLoader Error] Out of memory while reading {file_path}. Consider using streaming=True."
                 ) from exc
-            return self.create_from_memory(
-                combined_df, batch_size, shuffle, num_workers=num_workers
-            )
+        try:
+            combined_df = pd.concat(dfs, ignore_index=True)
+        except MemoryError as exc:
+            raise MemoryError(
+                f"[RecDataLoader Error] Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use streaming=True or reduce chunk_size."
+            ) from exc
+        return self.create_from_memory(
+            combined_df, batch_size, shuffle, num_workers=num_workers
+        )
 
     def load_files_streaming(
         self,
@@ -364,6 +360,11 @@ class RecDataLoader(FeatureSet):
         shuffle: bool,
         num_workers: int = 0,
     ) -> DataLoader:
+        if not check_streaming_support(file_type):
+            raise ValueError(
+                f"[RecDataLoader Error] Format '{file_type}' does not support streaming reads. "
+                "Use streaming=False or convert data to csv/parquet."
+            )
         if shuffle:
             logging.info(
                 "[RecDataLoader Info] Shuffle is ignored in streaming mode (IterableDataset)."
@@ -420,22 +421,21 @@ def normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
                     f"[RecDataLoader Error] Sequence feature '{feature.name}' expects numeric sequences; found string values."
                 )
             if isinstance(seq, (list, tuple, np.ndarray)):
-                arr = np.asarray(seq, dtype=np.int64)
+                sequences.append(np.asarray(seq, dtype=np.int64))
             else:
-                arr = np.asarray([seq], dtype=np.int64)
-            sequences.append(arr)
+                sequences.append(np.asarray([seq], dtype=np.int64))
         max_len = getattr(feature, "max_len", 0)
         if max_len <= 0:
             max_len = max((len(seq) for seq in sequences), default=1)
         pad_value = getattr(feature, "padding_idx", 0)
-        padded = []
-        for seq in sequences:
-            if len(seq) > max_len:
-                padded.append(seq[:max_len])
-            else:
-                padded.append(
-                    np.pad(seq, (0, max_len - len(seq)), constant_values=pad_value)
-                )
+        padded = [
+            (
+                seq[:max_len]
+                if len(seq) > max_len
+                else np.pad(seq, (0, max_len - len(seq)), constant_values=pad_value)
+            )
+            for seq in sequences
+        ]
         column = np.stack(padded)
     elif column.ndim == 1:
         column = column.reshape(-1, 1)
@@ -456,9 +456,7 @@ def build_tensors_from_data(
             raise ValueError(
                 f"[RecDataLoader Error] Feature column '{feature.name}' not found in data"
             )
-        if isinstance(
-            feature, SequenceFeature
-        ):  # sequence feature will do padding/truncation again to avoid the case when input data is not preprocessed
+        if isinstance(feature, SequenceFeature):
             arr = normalize_sequence_column(column, feature)
             tensor = to_tensor(arr, dtype=torch.long)
         elif isinstance(feature, DenseFeature):

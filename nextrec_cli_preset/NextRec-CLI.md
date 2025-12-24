@@ -60,7 +60,7 @@ session:
 
 data:
   path: /path/to/training/data         # Training data path (file or directory)
-  format: parquet                      # Data format: csv, parquet, json, feather
+  format: parquet                      # Data format: csv, parquet, feather
                                        # Use 'auto' for automatic detection
   target: label                        # Target column(s)
                                        # Single-task: 'label' (string)
@@ -126,7 +126,7 @@ train:
 - `path`: Training data path, supports:
   - Single file: `/path/to/data.csv` or `/path/to/data.parquet`
   - Directory: `/path/to/data_dir/` (automatically reads all files of the same format)
-- `format`: Data format, supports `csv`, `parquet`, `json`, `feather`, or `auto`
+- `format`: Data format, supports `csv`, `parquet`, `feather`, or `auto`
 - `target`: Target column name, can be string or list
   - Single target: `target: label`
   - Multiple targets: `target: [label_apply, label_credit]`
@@ -194,12 +194,12 @@ checkpoint_path: /path/to/checkpoint/directory  # Required checkpoint directory
 
 predict:
   data_path: /path/to/prediction/data   # Prediction data path
-  source_data_format: parquet           # Input data format: csv, parquet, json, feather
+  source_data_format: parquet           # Input data format: csv, parquet, feather
                                        # Use 'auto' for automatic detection
   id_column: user_id                    # ID column name (optional, for linking predictions)
   name: pred                            # Output filename (without extension)
                                        # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
-  save_data_format: csv                 # Output format: csv, parquet, json, feather
+  save_data_format: csv                 # Output format: csv, parquet, feather
   preview_rows: 5                       # Number of preview rows (output to log)
   batch_size: 512                       # Prediction batch size
   num_workers: 4                        # Number of data loading threads
@@ -222,7 +222,6 @@ predict:
 - `predict.save_data_format`: Output format
   - `csv`: CSV file
   - `parquet`: Parquet file
-  - `json`: JSON file
   - `feather`: Feather file
 - `predict.batch_size`: Batch size for prediction
 - `predict.num_workers`: Number of data loading workers

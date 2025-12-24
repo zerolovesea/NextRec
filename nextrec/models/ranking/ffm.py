@@ -1,6 +1,6 @@
 """
 Date: create on 19/12/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Juan Y, Zhuang Y, Chin W-S, et al. Field-aware Factorization Machines for CTR

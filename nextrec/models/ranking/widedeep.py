@@ -1,12 +1,11 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 24/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 23/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-    [1] Cheng H T, Koc L, Harmsen J, et al. Wide & Deep learning for recommender systems[C]
-        //Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. 2016: 7-10.
-        (https://arxiv.org/abs/1606.07792)
+[1] Cheng H T, Koc L, Harmsen J, et al. Wide & Deep learning for recommender systems[C]
+//Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. 2016: 7-10.
+(https://arxiv.org/abs/1606.07792)
 
 Wide & Deep blends a linear wide component (memorization of cross features) with a
 deep neural network (generalization) sharing the same feature space. The wide part

@@ -69,7 +69,7 @@ class TestShareBottom:
 
         assert model is not None
         assert model.model_name == "ShareBottom"
-        assert model.num_tasks == 2
+        assert model.nums_task == 2
         logger.info("ShareBottom initialization successful")
 
         # Count parameters
@@ -138,11 +138,11 @@ class TestShareBottom:
         logger.info("Testing ShareBottom task outputs")
         logger.info("=" * 80)
 
-        num_tasks = 3
+        nums_task = 3
         bottom_params = {"dims": [64], "dropout": 0.0, "activation": "relu"}
         tower_params_list = [
             {"dims": [32], "dropout": 0.0, "activation": "relu"}
-            for _ in range(num_tasks)
+            for _ in range(nums_task)
         ]
 
         model = ShareBottom(
@@ -152,7 +152,7 @@ class TestShareBottom:
             bottom_params=bottom_params,
             tower_params_list=tower_params_list,
             target=["task1", "task2", "task3"],
-            task=["binary"] * num_tasks,
+            task=["binary"] * nums_task,
             device=device,
         )
 
@@ -171,10 +171,10 @@ class TestShareBottom:
 
         output = run_model_inference(model, data)
 
-        assert_model_output_shape(output, (batch_size, num_tasks))
+        assert_model_output_shape(output, (batch_size, nums_task))
 
         # Each task output should be independent
-        for i in range(num_tasks):
+        for i in range(nums_task):
             task_output = output[:, i]
             assert_model_output_range(task_output, 0.0, 1.0)
 
@@ -221,7 +221,7 @@ class TestMMOE:
 
         assert model is not None
         assert model.model_name == "MMOE"
-        assert model.num_tasks == 2
+        assert model.nums_task == 2
         assert model.num_experts == 4
         logger.info("MMOE initialization successful")
 
@@ -380,7 +380,7 @@ class TestPLE:
 
         assert model is not None
         assert model.model_name == "PLE"
-        assert model.num_tasks == 2
+        assert model.nums_task == 2
         assert model.num_levels == 2
         logger.info("PLE initialization successful")
 
@@ -691,7 +691,7 @@ class TestMultiTaskModelsComparison:
                 0, feat.vocab_size, (batch_size, feat.max_len)
             ).to(device)
 
-        num_tasks = 2
+        nums_task = 2
 
         # Test ShareBottom
         share_bottom = ShareBottom(
@@ -709,7 +709,7 @@ class TestMultiTaskModelsComparison:
         )
 
         sb_output = run_model_inference(share_bottom, data)
-        assert_model_output_shape(sb_output, (batch_size, num_tasks))
+        assert_model_output_shape(sb_output, (batch_size, nums_task))
 
         # Test MMOE
         mmoe = MMOE(
@@ -728,7 +728,7 @@ class TestMultiTaskModelsComparison:
         )
 
         mmoe_output = run_model_inference(mmoe, data)
-        assert_model_output_shape(mmoe_output, (batch_size, num_tasks))
+        assert_model_output_shape(mmoe_output, (batch_size, nums_task))
 
         # Test PLE
         ple = PLE(
@@ -750,7 +750,7 @@ class TestMultiTaskModelsComparison:
         )
 
         ple_output = run_model_inference(ple, data)
-        assert_model_output_shape(ple_output, (batch_size, num_tasks))
+        assert_model_output_shape(ple_output, (batch_size, nums_task))
 
         # Test ESMM
         esmm = ESMM(
@@ -764,7 +764,7 @@ class TestMultiTaskModelsComparison:
         )
 
         esmm_output = run_model_inference(esmm, data)
-        assert_model_output_shape(esmm_output, (batch_size, num_tasks))
+        assert_model_output_shape(esmm_output, (batch_size, nums_task))
 
         logger.info("Multi-task models output consistency test successful")
 

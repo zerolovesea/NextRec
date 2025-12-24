@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 [1] Tang H, Liu J, Zhao M, et al. Progressive layered extraction (PLE): A novel
@@ -64,18 +64,18 @@ class CGCLayer(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        num_tasks: int,
+        nums_task: int,
         num_shared_experts: int,
         num_specific_experts: int,
         shared_expert_params: dict,
         specific_expert_params: dict | list[dict],
     ):
         super().__init__()
-        if num_tasks < 1:
-            raise ValueError("num_tasks must be >= 1")
+        if nums_task < 1:
+            raise ValueError("nums_task must be >= 1")
 
         specific_params_list = self.normalize_specific_params(
-            specific_expert_params, num_tasks
+            specific_expert_params, nums_task
         )
 
         self.output_dim = get_mlp_output_dim(shared_expert_params, input_dim)
@@ -121,23 +121,23 @@ class CGCLayer(nn.Module):
                     nn.Linear(input_dim, task_gate_expert_num),
                     nn.Softmax(dim=1),
                 )
-                for _ in range(num_tasks)
+                for _ in range(nums_task)
             ]
         )
-        shared_gate_expert_num = num_shared_experts + num_specific_experts * num_tasks
+        shared_gate_expert_num = num_shared_experts + num_specific_experts * nums_task
         self.shared_gate = nn.Sequential(
             nn.Linear(input_dim, shared_gate_expert_num),
             nn.Softmax(dim=1),
         )
 
-        self.num_tasks = num_tasks
+        self.nums_task = nums_task
 
     def forward(
         self, task_inputs: list[torch.Tensor], shared_input: torch.Tensor
     ) -> tuple[list[torch.Tensor], torch.Tensor]:
-        if len(task_inputs) != self.num_tasks:
+        if len(task_inputs) != self.nums_task:
             raise ValueError(
-                f"Expected {self.num_tasks} task inputs, got {len(task_inputs)}"
+                f"Expected {self.nums_task} task inputs, got {len(task_inputs)}"
             )
 
         shared_outputs = [expert(shared_input) for expert in self.shared_experts]
@@ -146,7 +146,7 @@ class CGCLayer(nn.Module):
         new_task_fea: list[torch.Tensor] = []
         all_specific_for_shared: list[torch.Tensor] = []
 
-        for task_idx in range(self.num_tasks):
+        for task_idx in range(self.nums_task):
             task_input = task_inputs[task_idx]
             task_specific_outputs = [expert(task_input) for expert in self.specific_experts[task_idx]]  # type: ignore
             all_specific_for_shared.extend(task_specific_outputs)
@@ -168,15 +168,15 @@ class CGCLayer(nn.Module):
 
     @staticmethod
     def normalize_specific_params(
-        params: dict | list[dict], num_tasks: int
+        params: dict | list[dict], nums_task: int
     ) -> list[dict]:
         if isinstance(params, list):
-            if len(params) != num_tasks:
+            if len(params) != nums_task:
                 raise ValueError(
-                    f"Length of specific_expert_params ({len(params)}) must match num_tasks ({num_tasks})."
+                    f"Length of specific_expert_params ({len(params)}) must match nums_task ({nums_task})."
                 )
             return [p.copy() for p in params]
-        return [params.copy() for _ in range(num_tasks)]
+        return [params.copy() for _ in range(nums_task)]
 
 
 class PLE(BaseModel):
@@ -195,9 +195,9 @@ class PLE(BaseModel):
 
     @property
     def default_task(self):
-        num_tasks = getattr(self, "num_tasks", None)
-        if num_tasks is not None and num_tasks > 0:
-            return ["binary"] * num_tasks
+        nums_task = getattr(self, "nums_task", None)
+        if nums_task is not None and nums_task > 0:
+            return ["binary"] * nums_task
         return ["binary"]
 
     def __init__(
@@ -225,18 +225,18 @@ class PLE(BaseModel):
         **kwargs,
     ):
 
-        self.num_tasks = len(target)
+        self.nums_task = len(target)
 
         resolved_task = task
         if resolved_task is None:
             resolved_task = self.default_task
         elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.num_tasks
-        elif len(resolved_task) == 1 and self.num_tasks > 1:
-            resolved_task = resolved_task * self.num_tasks
-        elif len(resolved_task) != self.num_tasks:
+            resolved_task = [resolved_task] * self.nums_task
+        elif len(resolved_task) == 1 and self.nums_task > 1:
+            resolved_task = resolved_task * self.nums_task
+        elif len(resolved_task) != self.nums_task:
             raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.num_tasks})."
+                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
             )
 
         super(PLE, self).__init__(
@@ -257,15 +257,15 @@ class PLE(BaseModel):
         if self.loss is None:
             self.loss = "bce"
         # Number of tasks, experts, and levels
-        self.num_tasks = len(target)
+        self.nums_task = len(target)
         self.num_shared_experts = num_shared_experts
         self.num_specific_experts = num_specific_experts
         self.num_levels = num_levels
         if optimizer_params is None:
             optimizer_params = {}
-        if len(tower_params_list) != self.num_tasks:
+        if len(tower_params_list) != self.nums_task:
             raise ValueError(
-                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.num_tasks})"
+                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.nums_task})"
             )
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
@@ -288,7 +288,7 @@ class PLE(BaseModel):
             level_input_dim = input_dim if level == 0 else expert_output_dim
             cgc_layer = CGCLayer(
                 input_dim=level_input_dim,
-                num_tasks=self.num_tasks,
+                nums_task=self.nums_task,
                 num_shared_experts=num_shared_experts,
                 num_specific_experts=num_specific_experts,
                 shared_expert_params=shared_expert_params,
@@ -304,7 +304,7 @@ class PLE(BaseModel):
             tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
-            task_type=self.default_task, task_dims=[1] * self.num_tasks
+            task_type=self.default_task, task_dims=[1] * self.nums_task
         )
         # Register regularization weights
         self.register_regularization_weights(
@@ -322,7 +322,7 @@ class PLE(BaseModel):
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
 
         # Initial features for each task and shared
-        task_fea = [input_flat for _ in range(self.num_tasks)]
+        task_fea = [input_flat for _ in range(self.nums_task)]
         shared_fea = input_flat
 
         # Progressive Layered Extraction: CGC
@@ -331,10 +331,10 @@ class PLE(BaseModel):
 
         # task tower
         task_outputs = []
-        for task_idx in range(self.num_tasks):
+        for task_idx in range(self.nums_task):
             tower_output = self.towers[task_idx](task_fea[task_idx])  # [B, 1]
             task_outputs.append(tower_output)
 
-        # [B, num_tasks]
+        # [B, nums_task]
         y = torch.cat(task_outputs, dim=1)
         return self.prediction_layer(y)

@@ -4,13 +4,13 @@ model_config: model_configs/mmoe.yaml
 
 predict:
   data_path: ../dataset/ctcvr_task.csv
-  source_data_format: csv                  # Input data format: csv, parquet, json, feather, etc.
+  source_data_format: csv                  # Input data format: csv, parquet, feather, etc.
                                            # Use 'auto' for automatic detection
   id_column: user_id                       # Column name for user/sample IDs
                                            # Will be included in prediction output
   name: pred                               # Output filename (without extension)
                                            # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
-  save_data_format: csv                    # Output format: csv, parquet, json, feather
+  save_data_format: csv                    # Output format: csv, parquet, feather
   preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
 
   batch_size: 512                          # Batch size for inference

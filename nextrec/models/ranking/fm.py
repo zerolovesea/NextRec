@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 09/12/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Rendle S. Factorization machines[C]//ICDM. 2010: 995-1000.

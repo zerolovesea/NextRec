@@ -1,6 +1,6 @@
 """
 Date: create on 27/10/2025
-Checkpoint: edit on 24/11/2025
+Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 [1] Guo H, Tang R, Ye Y, et al. DeepFM: A factorization-machine based neural network

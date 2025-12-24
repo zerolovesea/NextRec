@@ -4,12 +4,11 @@
 
 <div align="center">
 
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/nextrec?period=total&units=NONE&left_color=BLACK&right_color=GREEN&left_text=PyPI-downloads)](https://pepy.tech/projects/nextrec)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/nextrec?period=total&units=NONE&left_color=BLACK&right_color=GREEN&left_text=PyPI-downloads)](https://pypistats.org/packages/nextrec)
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
-
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.17-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.18-orange.svg)
 
 English | [中文文档](README.md)
 
@@ -188,11 +187,11 @@ nextrec --mode=train --train_config=path/to/train_config.yaml
 nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 ```
 
-> As of version 0.4.17, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.4.18, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.4.17. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.4.18. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|

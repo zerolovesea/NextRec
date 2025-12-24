@@ -91,9 +91,7 @@ class RetrievalHead(nn.Module):
             elif self.similarity_metric == "euclidean":
                 similarity = -torch.sum((user_emb - item_emb) ** 2, dim=-1)
             else:
-                raise ValueError(
-                    f"Unknown similarity metric: {self.similarity_metric}"
-                )
+                raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
 
             similarity = similarity / self.temperature
         if self.training_mode == "pointwise" and self.apply_sigmoid:

@@ -1,7 +1,7 @@
 """
 Date: create on 09/11/2025
-Author:
-    Yang Zhou,zyaztec@gmail.com
+Checkpoint: edit on 23/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 [1] Qu Y, Cai H, Ren K, et al. Product-based neural networks for user response
 prediction[C]//ICDM. 2016: 1149-1154. (https://arxiv.org/abs/1611.00144)
