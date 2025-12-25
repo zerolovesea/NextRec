@@ -84,7 +84,7 @@ dataloader:
   valid_batch_size: 512                 # Validation batch size
   valid_shuffle: false                  # Shuffle validation data
   num_workers: 4                        # Number of parallel data loading workers
-                                       # 0 = single process, >0 = multiprocessing
+                                        # 0 = single process, >0 = multiprocessing
   # chunk_size: 20000                   # Chunk size when streaming=true
 
 train:
@@ -187,7 +187,7 @@ The prediction configuration file defines the model inference pipeline.
 #### Configuration Structure
 
 ```yaml
-checkpoint_path: /path/to/checkpoint/directory  # Required checkpoint directory
+checkpoint_path: /path/to/checkpoint/directory   # Required checkpoint directory
 # model_config: /path/to/model_config.yaml       # Optional model config override
 # session:
 #   id: my_experiment_session                    # Optional session ID
@@ -195,10 +195,10 @@ checkpoint_path: /path/to/checkpoint/directory  # Required checkpoint directory
 predict:
   data_path: /path/to/prediction/data   # Prediction data path
   source_data_format: parquet           # Input data format: csv, parquet, feather
-                                       # Use 'auto' for automatic detection
+                                        # Use 'auto' for automatic detection
   id_column: user_id                    # ID column name (optional, for linking predictions)
   name: pred                            # Output filename (without extension)
-                                       # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
+                                        # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
   save_data_format: csv                 # Output format: csv, parquet, feather
   preview_rows: 5                       # Number of preview rows (output to log)
   batch_size: 512                       # Prediction batch size
