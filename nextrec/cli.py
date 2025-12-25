@@ -85,7 +85,8 @@ def train_model(train_config_path: str) -> None:
     session_id = session_cfg.get("id", "nextrec_cli_session")
     artifact_root = Path(session_cfg.get("artifact_root", "nextrec_logs"))
     session_dir = artifact_root / session_id
-    setup_logger(session_id=session_id)
+
+    setup_logger(session_id=session_dir.resolve())
 
     log_cli_section("CLI")
     log_kv_lines(
@@ -419,8 +420,7 @@ def predict_model(predict_config_path: str) -> None:
         session_cfg = cfg.get("session", {}) or {}
         session_id = session_cfg.get("id") or session_dir.name
 
-    setup_logger(session_id=session_id)
-
+    setup_logger(session_id=session_dir.resolve())
     log_cli_section("CLI")
     log_kv_lines(
         [
@@ -584,7 +584,6 @@ def predict_model(predict_config_path: str) -> None:
         streaming=predict_cfg.get("streaming", True),
         chunk_size=predict_cfg.get("chunk_size", 20000),
     )
-
 
     save_format = predict_cfg.get(
         "save_data_format", predict_cfg.get("save_format", "csv")

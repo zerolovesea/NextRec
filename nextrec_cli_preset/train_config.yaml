@@ -29,7 +29,7 @@ train:
     - auc
     - gauc
     - recall
-  epochs: 10
+  epochs: 1
   shuffle: true
   device: cpu
 
