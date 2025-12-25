@@ -585,13 +585,13 @@ def predict_model(predict_config_path: str) -> None:
         chunk_size=predict_cfg.get("chunk_size", 20000),
     )
 
-    # Build output path: {checkpoint_path}/predictions/{name}.{save_data_format}
+
     save_format = predict_cfg.get(
         "save_data_format", predict_cfg.get("save_format", "csv")
     )
     pred_name = predict_cfg.get("name", "pred")
-    # Pass filename with extension to let model.predict handle path resolution
-    save_path = f"{pred_name}.{save_format}"
+
+    save_path = checkpoint_base / "predictions" / f"{pred_name}.{save_format}"
 
     start = time.time()
     logger.info("")
@@ -600,7 +600,7 @@ def predict_model(predict_config_path: str) -> None:
         batch_size=batch_size,
         include_ids=bool(id_columns),
         return_dataframe=False,
-        save_path=save_path,
+        save_path=str(save_path),
         save_format=save_format,
         num_workers=predict_cfg.get("num_workers", 0),
     )

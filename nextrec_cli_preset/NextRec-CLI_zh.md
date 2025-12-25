@@ -84,7 +84,7 @@ dataloader:
   valid_batch_size: 512                 # 验证批次大小
   valid_shuffle: false                  # 是否打乱验证数据
   num_workers: 4                        # 数据加载并行进程数
-                                       # 0=单进程, >0=多进程
+                                        # 0=单进程, >0=多进程
   # chunk_size: 20000                   # streaming=true 时的分块大小
 
 train:
@@ -195,10 +195,10 @@ checkpoint_path: /path/to/checkpoint/directory  # 必填 checkpoint 目录
 predict:
   data_path: /path/to/prediction/data   # 预测数据路径
   source_data_format: parquet           # 输入数据格式：csv, parquet, feather
-                                       # 使用 auto 自动识别
+                                        # 使用 auto 自动识别
   id_column: user_id                    # ID列名（可选，用于关联预测结果）
   name: pred                            # 输出文件名（不含扩展名）
-                                       # 最终路径: {checkpoint_path}/predictions/{name}.{save_data_format}
+                                        # 最终路径: {checkpoint_path}/predictions/{name}.{save_data_format}
   save_data_format: csv                 # 输出格式：csv, parquet, feather
   preview_rows: 5                       # 预览行数（输出到日志）
   batch_size: 512                       # 预测批次大小
@@ -380,8 +380,8 @@ model: deepfm
 params:
   mlp_params:
     dims: [256, 128, 64]               # MLP 层维度
-    activation: relu                    # 激活函数
-    dropout: 0.3                        # Dropout 比率
+    activation: relu                   # 激活函数
+    dropout: 0.3                       # Dropout 比率
   embedding_l2_reg: 1.0e-5             # Embedding L2 正则化
   dense_l2_reg: 1.0e-4                 # Dense 层 L2 正则化
 ```
@@ -430,7 +430,7 @@ params:
 ```yaml
 model: masknet
 params:
-  architecture: parallel                 # 模型类型：parallel, serial
+  architecture: parallel               # 模型类型：parallel, serial
   num_blocks: 3                        # Block 数量
   mask_hidden_dim: 64                  # Mask 隐藏层维度
   block_hidden_dim: 256                # Block 隐藏层维度
