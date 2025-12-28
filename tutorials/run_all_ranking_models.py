@@ -49,8 +49,8 @@ def train_model(
         else:
             seq_feats = []
 
-        # MaskNet requires all features to have the same embedding_dim
-        # Set dense features' embedding_dim to match sparse features for MaskNet
+        # MaskNet requires all features to have the same proj_dim
+        # Set dense features' proj_dim to match sparse features for MaskNet
         if model_name == "MaskNet":
             from nextrec.basic.features import DenseFeature
 
@@ -58,9 +58,9 @@ def train_model(
             adjusted_dense_features = [
                 DenseFeature(
                     name=f.name,
-                    embedding_dim=embedding_dim,
+                    proj_dim=embedding_dim,
                     input_dim=f.input_dim,
-                    use_embedding=True,
+                    use_projection=True,
                 )
                 for f in dense_features
             ]
@@ -71,9 +71,9 @@ def train_model(
             adjusted_dense_features = [
                 DenseFeature(
                     name=f.name,
-                    embedding_dim=embedding_dim,
+                    proj_dim=embedding_dim,
                     input_dim=f.input_dim,
-                    use_embedding=True,
+                    use_projection=True,
                 )
                 for f in dense_features
             ]

@@ -357,8 +357,8 @@ class TestDIN:
         logger.info("Creating features for DIN")
 
         dense_features = [
-            DenseFeature(name="price", embedding_dim=1),
-            DenseFeature(name="age", embedding_dim=1),
+            DenseFeature(name="price", proj_dim=1),
+            DenseFeature(name="age", proj_dim=1),
         ]
 
         sparse_features = [
@@ -563,7 +563,7 @@ class TestRankingModelsComparison:
         logger.info("=" * 80)
 
         # Simple features for both models
-        dense_features = [DenseFeature(name="feat1", embedding_dim=1)]
+        dense_features = [DenseFeature(name="feat1", proj_dim=1)]
         sparse_features = [
             SparseFeature(name="sparse1", vocab_size=100, embedding_dim=8),
             SparseFeature(name="sparse2", vocab_size=100, embedding_dim=8),
@@ -1171,8 +1171,8 @@ class TestDIEN:
         logger.info("Creating features for DIEN")
 
         dense_features = [
-            DenseFeature(name="price", embedding_dim=1),
-            DenseFeature(name="age", embedding_dim=1),
+            DenseFeature(name="price", proj_dim=1),
+            DenseFeature(name="age", proj_dim=1),
         ]
 
         sparse_features = [

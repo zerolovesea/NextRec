@@ -2,7 +2,7 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Checkpoint: edit on 24/12/2025
+Checkpoint: edit on 27/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -13,7 +13,7 @@ import numbers
 import os
 import re
 import sys
-from typing import Any, Mapping
+from typing import Any
 
 from nextrec.basic.session import Session, create_session
 
@@ -101,6 +101,7 @@ def format_kv(label: str, value: Any, width: int = 34, indent: int = 0) -> str:
 def setup_logger(session_id: str | os.PathLike | None = None):
     """Set up a logger that logs to both console and a file with ANSI formatting.
     Only console output has colors; file output is stripped of ANSI codes.
+
     Logs are stored under ``log/<experiment_id>/logs`` by default. A stable
     log file is used per experiment so multiple components (e.g. data
     processor and model training) append to the same file instead of creating
@@ -144,45 +145,27 @@ def setup_logger(session_id: str | os.PathLike | None = None):
     return logger
 
 
-class TrainingLogger:
+class MetricsLoggerBackend:
+    def log_payload(self, payload: dict[str, float]) -> None:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        return None
+
+
+class BasicLogger:
     def __init__(
         self,
         session: Session,
-        use_tensorboard: bool,
         log_name: str = "training_metrics.jsonl",
+        backends: list[MetricsLoggerBackend] | None = None,
     ) -> None:
         self.session = session
-        self.use_tensorboard = use_tensorboard
         self.log_path = session.metrics_dir / log_name
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.backends = backends or []
 
-        self.tb_writer = None
-        self.tb_dir = None
-
-        if self.use_tensorboard:
-            self._init_tensorboard()
-
-    def _init_tensorboard(self) -> None:
-        try:
-            from torch.utils.tensorboard import SummaryWriter  # type: ignore
-        except ImportError:
-            logging.warning(
-                "[TrainingLogger] tensorboard not installed, disable tensorboard logging."
-            )
-            self.use_tensorboard = False
-            return
-        tb_dir = self.session.logs_dir / "tensorboard"
-        tb_dir.mkdir(parents=True, exist_ok=True)
-        self.tb_dir = tb_dir
-        self.tb_writer = SummaryWriter(log_dir=str(tb_dir))
-
-    @property
-    def tensorboard_logdir(self):
-        return self.tb_dir
-
-    def format_metrics(
-        self, metrics: Mapping[str, Any], split: str
-    ) -> dict[str, float]:
+    def format_metrics(self, metrics: dict[str, Any], split: str) -> dict[str, float]:
         formatted: dict[str, float] = {}
         for key, value in metrics.items():
             if isinstance(value, numbers.Real):
@@ -195,23 +178,237 @@ class TrainingLogger:
         return formatted
 
     def log_metrics(
-        self, metrics: Mapping[str, Any], step: int, split: str = "train"
+        self, metrics: dict[str, Any], step: int, split: str = "train"
     ) -> None:
         payload = self.format_metrics(metrics, split)
         payload["step"] = int(step)
         with self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        for backend in self.backends:
+            backend.log_payload(payload)
 
-        if not self.tb_writer:
+    def close(self) -> None:
+        for backend in self.backends:
+            backend.close()
+
+
+class TensorBoardLogger(MetricsLoggerBackend):
+    def __init__(
+        self,
+        session: Session,
+        enabled: bool = True,
+        log_dir_name: str = "tensorboard",
+    ) -> None:
+        self.enabled = enabled
+        self.writer = None
+        self.log_dir = None
+        if self.enabled:
+            self._init_writer(session, log_dir_name)
+
+    def _init_writer(self, session: Session, log_dir_name: str) -> None:
+        try:
+            from torch.utils.tensorboard import SummaryWriter  # type: ignore
+        except ImportError:
+            logging.warning(
+                "[TrainingLogger] tensorboard not installed, disable tensorboard logging."
+            )
+            self.enabled = False
+            return
+        log_dir = session.logs_dir / log_dir_name
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir = log_dir
+        self.writer = SummaryWriter(log_dir=str(log_dir))
+
+    def log_payload(self, payload: dict[str, float]) -> None:
+        if not self.writer:
             return
         step = int(payload.get("step", 0))
         for key, value in payload.items():
             if key == "step":
                 continue
-            self.tb_writer.add_scalar(key, value, global_step=step)
+            self.writer.add_scalar(key, value, global_step=step)
 
     def close(self) -> None:
-        if self.tb_writer:
-            self.tb_writer.flush()
-            self.tb_writer.close()
-            self.tb_writer = None
+        if self.writer:
+            self.writer.flush()
+            self.writer.close()
+            self.writer = None
+
+
+class WandbLogger(MetricsLoggerBackend):
+    def __init__(
+        self,
+        session: Session,
+        enabled: bool = True,
+        project: str | None = None,
+        run_name: str | None = None,
+        init_run: bool = True,
+        **init_kwargs: Any,
+    ) -> None:
+        self.enabled = enabled
+        self.wandb = None
+        if not self.enabled:
+            return
+        try:
+            import wandb  # type: ignore
+        except ImportError:
+            logging.warning("[WandbLogger] wandb not installed, disable wandb logging.")
+            self.enabled = False
+            return
+        self.wandb = wandb
+        if init_run and getattr(wandb, "run", None) is None:
+            kwargs = dict(init_kwargs)
+            if project is not None:
+                kwargs.setdefault("project", project)
+            if run_name is None:
+                run_name = session.experiment_id
+            if run_name is not None:
+                kwargs.setdefault("name", run_name)
+            try:
+                wandb.init(**kwargs)
+            except TypeError:
+                wandb.init()
+
+    def log_payload(self, payload: dict[str, float]) -> None:
+        if not self.enabled or self.wandb is None:
+            return
+        step = int(payload.get("step", 0))
+        log_payload = {k: v for k, v in payload.items() if k != "step"}
+        if not log_payload:
+            return
+        try:
+            self.wandb.log(log_payload, step=step)
+        except TypeError:
+            self.wandb.log(log_payload)
+
+
+class SwanLabLogger(MetricsLoggerBackend):
+    def __init__(
+        self,
+        session: Session,
+        enabled: bool = True,
+        project: str | None = None,
+        run_name: str | None = None,
+        init_run: bool = True,
+        **init_kwargs: Any,
+    ) -> None:
+        self.enabled = enabled
+        self.swanlab = None
+        self._warned_missing_log = False
+        if not self.enabled:
+            return
+        try:
+            import swanlab  # type: ignore
+        except ImportError:
+            logging.warning(
+                "[SwanLabLogger] swanlab not installed, disable swanlab logging."
+            )
+            self.enabled = False
+            return
+        self.swanlab = swanlab
+        if init_run and hasattr(swanlab, "init"):
+            kwargs = dict(init_kwargs)
+            kwargs.setdefault("logdir", str(session.logs_dir) + "/swanlog")
+            if project is not None:
+                kwargs.setdefault("project", project)
+            if run_name is None:
+                run_name = session.experiment_id
+            if run_name is not None:
+                kwargs.setdefault("name", run_name)
+            try:
+                swanlab.init(**kwargs)
+            except TypeError:
+                swanlab.init()
+
+    def log_payload(self, payload: dict[str, float]) -> None:
+        if not self.enabled or self.swanlab is None:
+            return
+        log_fn = getattr(self.swanlab, "log", None)
+        if log_fn is None:
+            if not self._warned_missing_log:
+                logging.warning(
+                    "[SwanLabLogger] swanlab.log not found, disable swanlab logging."
+                )
+                self._warned_missing_log = True
+            return
+        step = int(payload.get("step", 0))
+        log_payload = {k: v for k, v in payload.items() if k != "step"}
+        if not log_payload:
+            return
+        try:
+            log_fn(log_payload, step=step)
+        except TypeError:
+            log_fn(log_payload)
+
+
+class TrainingLogger(BasicLogger):
+    def __init__(
+        self,
+        session: Session,
+        use_tensorboard: bool,
+        log_name: str = "training_metrics.jsonl",
+        use_wandb: bool = False,
+        use_swanlab: bool = False,
+        config: dict[str, Any] = {},
+        wandb_kwargs: dict[str, Any] | None = None,
+        swanlab_kwargs: dict[str, Any] | None = None,
+    ):
+        self.session = session
+        self.use_tensorboard = use_tensorboard
+        self.tensorboard_logger = TensorBoardLogger(
+            session=session, enabled=use_tensorboard
+        )
+        self.use_tensorboard = self.tensorboard_logger.enabled
+        self.tb_writer = self.tensorboard_logger.writer
+        self.tb_dir = self.tensorboard_logger.log_dir
+
+        backends = []
+        if self.tensorboard_logger.enabled:
+            backends.append(self.tensorboard_logger)
+
+        wandb_kwargs = dict(wandb_kwargs or {})
+        wandb_kwargs.setdefault("config", {})
+        wandb_kwargs["config"].update(config)
+
+        swanlab_kwargs = dict(swanlab_kwargs or {})
+        swanlab_kwargs.setdefault("config", {})
+        swanlab_kwargs["config"].update(config)
+
+        self.wandb_logger = None
+        if use_wandb:
+            self.wandb_logger = WandbLogger(
+                session=session, enabled=use_wandb, **wandb_kwargs
+            )
+            if self.wandb_logger.enabled:
+                backends.append(self.wandb_logger)
+
+        self.swanlab_logger = None
+        if use_swanlab:
+            self.swanlab_logger = SwanLabLogger(
+                session=session, enabled=use_swanlab, **swanlab_kwargs
+            )
+            if self.swanlab_logger.enabled:
+                backends.append(self.swanlab_logger)
+
+        super().__init__(session=session, log_name=log_name, backends=backends)
+
+    def init_tensorboard(self) -> None:
+        if self.tensorboard_logger and self.tensorboard_logger.enabled:
+            return
+        self.tensorboard_logger = TensorBoardLogger(session=self.session, enabled=True)
+        self.use_tensorboard = self.tensorboard_logger.enabled
+        self.tb_writer = self.tensorboard_logger.writer
+        self.tb_dir = self.tensorboard_logger.log_dir
+        if (
+            self.tensorboard_logger.enabled
+            and self.tensorboard_logger not in self.backends
+        ):
+            self.backends.append(self.tensorboard_logger)
+
+    @property
+    def tensorboard_logdir(self):
+        return self.tb_dir
+
+    def close(self) -> None:
+        super().close()
+        self.tb_writer = None

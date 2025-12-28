@@ -250,7 +250,7 @@ dense:
       name: age                         # Feature name
       input_dim: 1                      # Input dimension
       embedding_dim: 8                  # Embedding dimension
-      use_embedding: true               # Whether to use embedding
+      use_projection: true               # Whether to use embedding
   
   income:
     processor_config:
@@ -260,7 +260,7 @@ dense:
       name: income
       input_dim: 1
       embedding_dim: 8
-      use_embedding: false              # Don't use embedding, use raw values
+      use_projection: false              # Don't use embedding, use raw values
 
 sparse:
   city:
@@ -322,7 +322,7 @@ feature_groups:
   - `standard`: Standardization (mean 0, std 1)
   - `minmax`: Min-max normalization (scales to 0-1)
   - `robust`: Robust standardization (uses median and quantiles)
-- `embedding_config.use_embedding`: Whether to use embedding for numeric features
+- `embedding_config.use_projection`: Whether to use embedding for numeric features
   - `true`: Use embedding layer
   - `false`: Use normalized values directly
 
@@ -557,7 +557,7 @@ dense:
       name: age
       input_dim: 1
       embedding_dim: 8
-      use_embedding: true
+      use_projection: true
   
   price:
     processor_config:
@@ -567,7 +567,7 @@ dense:
       name: price
       input_dim: 1
       embedding_dim: 8
-      use_embedding: true
+      use_projection: true
 
 sparse:
   user_id:

@@ -48,7 +48,7 @@ from nextrec.utils.data import (
     read_yaml,
     resolve_file_paths,
 )
-from nextrec.utils.feature import normalize_to_list
+from nextrec.utils.feature import to_list
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ def train_model(train_config_path: str) -> None:
 
     # train data
     data_path = resolve_path(data_cfg["path"], config_dir)
-    target = normalize_to_list(data_cfg["target"])
+    target = to_list(data_cfg["target"])
     file_paths: List[str] = []
     file_type: str | None = None
     streaming_train_files: List[str] | None = None
@@ -507,7 +507,7 @@ def predict_model(predict_config_path: str) -> None:
         or model_cfg.get("params", {}).get("target")
     )
     if target_override:
-        target_cols = normalize_to_list(target_override)
+        target_cols = to_list(target_override)
 
     model = build_model_instance(
         model_cfg=model_cfg,

@@ -30,7 +30,7 @@ from sklearn.preprocessing import (
 from nextrec.__version__ import __version__
 from nextrec.basic.features import FeatureSet
 from nextrec.basic.loggers import colorize
-from nextrec.basic.session import resolve_save_path
+from nextrec.basic.session import get_save_path
 from nextrec.data.data_processing import hash_md5_mod
 from nextrec.utils.console import progress
 from nextrec.utils.data import (
@@ -957,7 +957,7 @@ class DataProcessor(FeatureSet):
         save_path = Path(save_path)
         if not self.is_fitted:
             logger.warning("Saving unfitted DataProcessor")
-        target_path = resolve_save_path(
+        target_path = get_save_path(
             path=save_path,
             default_dir=Path(os.getcwd()),
             default_name="fitted_processor",

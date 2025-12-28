@@ -424,10 +424,10 @@ def normalize_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
                 sequences.append(np.asarray(seq, dtype=np.int64))
             else:
                 sequences.append(np.asarray([seq], dtype=np.int64))
-        max_len = getattr(feature, "max_len", 0)
+        max_len = feature.max_len if feature.max_len is not None else 0
         if max_len <= 0:
             max_len = max((len(seq) for seq in sequences), default=1)
-        pad_value = getattr(feature, "padding_idx", 0)
+        pad_value = feature.padding_idx if feature.padding_idx is not None else 0
         padded = [
             (
                 seq[:max_len]

@@ -56,10 +56,12 @@ model.compile(
 model.fit(
     train_data=train_df,
     valid_data=valid_df,
-    metrics=["auc", "recall", "precision"],
-    epochs=1,
+    metrics=["auc", "recall", "precision", "ks"],
+    epochs=15,
     batch_size=512,
     shuffle=True,
+    use_swanlab=True,
+    swanlab_kwargs={"project": "NextRec", "name": "tutorial_movielens_deepfm"},
 )
 
 predictions = model.predict(valid_df, batch_size=512)

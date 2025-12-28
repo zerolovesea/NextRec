@@ -14,6 +14,7 @@ from .config import (
     load_model_class,
     register_processor_features,
     resolve_path,
+    safe_value,
     select_features,
 )
 from .console import (
@@ -35,23 +36,19 @@ from .data import (
     resolve_file_paths,
 )
 from .embedding import get_auto_embedding_dim
-from .feature import normalize_to_list
+from .feature import to_list
 from .model import compute_pair_scores, get_mlp_output_dim, merge_features
 from .torch_utils import (
     add_distributed_sampler,
-    concat_tensors,
-    configure_device,
+    get_device,
     gather_numpy,
-    get_device_info,
     get_initializer,
     get_optimizer,
     get_scheduler,
     init_process_group,
-    pad_sequence_tensors,
-    resolve_device,
-    stack_tensors,
     to_tensor,
 )
+from .types import LossName, OptimizerName, SchedulerName, ActivationName
 
 __all__ = [
     # Console utilities
@@ -67,17 +64,12 @@ __all__ = [
     # Embedding utilities
     "get_auto_embedding_dim",
     # Device utilities (torch utils)
-    "resolve_device",
-    "get_device_info",
-    "configure_device",
+    "get_device",
     "init_process_group",
     "gather_numpy",
     "add_distributed_sampler",
     # Tensor utilities
     "to_tensor",
-    "stack_tensors",
-    "concat_tensors",
-    "pad_sequence_tensors",
     # Data utilities
     "resolve_file_paths",
     "read_table",
@@ -90,9 +82,10 @@ __all__ = [
     "get_mlp_output_dim",
     "compute_pair_scores",
     # Feature utilities
-    "normalize_to_list",
+    "to_list",
     # Config utilities
     "resolve_path",
+    "safe_value",
     "register_processor_features",
     "build_feature_objects",
     "extract_feature_groups",
@@ -109,4 +102,9 @@ __all__ = [
     "data",
     "embedding",
     "torch_utils",
+    # Type aliases
+    "OptimizerName",
+    "SchedulerName",
+    "LossName",
+    "ActivationName",
 ]

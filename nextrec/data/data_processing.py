@@ -2,7 +2,7 @@
 Data processing utilities for NextRec
 
 Date: create on 03/12/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 25/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -26,6 +26,50 @@ def get_column_data(data: dict | pd.DataFrame, name: str):
         if hasattr(data, name):
             return getattr(data, name)
         raise KeyError(f"Unsupported data type for extracting column {name}")
+
+
+def to_numpy(values: Any) -> np.ndarray:
+    if isinstance(values, torch.Tensor):
+        return values.detach().cpu().numpy()
+    return np.asarray(values)
+
+
+def get_data_length(data: Any) -> int | None:
+    if data is None:
+        return None
+    if isinstance(data, pd.DataFrame):
+        return len(data)
+    if isinstance(data, dict):
+        if not data:
+            return None
+        sample_key = next(iter(data))
+        return len(data[sample_key])
+    try:
+        return len(data)
+    except TypeError:
+        return None
+
+
+def extract_label_arrays(
+    data: Any, target_columns: list[str]
+) -> dict[str, np.ndarray] | None:
+    if not target_columns or data is None:
+        return None
+
+    if isinstance(data, (dict, pd.DataFrame)):
+        label_source = data
+    elif hasattr(data, "labels"):
+        label_source = data.labels
+    else:
+        return None
+
+    labels: dict[str, np.ndarray] = {}
+    for name in target_columns:
+        column = get_column_data(label_source, name)
+        if column is None:
+            continue
+        labels[name] = to_numpy(column)
+    return labels or None
 
 
 def split_dict_random(data_dict, test_size=0.2, random_state=None):

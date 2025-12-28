@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 24/12/2025
+Checkpoint: edit on 28/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -12,7 +12,7 @@ import os
 import pickle
 import socket
 from pathlib import Path
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -26,7 +26,6 @@ from torch.utils.data.distributed import DistributedSampler
 
 from nextrec import __version__
 from nextrec.basic.callback import (
-    Callback,
     CallbackList,
     CheckpointSaver,
     EarlyStopper,
@@ -41,9 +40,13 @@ from nextrec.basic.features import (
 from nextrec.basic.heads import RetrievalHead
 from nextrec.basic.loggers import TrainingLogger, colorize, format_kv, setup_logger
 from nextrec.basic.metrics import check_user_id, configure_metrics, evaluate_metrics
-from nextrec.basic.session import create_session, resolve_save_path
+from nextrec.basic.summary import SummarySet
+from nextrec.basic.session import create_session, get_save_path
 from nextrec.data.batch_utils import batch_to_dict, collate_fn
-from nextrec.data.data_processing import get_column_data, get_user_ids
+from nextrec.data.data_processing import (
+    get_column_data,
+    get_user_ids,
+)
 from nextrec.data.dataloader import (
     RecDataLoader,
     TensorDictDataset,
@@ -63,17 +66,19 @@ from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.console import display_metrics_table, progress
 from nextrec.utils.torch_utils import (
     add_distributed_sampler,
-    configure_device,
+    get_device,
     gather_numpy,
     get_optimizer,
     get_scheduler,
     init_process_group,
     to_tensor,
 )
+from nextrec.utils.config import safe_value
 from nextrec.utils.model import compute_ranking_loss
+from nextrec.utils.types import LossName, OptimizerName, SchedulerName
 
 
-class BaseModel(FeatureSet, nn.Module):
+class BaseModel(SummarySet, FeatureSet, nn.Module):
     @property
     def model_name(self) -> str:
         raise NotImplementedError
@@ -99,11 +104,7 @@ class BaseModel(FeatureSet, nn.Module):
         embedding_l2_reg: float = 0.0,
         dense_l2_reg: float = 0.0,
         device: str = "cpu",
-        early_stop_patience: int = 20,
-        early_stop_monitor_task: str | None = None,
-        metrics_sample_limit: int | None = 200000,
         session_id: str | None = None,
-        callbacks: list[Callback] | None = None,
         distributed: bool = False,
         rank: int | None = None,
         world_size: int | None = None,
@@ -128,11 +129,7 @@ class BaseModel(FeatureSet, nn.Module):
             dense_l2_reg: L2 regularization strength for dense params. e.g., 1e-4.
 
             device: Torch device string or torch.device. e.g., 'cpu', 'cuda:0'.
-            early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
-            early_stop_monitor_task: Task name to monitor for early stopping in multi-task scenario. If None, uses first target. e.g., 'click'.
-            metrics_sample_limit: Max samples to keep for training metrics. None disables limit.
             session_id: Session id for logging. If None, a default id with timestamps will be created. e.g., 'session_tutorial'.
-            callbacks: List of callback instances. If None, default callbacks will be created. e.g., [EarlyStopper(), CheckpointSaver()].
 
             distributed: Enable DistributedDataParallel flow, set True to enable distributed training.
             rank: Global rank (defaults to env RANK).
@@ -152,8 +149,8 @@ class BaseModel(FeatureSet, nn.Module):
         self.local_rank = env_local_rank if local_rank is None else local_rank
         self.is_main_process = self.rank == 0
         self.ddp_find_unused_parameters = ddp_find_unused_parameters
-        self.ddp_model: DDP | None = None
-        self.device = configure_device(self.distributed, self.local_rank, device)
+        self.ddp_model = None
+        self.device = get_device(self.distributed, self.local_rank, device)
 
         self.session_id = session_id
         self.session = create_session(session_id)
@@ -174,21 +171,22 @@ class BaseModel(FeatureSet, nn.Module):
         self.task = self.default_task if task is None else task
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
         if isinstance(training_mode, list):
-            if len(training_mode) != self.nums_task:
+            training_modes = list(training_mode)
+            if len(training_modes) != self.nums_task:
                 raise ValueError(
                     "[BaseModel-init Error] training_mode list length must match number of tasks."
                 )
-            self.training_modes = list(training_mode)
         else:
-            self.training_modes = [training_mode] * self.nums_task
-        for mode in self.training_modes:
-            if mode not in {"pointwise", "pairwise", "listwise"}:
-                raise ValueError(
-                    "[BaseModel-init Error] training_mode must be one of {'pointwise', 'pairwise', 'listwise'}."
-                )
-        self.training_mode = (
-            self.training_modes if self.nums_task > 1 else self.training_modes[0]
-        )
+            training_modes = [training_mode] * self.nums_task
+        if any(
+            mode not in {"pointwise", "pairwise", "listwise"}
+            for mode in training_modes
+        ):
+            raise ValueError(
+                "[BaseModel-init Error] training_mode must be one of {'pointwise', 'pairwise', 'listwise'}."
+            )
+        self.training_modes = training_modes
+        self.training_mode = training_modes if self.nums_task > 1 else training_modes[0]
 
         self.embedding_l1_reg = embedding_l1_reg
         self.dense_l1_reg = dense_l1_reg
@@ -198,25 +196,20 @@ class BaseModel(FeatureSet, nn.Module):
         self.embedding_params = []
         self.loss_weight = None
 
-        self.early_stop_patience = early_stop_patience
-        self.early_stop_monitor_task = early_stop_monitor_task
-        # max samples to keep for training metrics, in case of large training set
-        self.metrics_sample_limit = (
-            None if metrics_sample_limit is None else int(metrics_sample_limit)
-        )
         self.max_gradient_norm = 1.0
         self.logger_initialized = False
         self.training_logger = None
-        self.callbacks = CallbackList(callbacks) if callbacks else CallbackList()
-        self.grad_norm: GradNormLossWeighting | None = None
-        self.grad_norm_shared_params: list[torch.nn.Parameter] | None = None
+        self.callbacks = CallbackList()
+
+        self.train_data_summary = None
+        self.valid_data_summary = None
 
     def register_regularization_weights(
         self,
         embedding_attr: str = "embedding",
         exclude_modules: list[str] | None = None,
         include_modules: list[str] | None = None,
-    ) -> None:
+    ):
         exclude_modules = exclude_modules or []
         include_modules = include_modules or []
         embedding_layer = getattr(self, embedding_attr, None)
@@ -264,24 +257,24 @@ class BaseModel(FeatureSet, nn.Module):
 
     def add_reg_loss(self) -> torch.Tensor:
         reg_loss = torch.tensor(0.0, device=self.device)
-        if self.embedding_params:
-            if self.embedding_l1_reg > 0:
-                reg_loss += self.embedding_l1_reg * sum(
-                    param.abs().sum() for param in self.embedding_params
-                )
-            if self.embedding_l2_reg > 0:
-                reg_loss += self.embedding_l2_reg * sum(
-                    (param**2).sum() for param in self.embedding_params
-                )
-        if self.regularization_weights:
-            if self.dense_l1_reg > 0:
-                reg_loss += self.dense_l1_reg * sum(
-                    param.abs().sum() for param in self.regularization_weights
-                )
-            if self.dense_l2_reg > 0:
-                reg_loss += self.dense_l2_reg * sum(
-                    (param**2).sum() for param in self.regularization_weights
-                )
+
+        if self.embedding_l1_reg > 0:
+            reg_loss += self.embedding_l1_reg * sum(
+                param.abs().sum() for param in self.embedding_params
+            )
+        if self.embedding_l2_reg > 0:
+            reg_loss += self.embedding_l2_reg * sum(
+                (param**2).sum() for param in self.embedding_params
+            )
+
+        if self.dense_l1_reg > 0:
+            reg_loss += self.dense_l1_reg * sum(
+                param.abs().sum() for param in self.regularization_weights
+            )
+        if self.dense_l2_reg > 0:
+            reg_loss += self.dense_l2_reg * sum(
+                (param**2).sum() for param in self.regularization_weights
+            )
         return reg_loss
 
     def get_input(self, input_data: dict, require_labels: bool = True):
@@ -341,10 +334,10 @@ class BaseModel(FeatureSet, nn.Module):
                 )
         return X_input, y
 
-    def handle_validation_split(
+    def handle_valid_split(
         self,
         train_data: dict | pd.DataFrame,
-        validation_split: float,
+        valid_split: float,
         batch_size: int,
         shuffle: bool,
         num_workers: int = 0,
@@ -352,11 +345,11 @@ class BaseModel(FeatureSet, nn.Module):
         """
         This function will split training data into training and validation sets when:
         1. valid_data is None;
-        2. validation_split is provided.
+        2. valid_split is provided.
         """
-        if not (0 < validation_split < 1):
+        if not (0 < valid_split < 1):
             raise ValueError(
-                f"[BaseModel-validation Error] validation_split must be between 0 and 1, got {validation_split}"
+                f"[BaseModel-validation Error] valid_split must be between 0 and 1, got {valid_split}"
             )
         if isinstance(train_data, pd.DataFrame):
             total_length = len(train_data)
@@ -370,37 +363,40 @@ class BaseModel(FeatureSet, nn.Module):
                     )
         else:
             raise TypeError(
-                f"[BaseModel-validation Error] If you want to use validation_split, train_data must be a pandas DataFrame or a dict instead of {type(train_data)}"
+                f"[BaseModel-validation Error] If you want to use valid_split, train_data must be a pandas DataFrame or a dict instead of {type(train_data)}"
             )
         rng = np.random.default_rng(42)
         indices = rng.permutation(total_length)
-        split_idx = int(total_length * (1 - validation_split))
+        split_idx = int(total_length * (1 - valid_split))
         train_indices = indices[:split_idx]
         valid_indices = indices[split_idx:]
         if isinstance(train_data, pd.DataFrame):
-            train_split = train_data.iloc[train_indices].reset_index(drop=True)
-            valid_split = train_data.iloc[valid_indices].reset_index(drop=True)
+            train_split_data = train_data.iloc[train_indices].reset_index(drop=True)
+            valid_split_data = train_data.iloc[valid_indices].reset_index(drop=True)
         else:
-            train_split = {
+            train_split_data = {
                 k: np.asarray(v)[train_indices] for k, v in train_data.items()
             }
-            valid_split = {
+            valid_split_data = {
                 k: np.asarray(v)[valid_indices] for k, v in train_data.items()
             }
         train_loader = self.prepare_data_loader(
-            train_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
+            train_split_data,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
         )
         logging.info(
             f"Split data: {len(train_indices)} training samples, {len(valid_indices)} validation samples"
         )
-        return train_loader, valid_split
+        return train_loader, valid_split_data
 
     def compile(
         self,
-        optimizer: str | torch.optim.Optimizer = "adam",
+        optimizer: OptimizerName | torch.optim.Optimizer = "adam",
         optimizer_params: dict | None = None,
         scheduler: (
-            str
+            SchedulerName
             | torch.optim.lr_scheduler._LRScheduler
             | torch.optim.lr_scheduler.LRScheduler
             | type[torch.optim.lr_scheduler._LRScheduler]
@@ -408,10 +404,9 @@ class BaseModel(FeatureSet, nn.Module):
             | None
         ) = None,
         scheduler_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+        loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         loss_weights: int | float | list[int | float] | dict | str | None = None,
-        callbacks: list[Callback] | None = None,
     ):
         """
         Configure the model for training.
@@ -424,7 +419,6 @@ class BaseModel(FeatureSet, nn.Module):
             loss_params: Loss function parameters, or list for multi-task. e.g., {'weight': tensor([0.25, 0.75])}.
             loss_weights: Weights for each task loss, int/float for single-task or list for multi-task. e.g., 1.0, or [1.0, 0.5].
                 Use "grad_norm" or {"method": "grad_norm", ...} to enable GradNorm for multi-task loss balancing.
-            callbacks: Additional callbacks to add to the existing callback list. e.g., [EarlyStopper(), CheckpointSaver()].
         """
         default_losses = {
             "pointwise": "bce",
@@ -453,10 +447,7 @@ class BaseModel(FeatureSet, nn.Module):
             }:
                 if mode in {"pairwise", "listwise"}:
                     loss_list[idx] = default_losses[mode]
-        if loss_params is None:
-            self.loss_params = {}
-        else:
-            self.loss_params = loss_params
+        self.loss_params = loss_params or {}
         optimizer_params = optimizer_params or {}
         self.optimizer_name = (
             optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
@@ -483,7 +474,6 @@ class BaseModel(FeatureSet, nn.Module):
         )
 
         self.loss_config = loss_list if self.nums_task > 1 else loss_list[0]
-        self.loss_params = loss_params or {}
         if isinstance(self.loss_params, dict):
             loss_params_list = [self.loss_params] * self.nums_task
         else:
@@ -544,11 +534,6 @@ class BaseModel(FeatureSet, nn.Module):
                     f"[BaseModel-compile Error] loss_weights must be int, float, list or tuple, got {type(loss_weights)}"
                 )
             self.loss_weights = weights
-
-        # Add callbacks from compile if provided
-        if callbacks:
-            for callback in callbacks:
-                self.callbacks.append(callback)
 
     def compute_loss(self, y_pred, y_true):
         if y_true is None:
@@ -672,28 +657,49 @@ class BaseModel(FeatureSet, nn.Module):
         shuffle: bool = True,
         batch_size: int = 32,
         user_id_column: str | None = None,
-        validation_split: float | None = None,
+        valid_split: float | None = None,
+        early_stop_patience: int = 20,
+        early_stop_monitor_task: str | None = None,
+        metrics_sample_limit: int | None = 200000,
         num_workers: int = 0,
         use_tensorboard: bool = True,
+        use_wandb: bool = False,
+        use_swanlab: bool = False,
+        wandb_kwargs: dict | None = None,
+        swanlab_kwargs: dict | None = None,
         auto_ddp_sampler: bool = True,
         log_interval: int = 1,
+        summary_sections: (
+            list[Literal["feature", "model", "train", "data"]] | None
+        ) = None,
     ):
         """
         Train the model.
 
         Args:
             train_data: Training data (dict/df/DataLoader). If distributed, each rank uses its own sampler/batches.
-            valid_data: Optional validation data; if None and validation_split is set, a split is created.
+            valid_data: Optional validation data; if None and valid_split is set, a split is created.
             metrics: Metrics names or per-target dict. e.g. {'target1': ['auc', 'logloss'], 'target2': ['mse']} or ['auc', 'logloss'].
             epochs: Training epochs.
             shuffle: Whether to shuffle training data (ignored when a sampler enforces order).
             batch_size: Batch size (per process when distributed).
             user_id_column: Column name for GAUC-style metrics;.
-            validation_split: Ratio to split training data when valid_data is None.
+            valid_split: Ratio to split training data when valid_data is None. e.g., 0.1 for 10% validation.
+
+            early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
+            early_stop_monitor_task: Task name to monitor for early stopping in multi-task scenario. If None, uses first target. e.g., 'click'.
+            metrics_sample_limit: Max samples to keep for training metrics. None disables limit.
             num_workers: DataLoader worker count.
+
             use_tensorboard: Enable tensorboard logging.
+            use_wandb: Enable Weights & Biases logging.
+            use_swanlab: Enable SwanLab logging.
+            wandb_kwargs: Optional kwargs for wandb.init(...).
+            swanlab_kwargs: Optional kwargs for swanlab.init(...).
             auto_ddp_sampler: Attach DistributedSampler automatically when distributed, set False to when data is already sharded per rank.
             log_interval: Log validation metrics every N epochs (still computes metrics each epoch).
+            summary_sections: Optional summary sections to print. Choose from
+                ["feature", "model", "train", "data"]. Defaults to all.
 
         Notes:
             - Distributed training uses DDP; init occurs via env vars (RANK/WORLD_SIZE/LOCAL_RANK).
@@ -733,20 +739,65 @@ class BaseModel(FeatureSet, nn.Module):
         ):  # only main process initializes logger
             setup_logger(session_id=self.session_id)
             self.logger_initialized = True
-        self.training_logger = (
-            TrainingLogger(session=self.session, use_tensorboard=use_tensorboard)
-            if self.is_main_process
-            else None
-        )
-
         self.metrics, self.task_specific_metrics, self.best_metrics_mode = (
             configure_metrics(
                 task=self.task, metrics=metrics, target_names=self.target_columns
             )
         )  # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
 
-        if log_interval < 1:
-            raise ValueError("[BaseModel-fit Error] log_interval must be >= 1.")
+        self.early_stop_patience = early_stop_patience
+        self.early_stop_monitor_task = early_stop_monitor_task
+        # max samples to keep for training metrics, in case of large training set
+        self.metrics_sample_limit = (
+            None if metrics_sample_limit is None else int(metrics_sample_limit)
+        )
+
+        training_config = {}
+        if self.is_main_process:
+            training_config = {
+                "model_name": getattr(self, "model_name", self.__class__.__name__),
+                "task": self.task,
+                "target_columns": self.target_columns,
+                "batch_size": batch_size,
+                "epochs": epochs,
+                "shuffle": shuffle,
+                "num_workers": num_workers,
+                "valid_split": valid_split,
+                "optimizer": getattr(self, "optimizer_name", None),
+                "optimizer_params": getattr(self, "optimizer_params", None),
+                "scheduler": getattr(self, "scheduler_name", None),
+                "scheduler_params": getattr(self, "scheduler_params", None),
+                "loss": getattr(self, "loss_config", None),
+                "loss_weights": getattr(self, "loss_weights", None),
+                "early_stop_patience": self.early_stop_patience,
+                "max_gradient_norm": self.max_gradient_norm,
+                "metrics_sample_limit": self.metrics_sample_limit,
+                "embedding_l1_reg": self.embedding_l1_reg,
+                "embedding_l2_reg": self.embedding_l2_reg,
+                "dense_l1_reg": self.dense_l1_reg,
+                "dense_l2_reg": self.dense_l2_reg,
+                "session_id": self.session_id,
+                "distributed": self.distributed,
+                "device": str(self.device),
+                "dense_feature_count": len(self.dense_features),
+                "sparse_feature_count": len(self.sparse_features),
+                "sequence_feature_count": len(self.sequence_features),
+            }
+            training_config: dict = safe_value(training_config)  # type: ignore
+
+        self.training_logger = (
+            TrainingLogger(
+                session=self.session,
+                use_tensorboard=use_tensorboard,
+                use_wandb=use_wandb,
+                use_swanlab=use_swanlab,
+                config=training_config,
+                wandb_kwargs=wandb_kwargs,
+                swanlab_kwargs=swanlab_kwargs,
+            )
+            if self.is_main_process
+            else None
+        )
 
         # Setup default callbacks if missing
         if self.nums_task == 1:
@@ -830,9 +881,9 @@ class BaseModel(FeatureSet, nn.Module):
                 )
             )
 
-        train_sampler: DistributedSampler | None = None
-        if validation_split is not None and valid_data is None:
-            train_loader, valid_data = self.handle_validation_split(train_data=train_data, validation_split=validation_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)  # type: ignore
+        train_sampler = None
+        if valid_split is not None and valid_data is None:
+            train_loader, valid_data = self.handle_valid_split(train_data=train_data, valid_split=valid_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)  # type: ignore
             if use_ddp_sampler:
                 base_dataset = getattr(train_loader, "dataset", None)
                 if base_dataset is not None and not isinstance(
@@ -867,7 +918,6 @@ class BaseModel(FeatureSet, nn.Module):
                         default_batch_size=batch_size,
                         is_main_process=self.is_main_process,
                     )
-                    # train_loader, train_sampler = add_distributed_sampler(train_data, distributed=self.distributed, world_size=self.world_size, rank=self.rank, shuffle=shuffle, drop_last=True, default_batch_size=batch_size, is_main_process=self.is_main_process)
                 else:
                     train_loader = train_data
             else:
@@ -911,8 +961,6 @@ class BaseModel(FeatureSet, nn.Module):
             raise NotImplementedError(
                 "[BaseModel-fit Error] auto_ddp_sampler with pre-defined DataLoader is not supported yet."
             )
-            # train_loader, train_sampler = add_distributed_sampler(train_loader, distributed=self.distributed, world_size=self.world_size, rank=self.rank, shuffle=shuffle, drop_last=True, default_batch_size=batch_size, is_main_process=self.is_main_process)
-
         valid_loader, valid_user_ids = self.prepare_validation_data(
             valid_data=valid_data,
             batch_size=batch_size,
@@ -937,7 +985,17 @@ class BaseModel(FeatureSet, nn.Module):
             )
 
         if self.is_main_process:
-            self.summary()
+            self.train_data_summary = (
+                None
+                if is_streaming
+                else self.build_train_data_summary(train_data, train_loader)
+            )
+            self.valid_data_summary = (
+                None
+                if valid_loader is None
+                else self.build_valid_data_summary(valid_data, valid_loader)
+            )
+            self.summary(summary_sections)
             logging.info("")
             tb_dir = (
                 self.training_logger.tensorboard_logdir
@@ -1017,11 +1075,7 @@ class BaseModel(FeatureSet, nn.Module):
                 loss=train_loss,
                 metrics=train_metrics,
                 target_names=self.target_columns,
-                base_metrics=(
-                    self.metrics
-                    if isinstance(getattr(self, "metrics", None), list)
-                    else None
-                ),
+                base_metrics=(self.metrics if isinstance(self.metrics, list) else None),
                 is_main_process=self.is_main_process,
                 colorize=lambda s: colorize(s),
             )
@@ -1048,9 +1102,7 @@ class BaseModel(FeatureSet, nn.Module):
                         metrics=val_metrics,
                         target_names=self.target_columns,
                         base_metrics=(
-                            self.metrics
-                            if isinstance(getattr(self, "metrics", None), list)
-                            else None
+                            self.metrics if isinstance(self.metrics, list) else None
                         ),
                         is_main_process=self.is_main_process,
                         colorize=lambda s: colorize("  " + s, color="cyan"),
@@ -1122,11 +1174,13 @@ class BaseModel(FeatureSet, nn.Module):
             self.training_logger.close()
         return self
 
-    def train_epoch(
-        self, train_loader: DataLoader, is_streaming: bool = False
-    ) -> Union[float, np.ndarray, tuple[Union[float, np.ndarray], dict]]:
+    def train_epoch(self, train_loader: DataLoader, is_streaming: bool = False):
         # use ddp model for distributed training
-        model = self.ddp_model if getattr(self, "ddp_model") is not None else self
+        model = (
+            self.ddp_model
+            if hasattr(self, "ddp_model") and self.ddp_model is not None
+            else self
+        )
         accumulated_loss = 0.0
         model.train()  # type: ignore
         num_batches = 0
@@ -1263,7 +1317,7 @@ class BaseModel(FeatureSet, nn.Module):
         user_id_column: str | None = "user_id",
         num_workers: int = 0,
         auto_ddp_sampler: bool = True,
-    ) -> tuple[DataLoader | None, np.ndarray | None]:
+    ):
         if valid_data is None:
             return None, None
         if isinstance(valid_data, DataLoader):
@@ -1607,7 +1661,7 @@ class BaseModel(FeatureSet, nn.Module):
 
             suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
 
-            target_path = resolve_save_path(
+            target_path = get_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
                 default_name="predictions",
@@ -1655,7 +1709,7 @@ class BaseModel(FeatureSet, nn.Module):
         stream_chunk_size: int,
         return_dataframe: bool,
         id_columns: list[str] | None = None,
-    ) -> pd.DataFrame | Path:
+    ):
         if isinstance(data, (str, os.PathLike)):
             rec_loader = RecDataLoader(
                 dense_features=self.dense_features,
@@ -1702,7 +1756,7 @@ class BaseModel(FeatureSet, nn.Module):
 
         suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
 
-        target_path = resolve_save_path(
+        target_path = get_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
             default_name="predictions",
@@ -1779,12 +1833,8 @@ class BaseModel(FeatureSet, nn.Module):
                     # Non-streaming formats: collect all data
                     collected_frames.append(df_batch)
 
-                if return_dataframe:
-                    if (
-                        save_format in ["csv", "parquet"]
-                        and df_batch not in collected_frames
-                    ):
-                        collected_frames.append(df_batch)
+                if return_dataframe and save_format in ["csv", "parquet"]:
+                    collected_frames.append(df_batch)
 
         # Close writers
         if parquet_writer is not None:
@@ -1816,7 +1866,7 @@ class BaseModel(FeatureSet, nn.Module):
         verbose: bool = True,
     ):
         add_timestamp = False if add_timestamp is None else add_timestamp
-        target_path = resolve_save_path(
+        target_path = get_save_path(
             path=save_path,
             default_dir=self.session_path,
             default_name=self.model_name.upper(),
@@ -1825,7 +1875,7 @@ class BaseModel(FeatureSet, nn.Module):
         )
         model_path = Path(target_path)
 
-        ddp_model = getattr(self, "ddp_model", None)
+        ddp_model = self.ddp_model if hasattr(self, "ddp_model") else None
         if ddp_model is not None:
             model_to_save = ddp_model.module
         else:
@@ -1967,150 +2017,6 @@ class BaseModel(FeatureSet, nn.Module):
         model.load_model(model_file, map_location=map_location, verbose=verbose)
         return model
 
-    def summary(self):
-        logger = logging.getLogger()
-
-        logger.info("")
-        logger.info(
-            colorize(
-                f"Model Summary: {self.model_name.upper()}",
-                color="bright_blue",
-                bold=True,
-            )
-        )
-        logger.info("")
-
-        logger.info("")
-        logger.info(colorize("[1] Feature Configuration", color="cyan", bold=True))
-        logger.info(colorize("-" * 80, color="cyan"))
-
-        if self.dense_features:
-            logger.info(f"Dense Features ({len(self.dense_features)}):")
-            for i, feat in enumerate(self.dense_features, 1):
-                embed_dim = feat.embedding_dim if hasattr(feat, "embedding_dim") else 1
-                logger.info(f"  {i}. {feat.name:20s}")
-
-        if self.sparse_features:
-            logger.info(f"\nSparse Features ({len(self.sparse_features)}):")
-
-            max_name_len = max(len(feat.name) for feat in self.sparse_features)
-            max_embed_name_len = max(
-                len(feat.embedding_name) for feat in self.sparse_features
-            )
-            name_width = max(max_name_len, 10) + 2
-            embed_name_width = max(max_embed_name_len, 15) + 2
-
-            logger.info(
-                f"  {'#':<4} {'Name':<{name_width}} {'Vocab Size':>12} {'Embed Name':>{embed_name_width}} {'Embed Dim':>10}"
-            )
-            logger.info(
-                f"  {'-'*4} {'-'*name_width} {'-'*12} {'-'*embed_name_width} {'-'*10}"
-            )
-            for i, feat in enumerate(self.sparse_features, 1):
-                vocab_size = feat.vocab_size if hasattr(feat, "vocab_size") else "N/A"
-                embed_dim = (
-                    feat.embedding_dim if hasattr(feat, "embedding_dim") else "N/A"
-                )
-                logger.info(
-                    f"  {i:<4} {feat.name:<{name_width}} {str(vocab_size):>12} {feat.embedding_name:>{embed_name_width}} {str(embed_dim):>10}"
-                )
-
-        if self.sequence_features:
-            logger.info(f"\nSequence Features ({len(self.sequence_features)}):")
-
-            max_name_len = max(len(feat.name) for feat in self.sequence_features)
-            max_embed_name_len = max(
-                len(feat.embedding_name) for feat in self.sequence_features
-            )
-            name_width = max(max_name_len, 10) + 2
-            embed_name_width = max(max_embed_name_len, 15) + 2
-
-            logger.info(
-                f"  {'#':<4} {'Name':<{name_width}} {'Vocab Size':>12} {'Embed Name':>{embed_name_width}} {'Embed Dim':>10} {'Max Len':>10}"
-            )
-            logger.info(
-                f"  {'-'*4} {'-'*name_width} {'-'*12} {'-'*embed_name_width} {'-'*10} {'-'*10}"
-            )
-            for i, feat in enumerate(self.sequence_features, 1):
-                vocab_size = feat.vocab_size if hasattr(feat, "vocab_size") else "N/A"
-                embed_dim = (
-                    feat.embedding_dim if hasattr(feat, "embedding_dim") else "N/A"
-                )
-                max_len = feat.max_len if hasattr(feat, "max_len") else "N/A"
-                logger.info(
-                    f"  {i:<4} {feat.name:<{name_width}} {str(vocab_size):>12} {feat.embedding_name:>{embed_name_width}} {str(embed_dim):>10} {str(max_len):>10}"
-                )
-
-        logger.info("")
-        logger.info(colorize("[2] Model Parameters", color="cyan", bold=True))
-        logger.info(colorize("-" * 80, color="cyan"))
-
-        # Model Architecture
-        logger.info("Model Architecture:")
-        logger.info(str(self))
-        logger.info("")
-
-        total_params = sum(p.numel() for p in self.parameters())
-        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        non_trainable_params = total_params - trainable_params
-
-        logger.info(f"Total Parameters:        {total_params:,}")
-        logger.info(f"Trainable Parameters:    {trainable_params:,}")
-        logger.info(f"Non-trainable Parameters: {non_trainable_params:,}")
-
-        logger.info("Layer-wise Parameters:")
-        for name, module in self.named_children():
-            layer_params = sum(p.numel() for p in module.parameters())
-            if layer_params > 0:
-                logger.info(f"  {name:30s}: {layer_params:,}")
-
-        logger.info("")
-        logger.info(colorize("[3] Training Configuration", color="cyan", bold=True))
-        logger.info(colorize("-" * 80, color="cyan"))
-
-        logger.info(f"Task Type:               {self.task}")
-        logger.info(f"Number of Tasks:         {self.nums_task}")
-        logger.info(f"Metrics:                 {self.metrics}")
-        logger.info(f"Target Columns:          {self.target_columns}")
-        logger.info(f"Device:                  {self.device}")
-
-        if hasattr(self, "optimizer_name"):
-            logger.info(f"Optimizer:               {self.optimizer_name}")
-            if self.optimizer_params:
-                for key, value in self.optimizer_params.items():
-                    logger.info(f"  {key:25s}: {value}")
-
-        if hasattr(self, "scheduler_name") and self.scheduler_name:
-            logger.info(f"Scheduler:               {self.scheduler_name}")
-            if self.scheduler_params:
-                for key, value in self.scheduler_params.items():
-                    logger.info(f"  {key:25s}: {value}")
-
-        if hasattr(self, "loss_config"):
-            logger.info(f"Loss Function:           {self.loss_config}")
-        if hasattr(self, "loss_weights"):
-            logger.info(f"Loss Weights:            {self.loss_weights}")
-        if hasattr(self, "grad_norm"):
-            logger.info(f"GradNorm Enabled:        {self.grad_norm is not None}")
-            if self.grad_norm is not None:
-                grad_lr = self.grad_norm.optimizer.param_groups[0].get("lr")
-                logger.info(f"  GradNorm alpha:        {self.grad_norm.alpha}")
-                logger.info(f"  GradNorm lr:           {grad_lr}")
-
-        logger.info("Regularization:")
-        logger.info(f"  Embedding L1:          {self.embedding_l1_reg}")
-        logger.info(f"  Embedding L2:          {self.embedding_l2_reg}")
-        logger.info(f"  Dense L1:              {self.dense_l1_reg}")
-        logger.info(f"  Dense L2:              {self.dense_l2_reg}")
-
-        logger.info("Other Settings:")
-        logger.info(f"  Early Stop Patience:   {self.early_stop_patience}")
-        logger.info(f"  Max Gradient Norm:     {self.max_gradient_norm}")
-        logger.info(f"  Max Metrics Samples:   {self.metrics_sample_limit}")
-        logger.info(f"  Session ID:            {self.session_id}")
-        logger.info(f"  Features Config Path:  {self.features_config_path}")
-        logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")
-
 
 class BaseMatchModel(BaseModel):
     """
@@ -2156,12 +2062,10 @@ class BaseMatchModel(BaseModel):
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
         dense_l2_reg: float = 0.0,
-        early_stop_patience: int = 20,
         target: list[str] | str | None = "label",
         id_columns: list[str] | str | None = None,
         task: str | list[str] | None = None,
         session_id: str | None = None,
-        callbacks: list[Callback] | None = None,
         distributed: bool = False,
         rank: int | None = None,
         world_size: int | None = None,
@@ -2170,22 +2074,16 @@ class BaseMatchModel(BaseModel):
         **kwargs,
     ):
 
-        all_dense_features = []
-        all_sparse_features = []
-        all_sequence_features = []
+        user_dense_features = list(user_dense_features or [])
+        user_sparse_features = list(user_sparse_features or [])
+        user_sequence_features = list(user_sequence_features or [])
+        item_dense_features = list(item_dense_features or [])
+        item_sparse_features = list(item_sparse_features or [])
+        item_sequence_features = list(item_sequence_features or [])
 
-        if user_dense_features:
-            all_dense_features.extend(user_dense_features)
-        if item_dense_features:
-            all_dense_features.extend(item_dense_features)
-        if user_sparse_features:
-            all_sparse_features.extend(user_sparse_features)
-        if item_sparse_features:
-            all_sparse_features.extend(item_sparse_features)
-        if user_sequence_features:
-            all_sequence_features.extend(user_sequence_features)
-        if item_sequence_features:
-            all_sequence_features.extend(item_sequence_features)
+        all_dense_features = user_dense_features + item_dense_features
+        all_sparse_features = user_sparse_features + item_sparse_features
+        all_sequence_features = user_sequence_features + item_sequence_features
 
         super(BaseMatchModel, self).__init__(
             dense_features=all_dense_features,
@@ -2199,9 +2097,7 @@ class BaseMatchModel(BaseModel):
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=early_stop_patience,
             session_id=session_id,
-            callbacks=callbacks,
             distributed=distributed,
             rank=rank,
             world_size=world_size,
@@ -2210,25 +2106,13 @@ class BaseMatchModel(BaseModel):
             **kwargs,
         )
 
-        self.user_dense_features = (
-            list(user_dense_features) if user_dense_features else []
-        )
-        self.user_sparse_features = (
-            list(user_sparse_features) if user_sparse_features else []
-        )
-        self.user_sequence_features = (
-            list(user_sequence_features) if user_sequence_features else []
-        )
+        self.user_dense_features = user_dense_features
+        self.user_sparse_features = user_sparse_features
+        self.user_sequence_features = user_sequence_features
 
-        self.item_dense_features = (
-            list(item_dense_features) if item_dense_features else []
-        )
-        self.item_sparse_features = (
-            list(item_sparse_features) if item_sparse_features else []
-        )
-        self.item_sequence_features = (
-            list(item_sequence_features) if item_sequence_features else []
-        )
+        self.item_dense_features = item_dense_features
+        self.item_sparse_features = item_sparse_features
+        self.item_sequence_features = item_sequence_features
 
         self.training_mode = training_mode
         self.num_negative_samples = num_negative_samples
@@ -2255,10 +2139,10 @@ class BaseMatchModel(BaseModel):
 
     def compile(
         self,
-        optimizer: str | torch.optim.Optimizer = "adam",
+        optimizer: OptimizerName | torch.optim.Optimizer = "adam",
         optimizer_params: dict | None = None,
         scheduler: (
-            str
+            SchedulerName
             | torch.optim.lr_scheduler._LRScheduler
             | torch.optim.lr_scheduler.LRScheduler
             | type[torch.optim.lr_scheduler._LRScheduler]
@@ -2266,26 +2150,34 @@ class BaseMatchModel(BaseModel):
             | None
         ) = None,
         scheduler_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
+        loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         loss_weights: int | float | list[int | float] | dict | str | None = None,
-        callbacks: list[Callback] | None = None,
     ):
         """
         Configure the match model for training.
+
+        Args:
+            optimizer: Optimizer to use (name or instance). e.g., 'adam', 'sgd'.
+            optimizer_params: Parameters for the optimizer. e.g., {'lr': 0.001}.
+            scheduler: Learning rate scheduler (name, instance, or class). e.g., 'step_lr'.
+            scheduler_params: Parameters for the scheduler. e.g., {'step_size': 10, 'gamma': 0.1}.
+            loss: Loss function(s) to use (name, instance, or list). e.g., 'bce'.
+            loss_params: Parameters for the loss function(s). e.g., {'reduction': 'mean'}.
+            loss_weights: Weights for the loss function(s). e.g., 1.0 or [0.7, 0.3]. 
         """
         if self.training_mode not in self.support_training_modes:
             raise ValueError(
                 f"{self.model_name.upper()} does not support training_mode='{self.training_mode}'. Supported modes: {self.support_training_modes}"
             )
 
-        default_loss_by_mode: dict[str, str] = {
+        default_loss_by_mode = {
             "pointwise": "bce",
             "pairwise": "bpr",
             "listwise": "sampled_softmax",
         }
 
-        effective_loss: str | nn.Module | list[str | nn.Module] | None = loss
+        effective_loss = loss
         if effective_loss is None:
             effective_loss = default_loss_by_mode[self.training_mode]
         elif isinstance(effective_loss, str):
@@ -2316,7 +2208,6 @@ class BaseMatchModel(BaseModel):
             loss=effective_loss,
             loss_params=loss_params,
             loss_weights=loss_weights,
-            callbacks=callbacks,
         )
 
     def inbatch_logits(
@@ -2406,7 +2297,9 @@ class BaseMatchModel(BaseModel):
                 batch_size, batch_size - 1
             )  # [B, B-1]
 
-            loss_fn = self.loss_fn[0] if getattr(self, "loss_fn", None) else None
+            loss_fn = (
+                self.loss_fn[0] if hasattr(self, "loss_fn") and self.loss_fn else None
+            )
             if isinstance(loss_fn, SampledSoftmaxLoss):
                 loss = loss_fn(pos_logits, neg_logits)
             elif isinstance(loss_fn, (BPRLoss, HingeLoss)):

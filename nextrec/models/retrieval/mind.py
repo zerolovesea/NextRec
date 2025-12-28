@@ -202,12 +202,10 @@ class MIND(BaseMatchModel):
         num_negative_samples: int = 100,
         temperature: float = 1.0,
         similarity_metric: Literal["dot", "cosine", "euclidean"] = "dot",
-        device: str = "cpu",
-        embedding_l1_reg: float = 0.0,
-        dense_l1_reg: float = 0.0,
-        embedding_l2_reg: float = 0.0,
-        dense_l2_reg: float = 0.0,
-        early_stop_patience: int = 20,
+        embedding_l1_reg=0.0,
+        dense_l1_reg=0.0,
+        embedding_l2_reg=0.0,
+        dense_l2_reg=0.0,
         optimizer: str | torch.optim.Optimizer = "adam",
         optimizer_params: dict | None = None,
         scheduler: (
@@ -233,12 +231,10 @@ class MIND(BaseMatchModel):
             num_negative_samples=num_negative_samples,
             temperature=temperature,
             similarity_metric=similarity_metric,
-            device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
-            early_stop_patience=early_stop_patience,
             **kwargs,
         )
 
@@ -334,8 +330,6 @@ class MIND(BaseMatchModel):
             loss=loss,
             loss_params=loss_params,
         )
-
-        self.to(device)
 
     def user_tower(self, user_input: dict) -> torch.Tensor:
         """

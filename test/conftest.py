@@ -53,9 +53,9 @@ def sample_dense_features():
     """
     logger.info("Creating sample dense features")
     return [
-        DenseFeature(name="age", embedding_dim=1),
-        DenseFeature(name="price", embedding_dim=1),
-        DenseFeature(name="score", embedding_dim=1),
+        DenseFeature(name="age", proj_dim=1),
+        DenseFeature(name="price", proj_dim=1),
+        DenseFeature(name="score", proj_dim=1),
     ]
 
 

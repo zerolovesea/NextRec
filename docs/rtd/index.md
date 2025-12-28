@@ -70,7 +70,7 @@ model.fit(
     batch_size=512,
     shuffle=True,
     verbose=1,
-    validation_split=0.1,
+    valid_split=0.1,
 )
 
 preds = model.predict(df)
@@ -121,7 +121,7 @@ model.fit(
     batch_size=256,
     shuffle=True,
     verbose=1,
-    validation_split=0.1,                      # auto split when valid_data is None
+    valid_split=0.1,                      # auto split when valid_data is None
 )
 
 scores = model.evaluate(valid_df_or_loader)    # returns metric dict
