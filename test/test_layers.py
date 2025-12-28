@@ -306,7 +306,7 @@ class TestEmbeddingLayer:
     @pytest.fixture
     def sample_features(self):
         """Create sample features for embedding"""
-        dense_features = [DenseFeature(name="age", embedding_dim=16)]
+        dense_features = [DenseFeature(name="age", proj_dim=16)]
         sparse_features = [
             SparseFeature(name="user_id", vocab_size=1000, embedding_dim=16),
             SparseFeature(name="item_id", vocab_size=500, embedding_dim=16),
@@ -381,6 +381,68 @@ class TestEmbeddingLayer:
         assert len(output.shape) == 2
 
         logger.info("EmbeddingLayer squeeze_dim test successful")
+
+    def test_embedding_layer_dot_attention(self):
+        """Test EmbeddingLayer with dot_attention combiner"""
+        logger.info("=" * 80)
+        logger.info("Testing EmbeddingLayer dot_attention")
+        logger.info("=" * 80)
+
+        batch_size = 8
+        seq_len = 12
+        seq_feature = SequenceFeature(
+            name="history_dot",
+            vocab_size=100,
+            max_len=seq_len,
+            embedding_dim=16,
+            padding_idx=0,
+            combiner="dot_attention",
+        )
+        embedding_layer = EmbeddingLayer(features=[seq_feature])
+
+        x = {
+            "history_dot": torch.randint(0, 100, (batch_size, seq_len)),
+        }
+        output = embedding_layer(x, features=[seq_feature], squeeze_dim=False)
+
+        assert output.shape == (batch_size, 1, 16)
+        assert not torch.isnan(output).any()
+        assert "sequence_poolings.history_dot.query" in dict(
+            embedding_layer.named_parameters()
+        )
+
+        logger.info("EmbeddingLayer dot_attention test successful")
+
+    def test_embedding_layer_self_attention(self):
+        """Test EmbeddingLayer with self_attention combiner"""
+        logger.info("=" * 80)
+        logger.info("Testing EmbeddingLayer self_attention")
+        logger.info("=" * 80)
+
+        batch_size = 8
+        seq_len = 10
+        seq_feature = SequenceFeature(
+            name="history_self",
+            vocab_size=200,
+            max_len=seq_len,
+            embedding_dim=16,
+            padding_idx=0,
+            combiner="self_attention",
+        )
+        embedding_layer = EmbeddingLayer(features=[seq_feature])
+
+        x = {
+            "history_self": torch.randint(0, 200, (batch_size, seq_len)),
+        }
+        output = embedding_layer(x, features=[seq_feature], squeeze_dim=False)
+
+        assert output.shape == (batch_size, 1, 16)
+        assert not torch.isnan(output).any()
+        assert "sequence_poolings.history_self.mha.in_proj_weight" in dict(
+            embedding_layer.named_parameters()
+        )
+
+        logger.info("EmbeddingLayer self_attention test successful")
 
 
 class TestMultiHeadSelfAttention:

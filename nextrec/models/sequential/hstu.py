@@ -332,7 +332,6 @@ class HSTU(BaseModel):
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
         dense_l2_reg: float = 0.0,
-        device: str = "cpu",
         **kwargs,
     ):
         raise NotImplementedError(
@@ -348,7 +347,7 @@ class HSTU(BaseModel):
         )[0]
 
         self.hidden_dim = hidden_dim or max(
-            int(getattr(self.item_history_feature, "embedding_dim", 0) or 0), 32
+            int(self.item_history_feature.embedding_dim or 0), 32
         )
         # Make hidden_dim divisible by num_heads
         if self.hidden_dim % num_heads != 0:
@@ -368,7 +367,6 @@ class HSTU(BaseModel):
             sequence_features=sequence_features,
             target=target,
             task=task or self.default_task,
-            device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,

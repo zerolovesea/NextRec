@@ -1,14 +1,17 @@
 """
-Activation function definitions
+Activation function definitions for NextRec models.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 28/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import torch
 import torch.nn as nn
 
+from typing import Literal
+
+from nextrec.utils.types import ActivationName
 
 class Dice(nn.Module):
     """
@@ -41,9 +44,11 @@ class Dice(nn.Module):
         return output
 
 
-def activation_layer(activation: str, emb_size: int | None = None):
+def activation_layer(
+    activation: ActivationName = "none",
+    emb_size: int | None = None,
+):
     """Create an activation layer based on the given activation name."""
-    activation = activation.lower()
     if activation == "dice":
         if emb_size is None:
             raise ValueError(

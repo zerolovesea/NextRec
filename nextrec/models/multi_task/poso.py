@@ -290,7 +290,7 @@ class POSO(BaseModel):
 
     @property
     def default_task(self) -> list[str]:
-        nums_task = getattr(self, "nums_task", None)
+        nums_task = self.nums_task if hasattr(self, "nums_task") else None
         if nums_task is not None and nums_task > 0:
             return ["binary"] * nums_task
         return ["binary"]
@@ -327,11 +327,10 @@ class POSO(BaseModel):
         optimizer_params: dict | None = None,
         loss: str | nn.Module | list[str | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
-        device: str = "cpu",
-        embedding_l1_reg: float = 1e-6,
-        dense_l1_reg: float = 1e-5,
-        embedding_l2_reg: float = 1e-5,
-        dense_l2_reg: float = 1e-4,
+        embedding_l1_reg=0.0,
+        dense_l1_reg=0.0,
+        embedding_l2_reg=0.0,
+        dense_l2_reg=0.0,
         **kwargs,
     ):
         self.nums_task = len(target)
@@ -360,7 +359,6 @@ class POSO(BaseModel):
             sequence_features=sequence_features,
             target=target,
             task=resolved_task,
-            device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,

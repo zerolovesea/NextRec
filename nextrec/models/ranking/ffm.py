@@ -69,11 +69,10 @@ class FFM(BaseModel):
         optimizer_params: dict | None = None,
         loss: str | nn.Module | None = "bce",
         loss_params: dict | list[dict] | None = None,
-        device: str = "cpu",
-        embedding_l1_reg=1e-6,
-        dense_l1_reg=1e-5,
-        embedding_l2_reg=1e-5,
-        dense_l2_reg=1e-4,
+        embedding_l1_reg=0.0,
+        dense_l1_reg=0.0,
+        embedding_l2_reg=0.0,
+        dense_l2_reg=0.0,
         **kwargs,
     ):
         dense_features = dense_features or []
@@ -89,7 +88,6 @@ class FFM(BaseModel):
             sequence_features=sequence_features,
             target=target,
             task=task or self.default_task,
-            device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
@@ -169,7 +167,7 @@ class FFM(BaseModel):
         return f"{src_feature.embedding_name}__to__{target_field.name}"
 
     def build_embedding(self, feature: SparseFeature | SequenceFeature) -> nn.Embedding:
-        if getattr(feature, "pretrained_weight", None) is not None:
+        if feature.pretrained_weight is not None:
             weight = feature.pretrained_weight
             if weight is None:
                 raise ValueError(

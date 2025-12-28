@@ -7,19 +7,19 @@
 dense:
   user_active_days_7:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: user_active_days_7, input_dim: 1, embedding_dim: 8, use_embedding: false}
+    embedding_config: {name: user_active_days_7, input_dim: 1, embedding_dim: 8, use_projection: false}
   user_ctr:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: user_ctr, input_dim: 1, embedding_dim: 8, use_embedding: false}
+    embedding_config: {name: user_ctr, input_dim: 1, embedding_dim: 8, use_projection: false}
   item_price:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: item_price, input_dim: 1, embedding_dim: 8, use_embedding: false}
+    embedding_config: {name: item_price, input_dim: 1, embedding_dim: 8, use_projection: false}
   item_popularity:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: item_popularity, input_dim: 1, embedding_dim: 8, use_embedding: false}
+    embedding_config: {name: item_popularity, input_dim: 1, embedding_dim: 8, use_projection: false}
   time_since_last_click:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: time_since_last_click, input_dim: 1, embedding_dim: 8, use_embedding: false}
+    embedding_config: {name: time_since_last_click, input_dim: 1, embedding_dim: 8, use_projection: false}
 
 sparse:
   user_id:

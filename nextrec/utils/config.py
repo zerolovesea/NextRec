@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 import pandas as pd
 import torch
 
-from nextrec.utils.feature import normalize_to_list
+from nextrec.utils.feature import to_list
 
 if TYPE_CHECKING:
     from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
@@ -50,6 +50,16 @@ def resolve_path(
         ),
         candidates[0],
     )
+
+
+def safe_value(value: Any):
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(k): safe_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [safe_value(v) for v in value]
+    return str(value)
 
 
 def select_features(
@@ -152,9 +162,9 @@ def build_feature_objects(
         dense_features.append(
             DenseFeature(
                 name=name,
-                embedding_dim=embed_cfg.get("embedding_dim"),
+                proj_dim=embed_cfg.get("proj_dim"),
                 input_dim=embed_cfg.get("input_dim", 1),
-                use_embedding=embed_cfg.get("use_embedding", False),
+                use_projection=embed_cfg.get("use_projection", False),
             )
         )
 
@@ -239,7 +249,7 @@ def extract_feature_groups(
     collected: List[str] = []
 
     for group_name, names in feature_groups.items():
-        name_list = normalize_to_list(names)
+        name_list = to_list(names)
         filtered = []
         missing_defined = [n for n in name_list if n not in defined]
         missing_cols = [n for n in name_list if n not in available_cols]
@@ -441,7 +451,7 @@ def build_model_instance(
             direct_features = binding.get("features") or binding.get("feature_names")
             if direct_features and (accepts(param_name) or accepts_var_kwargs):
                 init_kwargs[param_name] = _select(
-                    normalize_to_list(direct_features),
+                    to_list(direct_features),
                     feature_pool,
                     f"feature_bindings.{param_name}",
                 )

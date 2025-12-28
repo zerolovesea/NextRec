@@ -3,12 +3,16 @@ PyTorch-related utilities for NextRec.
 
 This module groups device setup, distributed helpers, optimizers/schedulers,
 initialization, and tensor helpers.
+
+Date: create on 27/10/2025
+Checkpoint: edit on 27/12/2025
+Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, Set
+from typing import Any, Dict, Iterable, Literal
 
 import numpy as np
 import torch
@@ -18,26 +22,25 @@ from torch.utils.data import DataLoader, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 
 from nextrec.basic.loggers import colorize
-
-KNOWN_NONLINEARITIES: Set[str] = {
-    "linear",
-    "conv1d",
-    "conv2d",
-    "conv3d",
-    "conv_transpose1d",
-    "conv_transpose2d",
-    "conv_transpose3d",
-    "sigmoid",
-    "tanh",
-    "relu",
-    "leaky_relu",
-    "selu",
-    "gelu",
-}
+from nextrec.utils.types import OptimizerName, SchedulerName
 
 
 def resolve_nonlinearity(activation: str) -> str:
-    if activation in KNOWN_NONLINEARITIES:
+    if activation in [
+        "linear",
+        "conv1d",
+        "conv2d",
+        "conv3d",
+        "conv_transpose1d",
+        "conv_transpose2d",
+        "conv_transpose3d",
+        "sigmoid",
+        "tanh",
+        "relu",
+        "leaky_relu",
+        "selu",
+        "gelu",
+    ]:
         return activation
     return "linear"
 
@@ -53,8 +56,30 @@ def resolve_gain(activation: str, param: Dict[str, Any]) -> float:
 
 
 def get_initializer(
-    init_type: str = "normal",
-    activation: str = "linear",
+    init_type: Literal[
+        "xavier_uniform",
+        "xavier_normal",
+        "kaiming_uniform",
+        "kaiming_normal",
+        "orthogonal",
+        "normal",
+        "uniform",
+    ] = "normal",
+    activation: Literal[
+        "linear",
+        "conv1d",
+        "conv2d",
+        "conv3d",
+        "conv_transpose1d",
+        "conv_transpose2d",
+        "conv_transpose3d",
+        "sigmoid",
+        "tanh",
+        "relu",
+        "leaky_relu",
+        "selu",
+        "gelu",
+    ] = "linear",
     param: Dict[str, Any] | None = None,
 ):
     param = param or {}
@@ -89,47 +114,14 @@ def get_initializer(
     return initializer_fn
 
 
-def resolve_device() -> str:
-    if torch.cuda.is_available():
-        return "cuda"
-    if torch.backends.mps.is_available():
-        import platform
-
-        mac_ver = platform.mac_ver()[0]
-        try:
-            major, _ = (int(x) for x in mac_ver.split(".")[:2])
-        except Exception:
-            major, _ = 0, 0
-        if major >= 14:
-            return "mps"
-    return "cpu"
-
-
-def get_device_info() -> dict:
-    info = {
-        "cuda_available": torch.cuda.is_available(),
-        "cuda_device_count": (
-            torch.cuda.device_count() if torch.cuda.is_available() else 0
-        ),
-        "mps_available": torch.backends.mps.is_available(),
-        "current_device": resolve_device(),
-    }
-
-    if torch.cuda.is_available():
-        info["cuda_device_name"] = torch.cuda.get_device_name(0)
-        info["cuda_capability"] = torch.cuda.get_device_capability(0)
-
-    return info
-
-
-def configure_device(
+def get_device(
     distributed: bool, local_rank: int, base_device: torch.device | str = "cpu"
 ) -> torch.device:
     try:
         device = torch.device(base_device)
     except Exception:
         logging.warning(
-            "[configure_device Warning] Invalid base_device, falling back to CPU."
+            "[get_device Warning] Invalid base_device, falling back to CPU."
         )
         return torch.device("cpu")
 
@@ -158,7 +150,7 @@ def configure_device(
 
 
 def get_optimizer(
-    optimizer: str | torch.optim.Optimizer = "adam",
+    optimizer: OptimizerName | torch.optim.Optimizer = "adam",
     params: Iterable[torch.nn.Parameter] | None = None,
     **optimizer_params,
 ):
@@ -191,7 +183,7 @@ def get_optimizer(
 
 def get_scheduler(
     scheduler: (
-        str
+        SchedulerName
         | torch.optim.lr_scheduler._LRScheduler
         | torch.optim.lr_scheduler.LRScheduler
         | type[torch.optim.lr_scheduler._LRScheduler]
@@ -239,51 +231,6 @@ def to_tensor(
         if tensor.device != target_device:
             tensor = tensor.to(target_device)
     return tensor
-
-
-def stack_tensors(tensors: list[torch.Tensor], dim: int = 0) -> torch.Tensor:
-    if not tensors:
-        raise ValueError("[Tensor Utils Error] Cannot stack empty list of tensors.")
-    return torch.stack(tensors, dim=dim)
-
-
-def concat_tensors(tensors: list[torch.Tensor], dim: int = 0) -> torch.Tensor:
-    if not tensors:
-        raise ValueError(
-            "[Tensor Utils Error] Cannot concatenate empty list of tensors."
-        )
-    return torch.cat(tensors, dim=dim)
-
-
-def pad_sequence_tensors(
-    tensors: list[torch.Tensor],
-    max_len: int | None = None,
-    padding_value: float = 0.0,
-    padding_side: str = "right",
-) -> torch.Tensor:
-    if not tensors:
-        raise ValueError("[Tensor Utils Error] Cannot pad empty list of tensors.")
-    if max_len is None:
-        max_len = max(t.size(0) for t in tensors)
-    batch_size = len(tensors)
-    padded = torch.full(
-        (batch_size, max_len),
-        padding_value,
-        dtype=tensors[0].dtype,
-        device=tensors[0].device,
-    )
-
-    for i, tensor in enumerate(tensors):
-        length = min(tensor.size(0), max_len)
-        if padding_side == "right":
-            padded[i, :length] = tensor[:length]
-        elif padding_side == "left":
-            padded[i, -length:] = tensor[:length]
-        else:
-            raise ValueError(
-                f"[Tensor Utils Error] padding_side must be 'right' or 'left', got {padding_side}"
-            )
-    return padded
 
 
 def init_process_group(
@@ -350,7 +297,7 @@ def add_distributed_sampler(
     # return if already has DistributedSampler
     if isinstance(loader.sampler, DistributedSampler):
         return loader, loader.sampler
-    dataset = getattr(loader, "dataset", None)
+    dataset = loader.dataset
     if dataset is None:
         return loader, None
     if isinstance(dataset, IterableDataset):
@@ -379,25 +326,23 @@ def add_distributed_sampler(
         "collate_fn": loader.collate_fn,
         "drop_last": drop_last,
     }
-    if getattr(loader, "pin_memory", False):
+    if loader.pin_memory:
         loader_kwargs["pin_memory"] = True
-    pin_memory_device = getattr(loader, "pin_memory_device", None)
+    pin_memory_device = loader.pin_memory_device
     if pin_memory_device:
         loader_kwargs["pin_memory_device"] = pin_memory_device
-    timeout = getattr(loader, "timeout", None)
+    timeout = loader.timeout
     if timeout:
         loader_kwargs["timeout"] = timeout
-    worker_init_fn = getattr(loader, "worker_init_fn", None)
+    worker_init_fn = loader.worker_init_fn
     if worker_init_fn is not None:
         loader_kwargs["worker_init_fn"] = worker_init_fn
-    generator = getattr(loader, "generator", None)
+    generator = loader.generator
     if generator is not None:
         loader_kwargs["generator"] = generator
     if loader.num_workers > 0:
-        loader_kwargs["persistent_workers"] = getattr(
-            loader, "persistent_workers", False
-        )
-        prefetch_factor = getattr(loader, "prefetch_factor", None)
+        loader_kwargs["persistent_workers"] = loader.persistent_workers
+        prefetch_factor = loader.prefetch_factor
         if prefetch_factor is not None:
             loader_kwargs["prefetch_factor"] = prefetch_factor
     distributed_loader = DataLoader(dataset, **loader_kwargs)

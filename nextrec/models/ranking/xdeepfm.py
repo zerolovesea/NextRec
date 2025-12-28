@@ -127,11 +127,10 @@ class xDeepFM(BaseModel):
         optimizer_params: dict | None = None,
         loss: str | nn.Module | None = "bce",
         loss_params: dict | list[dict] | None = None,
-        device: str = "cpu",
-        embedding_l1_reg=1e-6,
-        dense_l1_reg=1e-5,
-        embedding_l2_reg=1e-5,
-        dense_l2_reg=1e-4,
+        embedding_l1_reg=0.0,
+        dense_l1_reg=0.0,
+        embedding_l2_reg=0.0,
+        dense_l2_reg=0.0,
         **kwargs,
     ):
 
@@ -148,7 +147,6 @@ class xDeepFM(BaseModel):
             sequence_features=sequence_features,
             target=target,
             task=task or self.default_task,
-            device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
@@ -184,7 +182,10 @@ class xDeepFM(BaseModel):
             ]
         )
         dense_input_dim = sum(
-            [getattr(f, "embedding_dim", 1) or 1 for f in dense_features]
+            [
+                (f.embedding_dim if f.embedding_dim is not None else 1) or 1
+                for f in dense_features
+            ]
         )
         self.mlp = MLP(input_dim=deep_emb_dim_total + dense_input_dim, **mlp_params)
         self.prediction_layer = TaskHead(task_type=self.task)

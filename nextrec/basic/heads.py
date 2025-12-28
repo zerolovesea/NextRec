@@ -2,6 +2,7 @@
 Task head implementations for NextRec models.
 
 Date: create on 23/12/2025
+Checkpoint: edit on 27/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -26,7 +27,9 @@ class TaskHead(nn.Module):
 
     def __init__(
         self,
-        task_type: str | list[str] = "binary",
+        task_type: (
+            Literal["binary", "regression"] | list[Literal["binary", "regression"]]
+        ) = "binary",
         task_dims: int | list[int] | None = None,
         use_bias: bool = True,
         return_logits: bool = False,

@@ -12,7 +12,7 @@ from pathlib import Path
 
 __all__ = [
     "Session",
-    "resolve_save_path",
+    "get_save_path",
     "create_session",
 ]
 
@@ -89,7 +89,7 @@ def create_session(experiment_id: str | Path | None = None) -> Session:
     return Session(experiment_id=exp_id, root=root, log_basename=log_basename)
 
 
-def resolve_save_path(
+def get_save_path(
     path: str | os.PathLike | Path | None,
     default_dir: str | Path,
     default_name: str,

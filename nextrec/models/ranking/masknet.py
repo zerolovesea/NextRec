@@ -179,11 +179,10 @@ class MaskNet(BaseModel):
         optimizer_params: dict | None = None,
         loss: str | nn.Module | None = "bce",
         loss_params: dict | list[dict] | None = None,
-        device: str = "cpu",
-        embedding_l1_reg: float = 1e-6,
-        dense_l1_reg: float = 1e-5,
-        embedding_l2_reg: float = 1e-5,
-        dense_l2_reg: float = 1e-4,
+        embedding_l1_reg=0.0,
+        dense_l1_reg=0.0,
+        embedding_l2_reg=0.0,
+        dense_l2_reg=0.0,
         **kwargs,
     ):
         dense_features = dense_features or []
@@ -199,7 +198,6 @@ class MaskNet(BaseModel):
             sequence_features=sequence_features,
             target=target,
             task=task or self.default_task,
-            device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
@@ -220,16 +218,17 @@ class MaskNet(BaseModel):
         ), "MaskNet requires at least one feature for masking."
         self.embedding = EmbeddingLayer(features=self.mask_features)
         self.num_fields = len(self.mask_features)
-        self.embedding_dim = getattr(self.mask_features[0], "embedding_dim", None)
+        self.embedding_dim = self.mask_features[0].embedding_dim
         assert (
             self.embedding_dim is not None
         ), "MaskNet requires mask_features to have 'embedding_dim' defined."
 
         for f in self.mask_features:
-            edim = getattr(f, "embedding_dim", None)
+            edim = f.embedding_dim
             if edim is None or edim != self.embedding_dim:
+                feat_name = f.name if hasattr(f, "name") else type(f)
                 raise ValueError(
-                    f"MaskNet expects identical embedding_dim across all mask_features, but got {edim} for feature {getattr(f, 'name', type(f))}."
+                    f"MaskNet expects identical embedding_dim across all mask_features, but got {edim} for feature {feat_name}."
                 )
 
         self.v_emb_dim = self.num_fields * self.embedding_dim

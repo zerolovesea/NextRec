@@ -38,7 +38,7 @@ class TestDSSM:
     def user_features(self):
         """Create user features for DSSM"""
         logger.info("Creating user features for DSSM")
-        user_dense = [DenseFeature(name="user_age", embedding_dim=1)]
+        user_dense = [DenseFeature(name="user_age", proj_dim=1)]
         user_sparse = [
             SparseFeature(name="user_id", vocab_size=1000, embedding_dim=16),
             SparseFeature(name="user_city", vocab_size=100, embedding_dim=8),
@@ -58,7 +58,7 @@ class TestDSSM:
     def item_features(self):
         """Create item features for DSSM"""
         logger.info("Creating item features for DSSM")
-        item_dense = [DenseFeature(name="item_price", embedding_dim=1)]
+        item_dense = [DenseFeature(name="item_price", proj_dim=1)]
         item_sparse = [
             SparseFeature(name="item_id", vocab_size=500, embedding_dim=16),
             SparseFeature(name="item_category", vocab_size=50, embedding_dim=8),
@@ -249,7 +249,7 @@ class TestYoutubeDNN:
     def user_features(self):
         """Create user features for YoutubeDNN"""
         logger.info("Creating user features for YoutubeDNN")
-        user_dense = [DenseFeature(name="user_age", embedding_dim=1)]
+        user_dense = [DenseFeature(name="user_age", proj_dim=1)]
         user_sparse = [SparseFeature(name="user_id", vocab_size=1000, embedding_dim=16)]
         user_sequence = [
             SequenceFeature(

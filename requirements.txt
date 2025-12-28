@@ -7,6 +7,9 @@ protobuf<5.0.0
 rich>=13.7.0
 pytest-cov>=4.1.0
 
+wandb>=0.23.1
+swanlab>=0.7.2
+
 # macOS
 numpy>=1.24,<2.0; sys_platform == "darwin"
 pandas>=2.0.0; sys_platform == "darwin"

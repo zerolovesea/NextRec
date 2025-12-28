@@ -2,7 +2,7 @@
 Callback System for Training Process
 
 Date: create on 27/10/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 27/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -61,16 +61,16 @@ class Callback:
         self.params = params
 
     def should_run(self) -> bool:
-        if not getattr(self, "run_on_main_process_only", False):
+        if not self.run_on_main_process_only:
             return True
-        model = getattr(self, "model", None)
-        if model is None:
-            return True
-        return bool(getattr(model, "is_main_process", True))
+        model = self.model
+        return bool(model.is_main_process)
 
 
 class CallbackList:
-    """Generates a list of callbacks"""
+    """
+    Generates a list of callbacks
+    """
 
     def __init__(self, callbacks: Optional[list[Callback]] = None):
         self.callbacks = callbacks or []
@@ -85,7 +85,8 @@ class CallbackList:
             getattr(callback, fn_name)(*args, **kwargs)
 
     def set_model(self, model):
-        self.call("set_model", model)
+        for callback in self.callbacks:
+            callback.set_model(model)
 
     def set_params(self, params: dict):
         self.call("set_params", params)
@@ -194,9 +195,8 @@ class EarlyStopper(Callback):
             self.wait += 1
             if self.wait >= self.patience:
                 self.stopped_epoch = epoch
-                if hasattr(self.model, "stop_training"):
-                    self.model.stop_training = True
-                if self.verbose > 0:
+                self.model.stop_training = True
+                if self.verbose == 1:
                     logging.info(
                         f"Early stopping triggered at epoch {epoch + 1}. "
                         f"Best {self.monitor}: {self.best_value:.6f} at epoch {self.best_epoch + 1}"
@@ -218,14 +218,15 @@ class EarlyStopper(Callback):
 
 
 class CheckpointSaver(Callback):
-    """Callback to save model checkpoints during training.
+    """
+    Callback to save model checkpoints during training.
 
     Args:
         save_path: Path to save checkpoints.
         monitor: Metric name to monitor for saving best model.
         mode: One of {'min', 'max'}.
         save_best_only: If True, only save when the model is considered the "best".
-        save_freq: Frequency of checkpoint saving ('epoch' or integer for every N epochs).
+        save_freq: Frequency of checkpoint saving (integer for every N epochs).
         verbose: Verbosity mode.
         run_on_main_process_only: Whether to run this callback only on the main process in DDP.
     """
@@ -237,7 +238,7 @@ class CheckpointSaver(Callback):
         monitor: str = "val_auc",
         mode: str = "max",
         save_best_only: bool = False,
-        save_freq: str | int = "epoch",
+        save_freq: int = 1,
         verbose: int = 1,
         run_on_main_process_only: bool = True,
     ):
@@ -272,7 +273,7 @@ class CheckpointSaver(Callback):
         logs = logs or {}
 
         should_save = False
-        if self.save_freq == "epoch":
+        if self.save_freq == 1:
             should_save = True
         elif isinstance(self.save_freq, int) and (epoch + 1) % self.save_freq == 0:
             should_save = True
@@ -306,12 +307,10 @@ class CheckpointSaver(Callback):
 
     def save_checkpoint(self, path: Path, epoch: int, logs: dict):
 
-        # Get the actual model (unwrap DDP if needed)
-        model_to_save = (
-            self.model.ddp_model.module
-            if getattr(self.model, "ddp_model", None) is not None
-            else self.model
-        )
+        if hasattr(self.model, "ddp_model") and self.model.ddp_model is not None:
+            model_to_save = self.model.ddp_model.module
+        else:
+            model_to_save = self.model
 
         # Save only state_dict to match BaseModel.save_model() format
         torch.save(model_to_save.state_dict(), path)
@@ -328,12 +327,13 @@ class CheckpointSaver(Callback):
             with open(config_path, "wb") as f:
                 pickle.dump(features_config, f)
 
-        if self.verbose > 1:
+        if self.verbose == 1:
             logging.info(f"Saved checkpoint to {path}")
 
 
 class LearningRateScheduler(Callback):
-    """Callback for learning rate scheduling.
+    """
+    Callback for learning rate scheduling.
 
     Args:
         scheduler: Learning rate scheduler instance or name.
@@ -346,73 +346,25 @@ class LearningRateScheduler(Callback):
         self.verbose = verbose
 
     def on_train_begin(self, logs: Optional[dict] = None):
-        if self.scheduler is None and hasattr(self.model, "scheduler_fn"):
+        if self.scheduler is None:
             self.scheduler = self.model.scheduler_fn
 
     def on_epoch_end(self, epoch: int, logs: Optional[dict] = None):
         if self.scheduler is not None:
-            # Get current lr before step
-            if hasattr(self.model, "optimizer_fn"):
-                old_lr = self.model.optimizer_fn.param_groups[0]["lr"]
+            old_lr = self.model.optimizer_fn.param_groups[0]["lr"]
+            if logs is None:
+                logs = {}
 
-            # Step the scheduler
-            if hasattr(self.scheduler, "step"):
-                # Some schedulers need metrics
-                if logs is None:
-                    logs = {}
-                if "val_loss" in logs and hasattr(self.scheduler, "mode"):
-                    self.scheduler.step(logs["val_loss"])
-                else:
-                    self.scheduler.step()
+            # step for ReduceLROnPlateau
+            if "val_loss" in logs and hasattr(self.scheduler, "mode"):
+                self.scheduler.step(logs["val_loss"])
+            else:
+                self.scheduler.step()
 
             # Log new lr
-            if self.verbose > 0 and hasattr(self.model, "optimizer_fn"):
-                if getattr(self.model, "is_main_process", True):
-                    new_lr = self.model.optimizer_fn.param_groups[0]["lr"]
-                    if new_lr != old_lr:
-                        logging.info(
-                            f"Learning rate changed from {old_lr:.6e} to {new_lr:.6e}"
-                        )
-
-
-class MetricsLogger(Callback):
-    """Callback for logging training metrics.
-
-    Args:
-        log_freq: Frequency of logging ('epoch', 'batch', or integer for every N epochs/batches).
-        verbose: Verbosity mode.
-    """
-
-    def __init__(self, log_freq: str | int = "epoch", verbose: int = 1):
-        super().__init__()
-        self.run_on_main_process_only = True
-        self.log_freq = log_freq
-        self.verbose = verbose
-
-    def on_epoch_end(self, epoch: int, logs: Optional[dict] = None):
-        if self.verbose > 0 and (
-            self.log_freq == "epoch"
-            or (isinstance(self.log_freq, int) and (epoch + 1) % self.log_freq == 0)
-        ):
-            logs = logs or {}
-            metrics_str = " - ".join(
-                [
-                    f"{k}: {v:.6f}" if isinstance(v, float) else f"{k}: {v}"
-                    for k, v in logs.items()
-                ]
-            )
-            logging.info(f"Epoch {epoch + 1}: {metrics_str}")
-
-    def on_batch_end(self, batch: int, logs: Optional[dict] = None):
-        if self.verbose > 1 and (
-            self.log_freq == "batch"
-            or (isinstance(self.log_freq, int) and (batch + 1) % self.log_freq == 0)
-        ):
-            logs = logs or {}
-            metrics_str = " - ".join(
-                [
-                    f"{k}: {v:.6f}" if isinstance(v, float) else f"{k}: {v}"
-                    for k, v in logs.items()
-                ]
-            )
-            logging.info(f"Batch {batch}: {metrics_str}")
+            if self.verbose == 1:
+                new_lr = self.model.optimizer_fn.param_groups[0]["lr"]
+                if new_lr != old_lr:
+                    logging.info(
+                        f"Learning rate changed from {old_lr:.6e} to {new_lr:.6e}"
+                    )

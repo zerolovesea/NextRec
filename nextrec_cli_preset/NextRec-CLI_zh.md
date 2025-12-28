@@ -250,7 +250,7 @@ dense:
       name: age                         # 特征名称
       input_dim: 1                      # 输入维度
       embedding_dim: 8                  # Embedding 维度
-      use_embedding: true               # 是否使用 embedding
+      use_projection: true               # 是否使用 embedding
   
   income:
     processor_config:
@@ -260,7 +260,7 @@ dense:
       name: income
       input_dim: 1
       embedding_dim: 8
-      use_embedding: false              # 不使用 embedding，直接使用原始值
+      use_projection: false              # 不使用 embedding，直接使用原始值
 
 sparse:
   city:
@@ -322,7 +322,7 @@ feature_groups:
   - `standard`: 标准化（均值为0，标准差为1）
   - `minmax`: 最小-最大归一化（缩放到0-1）
   - `robust`: 鲁棒标准化（使用中位数和四分位数）
-- `embedding_config.use_embedding`: 是否对数值特征使用 embedding
+- `embedding_config.use_projection`: 是否对数值特征使用 embedding
   - `true`: 使用 embedding 层
   - `false`: 直接使用标准化后的值
 
@@ -557,7 +557,7 @@ dense:
       name: age
       input_dim: 1
       embedding_dim: 8
-      use_embedding: true
+      use_projection: true
   
   price:
     processor_config:
@@ -567,7 +567,7 @@ dense:
       name: price
       input_dim: 1
       embedding_dim: 8
-      use_embedding: true
+      use_projection: true
 
 sparse:
   user_id:

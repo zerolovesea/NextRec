@@ -6,8 +6,6 @@ Checkpoint: edit on 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-from typing import Literal
-
 import torch.nn as nn
 
 from nextrec.loss.listwise import (
@@ -19,38 +17,12 @@ from nextrec.loss.listwise import (
 )
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.loss.pointwise import ClassBalancedFocalLoss, FocalLoss, WeightedBCELoss
+from nextrec.utils.types import LossName
 
 VALID_TASK_TYPES = [
     "binary",
     "multilabel",
     "regression",
-]
-
-# Define all supported loss types
-LossType = Literal[
-    # Pointwise losses
-    "bce",
-    "binary_crossentropy",
-    "weighted_bce",
-    "focal",
-    "focal_loss",
-    "cb_focal",
-    "class_balanced_focal",
-    "crossentropy",
-    "ce",
-    "mse",
-    "mae",
-    # Pairwise ranking losses
-    "bpr",
-    "hinge",
-    "triplet",
-    # Listwise ranking losses
-    "sampled_softmax",
-    "softmax",
-    "infonce",
-    "listnet",
-    "listmle",
-    "approx_ndcg",
 ]
 
 
@@ -60,7 +32,10 @@ def build_cb_focal(kw):
     return ClassBalancedFocalLoss(**kw)
 
 
-def get_loss_fn(loss=None, **kw) -> nn.Module:
+def get_loss_fn(
+    loss: LossName | None | nn.Module = None,
+    **kw,
+) -> nn.Module:
     """
     Get loss function by name or return the provided loss module.
 
