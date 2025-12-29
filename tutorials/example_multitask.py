@@ -67,14 +67,7 @@ model = ESMM(
     cvr_params=cvr_params,
     target=task_labels,
     task=["binary", "binary"],
-    optimizer="adam",
-    optimizer_params={"lr": 5e-4, "weight_decay": 1e-4},
-    loss=["bce", "bce"],
-    device="mps",
-    embedding_l1_reg=1e-5,
-    embedding_l2_reg=1e-4,
-    dense_l1_reg=1e-4,
-    dense_l2_reg=1e-3,
+    device="cpu",
     session_id="esmm_tutorial",
 )
 

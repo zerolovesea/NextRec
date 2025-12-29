@@ -58,6 +58,7 @@ from nextrec.basic.layers import (
 )
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import ActivationName
 
 
 class DIN(BaseModel):
@@ -78,18 +79,8 @@ class DIN(BaseModel):
         candidate_feature_name: str | None = None,
         mlp_params: dict | None = None,
         attention_hidden_units: list[int] | None = None,
-        attention_activation: str = "dice",
+        attention_activation: ActivationName = "dice",
         attention_use_softmax: bool = True,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
@@ -98,20 +89,11 @@ class DIN(BaseModel):
         sequence_features = sequence_features or []
         mlp_params = mlp_params or {}
         attention_hidden_units = attention_hidden_units or [80, 40]
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         super(DIN, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
 
@@ -180,13 +162,6 @@ class DIN(BaseModel):
         self.register_regularization_weights(
             embedding_attr="embedding",
             include_modules=["attention", "mlp", "candidate_attention_proj"],
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

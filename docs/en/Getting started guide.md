@@ -55,6 +55,7 @@ model = DeepFM(
     session_id="movielens_deepfm",   # manages logs and checkpoints
 )
 
+# Optimizer/loss/scheduler are configured via compile()
 model.compile(
     optimizer="adam",
     optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},

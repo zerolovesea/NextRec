@@ -38,8 +38,6 @@ LR 是 CTR/排序任务中最经典的线性基线模型。它将稠密、稀疏
 - 权重可解释性强
 """
 
-import torch.nn as nn
-
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, LR as LinearLayer
 from nextrec.basic.heads import TaskHead
@@ -60,40 +58,19 @@ class LR(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         super(LR, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
-
-        self.loss = loss
 
         self.embedding = EmbeddingLayer(features=self.all_features)
         linear_input_dim = self.embedding.input_dim
@@ -102,13 +79,6 @@ class LR(BaseModel):
 
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["linear"]
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

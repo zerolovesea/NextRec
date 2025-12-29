@@ -45,7 +45,7 @@ DCN v2 在原始 DCN 基础上，将标量交叉权重升级为向量/矩阵参�
 
 import torch
 import torch.nn as nn
-
+from typing import Literal
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
@@ -193,53 +193,32 @@ class DCNv2(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         cross_num: int = 3,
-        cross_type: str = "matrix",
-        architecture: str = "parallel",
+        cross_type: Literal["matrix", "mix", "low_rank"] = "matrix",
+        architecture: Literal["parallel", "stacked"] = "parallel",
         low_rank: int = 32,
         num_experts: int = 4,
         mlp_params: dict | None = None,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
+        mlp_params = mlp_params or {}
 
         super(DCNv2, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
 
-        self.all_features = dense_features + sparse_features + sequence_features
         self.embedding = EmbeddingLayer(features=self.all_features)
         input_dim = self.embedding.input_dim
 
-        architecture = architecture.lower()
         if architecture not in {"parallel", "stacked"}:
             raise ValueError("architecture must be 'parallel' or 'stacked'.")
         self.architecture = architecture
 
-        cross_type = cross_type.lower()
         if cross_type == "matrix":
             self.cross_network = CrossNetV2(input_dim=input_dim, num_layers=cross_num)
         elif cross_type in {"mix", "low_rank"}:
@@ -271,18 +250,11 @@ class DCNv2(BaseModel):
             final_input_dim = input_dim
 
         self.final_layer = nn.Linear(final_input_dim, 1)
-        self.prediction_layer = TaskHead(task_type=self.default_task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         self.register_regularization_weights(
             embedding_attr="embedding",
             include_modules=["cross_network", "mlp", "final_layer"],
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x) -> torch.Tensor:

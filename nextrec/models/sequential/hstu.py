@@ -323,11 +323,6 @@ class HSTU(BaseModel):
         tie_embeddings: bool = True,
         target: Optional[list[str] | str] = None,
         task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: Optional[dict] = None,
-        scheduler: Optional[str] = None,
-        scheduler_params: Optional[dict] = None,
-        loss_params: Optional[dict] = None,
         embedding_l1_reg: float = 0.0,
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
@@ -426,19 +421,6 @@ class HSTU(BaseModel):
         self.register_buffer("causal_mask", torch.empty(0), persistent=False)
         self.ignore_index = self.padding_idx if self.padding_idx is not None else -100
 
-        optimizer_params = optimizer_params or {}
-        scheduler_params = scheduler_params or {}
-        loss_params = loss_params or {}
-        loss_params.setdefault("ignore_index", self.ignore_index)
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            scheduler=scheduler,
-            scheduler_params=scheduler_params,
-            loss="crossentropy",
-            loss_params=loss_params,
-        )
         self.register_regularization_weights(
             embedding_attr="token_embedding",
             include_modules=["layers", "lm_head", "context_proj"],

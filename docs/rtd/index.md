@@ -57,6 +57,7 @@ model = DeepFM(
     session_id="deepfm_demo",
 )
 
+# Configure optimizer/loss/scheduler via compile()
 model.compile(
     optimizer="adam",
     optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},

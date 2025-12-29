@@ -2,13 +2,14 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 28/12/2025
+Checkpoint: edit on 29/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
 import getpass
 import logging
 import os
+import sys
 import pickle
 import socket
 from pathlib import Path
@@ -16,6 +17,16 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
+
+try:
+    import swanlab  # type: ignore
+except ModuleNotFoundError:
+    swanlab = None
+try:
+    import wandb  # type: ignore
+except ModuleNotFoundError:
+    wandb = None
+
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -74,13 +85,19 @@ from nextrec.utils.torch_utils import (
     to_tensor,
 )
 from nextrec.utils.config import safe_value
-from nextrec.utils.model import compute_ranking_loss
+from nextrec.utils.model import (
+    compute_ranking_loss,
+    get_loss_list,
+    resolve_loss_weights,
+    get_training_modes,
+)
 from nextrec.utils.types import (
     LossName,
     OptimizerName,
     SchedulerName,
     TrainingModeName,
     TaskTypeName,
+    MetricsName,
 )
 
 
@@ -90,7 +107,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         raise NotImplementedError
 
     @property
-    def default_task(self) -> str | list[str]:
+    def default_task(self) -> TaskTypeName | list[TaskTypeName]:
         raise NotImplementedError
 
     def __init__(
@@ -139,6 +156,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             world_size: Number of processes (defaults to env WORLD_SIZE).
             local_rank: Local rank for selecting CUDA device (defaults to env LOCAL_RANK).
             ddp_find_unused_parameters: Default False, set it True only when exist unused parameters in ddp model, in most cases should be False.
+
+        Note:
+            Optimizer, scheduler, and loss are configured via compile().
         """
         super(BaseModel, self).__init__()
 
@@ -171,24 +191,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             dense_features, sparse_features, sequence_features, target, id_columns
         )
 
-        self.task = self.default_task if task is None else task
+        self.task = task or self.default_task
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
-        if isinstance(training_mode, list):
-            training_modes = list(training_mode)
-            if len(training_modes) != self.nums_task:
-                raise ValueError(
-                    "[BaseModel-init Error] training_mode list length must match number of tasks."
-                )
-        else:
-            training_modes = [training_mode] * self.nums_task
-        if any(
-            mode not in {"pointwise", "pairwise", "listwise"} for mode in training_modes
-        ):
-            raise ValueError(
-                "[BaseModel-init Error] training_mode must be one of {'pointwise', 'pairwise', 'listwise'}."
-            )
-        self.training_modes = training_modes
-        self.training_mode = training_modes if self.nums_task > 1 else training_modes[0]
+        self.training_modes = get_training_modes(training_mode, self.nums_task)
+        self.training_mode = (
+            self.training_modes if self.nums_task > 1 else self.training_modes[0]
+        )
 
         self.embedding_l1_reg = embedding_l1_reg
         self.dense_l1_reg = dense_l1_reg
@@ -196,8 +204,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.dense_l2_reg = dense_l2_reg
         self.regularization_weights = []
         self.embedding_params = []
-        self.loss_weight = None
+
         self.ignore_label = None
+        self.compiled = False
 
         self.max_gradient_norm = 1.0
         self.logger_initialized = False
@@ -431,28 +440,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             "pairwise": "bpr",
             "listwise": "listnet",
         }
-        effective_loss = loss
-        if effective_loss is None:
-            loss_list = [default_losses[mode] for mode in self.training_modes]
-        elif isinstance(effective_loss, list):
-            if not effective_loss:
-                loss_list = [default_losses[mode] for mode in self.training_modes]
-            else:
-                if len(effective_loss) != self.nums_task:
-                    raise ValueError(
-                        f"[BaseModel-compile Error] Number of loss functions ({len(effective_loss)}) must match number of tasks ({self.nums_task})."
-                    )
-                loss_list = list(effective_loss)
-        else:
-            loss_list = [effective_loss] * self.nums_task
-
-        for idx, mode in enumerate(self.training_modes):
-            if isinstance(loss_list[idx], str) and loss_list[idx] in {
-                "bce",
-                "binary_crossentropy",
-            }:
-                if mode in {"pairwise", "listwise"}:
-                    loss_list[idx] = default_losses[mode]
+        loss_list = get_loss_list(
+            loss, self.training_modes, self.nums_task, default_losses
+        )
         self.loss_params = loss_params or {}
         optimizer_params = optimizer_params or {}
         self.optimizer_name = (
@@ -516,30 +506,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 nums_task=self.nums_task, device=self.device, **grad_norm_params
             )
             self.loss_weights = None
-        elif loss_weights is None:
-            self.loss_weights = None
-        elif self.nums_task == 1:
-            if isinstance(loss_weights, (list, tuple)):
-                if len(loss_weights) != 1:
-                    raise ValueError(
-                        "[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup."
-                    )
-                loss_weights = loss_weights[0]
-            self.loss_weights = [float(loss_weights)]  # type: ignore
         else:
-            if isinstance(loss_weights, (int, float)):
-                weights = [float(loss_weights)] * self.nums_task
-            elif isinstance(loss_weights, (list, tuple)):
-                weights = [float(w) for w in loss_weights]
-                if len(weights) != self.nums_task:
-                    raise ValueError(
-                        f"[BaseModel-compile Error] Number of loss_weights ({len(weights)}) must match number of tasks ({self.nums_task})."
-                    )
-            else:
-                raise TypeError(
-                    f"[BaseModel-compile Error] loss_weights must be int, float, list or tuple, got {type(loss_weights)}"
-                )
-            self.loss_weights = weights
+            self.loss_weights = resolve_loss_weights(loss_weights, self.nums_task)
+        self.compiled = True
 
     def compute_loss(self, y_pred, y_true):
         if y_true is None:
@@ -602,9 +571,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         for i, (start, end) in enumerate(slices):  # type: ignore
             y_pred_i = y_pred[:, start:end]
             y_true_i = y_true[:, start:end]
-            total_count = y_true_i.shape[0]
-            # valid_count = None
-
             # mask ignored labels
             if self.ignore_label is not None:
                 valid_mask = y_true_i != self.ignore_label
@@ -613,11 +579,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 if not torch.any(valid_mask):
                     task_losses.append(y_pred_i.sum() * 0.0)
                     continue
-                # valid_count = valid_mask.sum().to(dtype=y_true_i.dtype)
                 y_pred_i = y_pred_i[valid_mask]
                 y_true_i = y_true_i[valid_mask]
-            # else:
-            # valid_count = y_true_i.new_tensor(float(total_count))
 
             mode = self.training_modes[i]
 
@@ -691,7 +654,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         train_data=None,
         valid_data=None,
         metrics: (
-            list[str] | dict[str, list[str]] | None
+            list[MetricsName] | dict[str, list[MetricsName]] | None
         ) = None,  # ['auc', 'logloss'] or {'target1': ['auc', 'logloss'], 'target2': ['mse']}
         epochs: int = 1,
         shuffle: bool = True,
@@ -705,6 +668,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         use_tensorboard: bool = True,
         use_wandb: bool = False,
         use_swanlab: bool = False,
+        wandb_api: str | None = None,
+        swanlab_api: str | None = None,
         wandb_kwargs: dict | None = None,
         swanlab_kwargs: dict | None = None,
         auto_ddp_sampler: bool = True,
@@ -734,6 +699,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             use_tensorboard: Enable tensorboard logging.
             use_wandb: Enable Weights & Biases logging.
             use_swanlab: Enable SwanLab logging.
+            wandb_api: W&B API key for non-tty login.
+            swanlab_api: SwanLab API key for non-tty login.
             wandb_kwargs: Optional kwargs for wandb.init(...).
             swanlab_kwargs: Optional kwargs for swanlab.init(...).
             auto_ddp_sampler: Attach DistributedSampler automatically when distributed, set False to when data is already sharded per rank.
@@ -750,6 +717,16 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             self.distributed, self.rank, self.world_size, device_id=device_id
         )
         self.to(self.device)
+
+        if not self.compiled:
+            self.compile(
+                optimizer="adam",
+                optimizer_params={},
+                scheduler=None,
+                scheduler_params={},
+                loss=None,
+                loss_params={},
+            )
 
         if (
             self.distributed
@@ -824,6 +801,24 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 "sequence_feature_count": len(self.sequence_features),
             }
             training_config: dict = safe_value(training_config)  # type: ignore
+
+        if self.is_main_process:
+            is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+            if not is_tty:
+                if use_wandb and wandb_api:
+                    if wandb is None:
+                        logging.warning(
+                            "[BaseModel-fit] wandb not installed, skip wandb login."
+                        )
+                    else:
+                        wandb.login(key=wandb_api)
+                if use_swanlab and swanlab_api:
+                    if swanlab is None:
+                        logging.warning(
+                            "[BaseModel-fit] swanlab not installed, skip swanlab login."
+                        )
+                    else:
+                        swanlab.login(api_key=swanlab_api)
 
         self.training_logger = (
             TrainingLogger(

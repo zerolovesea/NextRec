@@ -2,11 +2,11 @@
 Pointwise loss functions, including imbalance-aware variants.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 29/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Literal
 
 import torch
 import torch.nn as nn
@@ -18,7 +18,9 @@ class CosineContrastiveLoss(nn.Module):
     Contrastive loss using cosine similarity for positive/negative pairs.
     """
 
-    def __init__(self, margin: float = 0.5, reduction: str = "mean"):
+    def __init__(
+        self, margin: float = 0.5, reduction: Literal["mean", "sum", "none"] = "mean"
+    ):
         super().__init__()
         self.margin = margin
         self.reduction = reduction
@@ -50,7 +52,7 @@ class WeightedBCELoss(nn.Module):
     def __init__(
         self,
         pos_weight: float | torch.Tensor | None = None,
-        reduction: str = "mean",
+        reduction: Literal["mean", "sum", "none"] = "mean",
         logits: bool = False,
         auto_balance: bool = False,
     ):
@@ -110,7 +112,7 @@ class FocalLoss(nn.Module):
         self,
         gamma: float = 2.0,
         alpha: Optional[float | Sequence[float] | torch.Tensor] = None,
-        reduction: str = "mean",
+        reduction: Literal["mean", "sum", "none"] = "mean",
         logits: bool = False,
     ):
         super().__init__()
@@ -187,7 +189,7 @@ class ClassBalancedFocalLoss(nn.Module):
         class_counts: Sequence[int] | torch.Tensor,
         beta: float = 0.9999,
         gamma: float = 2.0,
-        reduction: str = "mean",
+        reduction: Literal["mean", "sum", "none"] = "mean",
     ):
         super().__init__()
         self.gamma = gamma

@@ -82,14 +82,6 @@ class MMOE(BaseModel):
         tower_params_list: list[dict] | None = None,
         target: list[str] | str | None = None,
         task: str | list[str] = "binary",
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
@@ -98,9 +90,7 @@ class MMOE(BaseModel):
         sequence_features = sequence_features or []
         expert_params = expert_params or {}
         tower_params_list = tower_params_list or []
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
+
         if target is None:
             target = []
         elif isinstance(target, str):
@@ -126,14 +116,8 @@ class MMOE(BaseModel):
             sequence_features=sequence_features,
             target=target,
             task=resolved_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
-
-        self.loss = loss
 
         # Number of tasks and experts
         self.nums_task = len(target)
@@ -172,17 +156,11 @@ class MMOE(BaseModel):
             tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
-            task_type=self.default_task, task_dims=[1] * self.nums_task
+            task_type=self.task, task_dims=[1] * self.nums_task
         )
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["experts", "gates", "towers"]
-        )
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=self.loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

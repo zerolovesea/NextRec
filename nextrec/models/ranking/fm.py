@@ -38,8 +38,6 @@ FM 是一种通过分解二阶特征交互矩阵、以线性复杂度建模特�
 - 结构简单、表现强健，常作 CTR 基线
 """
 
-import torch.nn as nn
-
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FM as FMInteraction
 from nextrec.basic.heads import TaskHead
@@ -61,16 +59,6 @@ class FM(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
@@ -82,18 +70,8 @@ class FM(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
-
-        self.loss = loss
-        if self.loss is None:
-            self.loss = "bce"
 
         self.fm_features = sparse_features + sequence_features
         if len(self.fm_features) == 0:
@@ -109,13 +87,6 @@ class FM(BaseModel):
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["linear"]
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

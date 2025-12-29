@@ -1,5 +1,9 @@
 """
 Summary utilities for BaseModel.
+
+Date: create on 03/12/2025
+Checkpoint: edit on 29/12/2025
+Author: Yang Zhou,zyaztec@gmail.com
 """
 
 from __future__ import annotations
@@ -12,9 +16,39 @@ from torch.utils.data import DataLoader
 
 from nextrec.basic.loggers import colorize, format_kv
 from nextrec.data.data_processing import extract_label_arrays, get_data_length
+from nextrec.utils.types import TaskTypeName
 
 
 class SummarySet:
+    model_name: str
+    dense_features: list[Any]
+    sparse_features: list[Any]
+    sequence_features: list[Any]
+    task: TaskTypeName | list[TaskTypeName]
+    target_columns: list[str]
+    nums_task: int
+    metrics: Any
+    device: Any
+    optimizer_name: str
+    optimizer_params: dict[str, Any]
+    scheduler_name: str | None
+    scheduler_params: dict[str, Any]
+    loss_config: Any
+    loss_weights: Any
+    grad_norm: Any
+    embedding_l1_reg: float
+    embedding_l2_reg: float
+    dense_l1_reg: float
+    dense_l2_reg: float
+    early_stop_patience: int
+    max_gradient_norm: float | None
+    metrics_sample_limit: int | None
+    session_id: str | None
+    features_config_path: str
+    checkpoint_path: str
+    train_data_summary: dict[str, Any] | None
+    valid_data_summary: dict[str, Any] | None
+
     def build_data_summary(
         self, data: Any, data_loader: DataLoader | None, sample_key: str
     ):
@@ -305,7 +339,7 @@ class SummarySet:
                         lines = details.get("lines", [])
                         logger.info(f"{target_name}:")
                         for label, value in lines:
-                            logger.info(format_kv(label, value))
+                            logger.info(f"  {format_kv(label, value)}")
 
             if self.valid_data_summary:
                 if self.train_data_summary:
@@ -320,4 +354,4 @@ class SummarySet:
                         lines = details.get("lines", [])
                         logger.info(f"{target_name}:")
                         for label, value in lines:
-                            logger.info(format_kv(label, value))
+                            logger.info(f"  {format_kv(label, value)}")

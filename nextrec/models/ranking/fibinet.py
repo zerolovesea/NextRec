@@ -41,8 +41,7 @@ FiBiNET 是一个 CTR 预估模型，通过 SENET 重新分配特征字段的重
 """
 
 import torch
-import torch.nn as nn
-
+from typing import Literal
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import (
     LR,
@@ -71,19 +70,13 @@ class FiBiNET(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         mlp_params: dict | None = None,
-        interaction_combo: str = "11",  # "0": Hadamard, "1": Bilinear
-        bilinear_type: str = "field_interaction",
+        interaction_combo: Literal[
+            "01", "11", "10", "00"
+        ] = "11",  # "0": Hadamard, "1": Bilinear
+        bilinear_type: Literal[
+            "field_all", "field_each", "field_interaction"
+        ] = "field_interaction",
         senet_reduction: int = 3,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
@@ -91,24 +84,14 @@ class FiBiNET(BaseModel):
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
         mlp_params = mlp_params or {}
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         super(FiBiNET, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
 
-        self.loss = loss
         self.linear_features = sparse_features + sequence_features
         self.interaction_features = sparse_features + sequence_features
 
@@ -166,7 +149,7 @@ class FiBiNET(BaseModel):
         num_pairs = self.num_fields * (self.num_fields - 1) // 2
         interaction_dim = num_pairs * self.embedding_dim * 2
         self.mlp = MLP(input_dim=interaction_dim, **mlp_params)
-        self.prediction_layer = TaskHead(task_type=self.default_task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(
@@ -178,13 +161,6 @@ class FiBiNET(BaseModel):
                 "interaction_E",
                 "interaction_V",
             ],
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

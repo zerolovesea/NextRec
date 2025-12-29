@@ -42,8 +42,6 @@ embedding，无需手工构造交叉特征即可端到端训练，常用于 CTR/
 - CTR/CVR 任务的常用强基线
 """
 
-import torch.nn as nn
-
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FM, LR, MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
@@ -65,16 +63,6 @@ class DeepFM(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         mlp_params: dict | None = None,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
@@ -82,24 +70,14 @@ class DeepFM(BaseModel):
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
         mlp_params = mlp_params or {}
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         super(DeepFM, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
 
-        self.loss = loss
         self.fm_features = sparse_features + sequence_features
         self.deep_features = dense_features + sparse_features + sequence_features
         self.embedding = EmbeddingLayer(features=self.deep_features)
@@ -110,17 +88,12 @@ class DeepFM(BaseModel):
         self.linear = LR(fm_emb_dim_total)
         self.fm = FM(reduce_sum=True)
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
-        self.prediction_layer = TaskHead(task_type=self.default_task)
+
+        self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["linear", "mlp"]
-        )
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

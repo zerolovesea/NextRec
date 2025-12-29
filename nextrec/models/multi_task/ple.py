@@ -202,29 +202,21 @@ class PLE(BaseModel):
 
     def __init__(
         self,
-        dense_features: list[DenseFeature],
-        sparse_features: list[SparseFeature],
-        sequence_features: list[SequenceFeature],
-        shared_expert_params: dict,
-        specific_expert_params: dict | list[dict],
-        num_shared_experts: int,
-        num_specific_experts: int,
-        num_levels: int,
-        tower_params_list: list[dict],
-        target: list[str],
+        dense_features: list[DenseFeature] | None = None,
+        sparse_features: list[SparseFeature] | None = None,
+        sequence_features: list[SequenceFeature] | None = None,
+        shared_expert_params: dict | None = None,
+        specific_expert_params: dict | list[dict] | None = None,
+        num_shared_experts: int = 2,
+        num_specific_experts: int = 2,
+        num_levels: int = 2,
+        tower_params_list: list[dict] | None = None,
+        target: list[str] | None = None,
         task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
-        self.nums_task = len(target)
+        self.nums_task = len(target) if target is not None else 1
 
         resolved_task = task
         if resolved_task is None:
@@ -244,23 +236,15 @@ class PLE(BaseModel):
             sequence_features=sequence_features,
             target=target,
             task=resolved_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
 
-        self.loss = loss
-        if self.loss is None:
-            self.loss = "bce"
         # Number of tasks, experts, and levels
         self.nums_task = len(target)
         self.num_shared_experts = num_shared_experts
         self.num_specific_experts = num_specific_experts
         self.num_levels = num_levels
-        if optimizer_params is None:
-            optimizer_params = {}
+
         if len(tower_params_list) != self.nums_task:
             raise ValueError(
                 f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.nums_task})"
@@ -302,17 +286,11 @@ class PLE(BaseModel):
             tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
-            task_type=self.default_task, task_dims=[1] * self.nums_task
+            task_type=self.task, task_dims=[1] * self.nums_task
         )
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["cgc_layers", "towers"]
-        )
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=self.loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):
