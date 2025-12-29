@@ -15,6 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nextrec.basic.layers import PredictionLayer
+from nextrec.utils.types import TaskTypeName
 
 
 class TaskHead(nn.Module):
@@ -27,9 +28,7 @@ class TaskHead(nn.Module):
 
     def __init__(
         self,
-        task_type: (
-            Literal["binary", "regression"] | list[Literal["binary", "regression"]]
-        ) = "binary",
+        task_type: TaskTypeName | list[TaskTypeName] = "binary",
         task_dims: int | list[int] | None = None,
         use_bias: bool = True,
         return_logits: bool = False,

@@ -6,7 +6,7 @@ Last update: 19/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-from . import console, data, embedding, torch_utils
+from . import console, data, embedding, loss, torch_utils
 from .config import (
     build_feature_objects,
     build_model_instance,
@@ -38,6 +38,7 @@ from .data import (
 from .embedding import get_auto_embedding_dim
 from .feature import to_list
 from .model import compute_pair_scores, get_mlp_output_dim, merge_features
+from .loss import normalize_task_loss
 from .torch_utils import (
     add_distributed_sampler,
     get_device,
@@ -81,6 +82,8 @@ __all__ = [
     "merge_features",
     "get_mlp_output_dim",
     "compute_pair_scores",
+    # Loss utilities
+    "normalize_task_loss",
     # Feature utilities
     "to_list",
     # Config utilities
@@ -101,6 +104,7 @@ __all__ = [
     "console",
     "data",
     "embedding",
+    "loss",
     "torch_utils",
     # Type aliases
     "OptimizerName",

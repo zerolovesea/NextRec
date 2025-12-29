@@ -1369,6 +1369,7 @@ class TestAFM:
         self, sample_sparse_features, sample_sequence_features, device
     ):
         model = AFM(
+            dense_features=[],
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             attention_dim=16,
@@ -1386,6 +1387,7 @@ class TestAFM:
         batch_size,
     ):
         model = AFM(
+            dense_features=[],
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             attention_dim=8,

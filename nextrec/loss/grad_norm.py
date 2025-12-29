@@ -20,9 +20,9 @@ import torch.nn.functional as F
 
 
 def get_grad_norm_shared_params(
-    model: torch.nn.Module,
-    shared_modules: Iterable[str] | None = None,
-) -> list[torch.nn.Parameter]:
+    model,
+    shared_modules=None,
+):
     if not shared_modules:
         return [p for p in model.parameters() if p.requires_grad]
     shared_params = []

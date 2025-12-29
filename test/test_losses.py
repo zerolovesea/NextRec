@@ -12,8 +12,8 @@ from nextrec.loss import (
     SampledSoftmaxLoss,
     TripletLoss,
     WeightedBCELoss,
-    get_loss_fn,
 )
+from nextrec.utils.loss import get_loss_fn
 
 
 def test_focal_loss_binary_prefers_confident_logits():
@@ -126,8 +126,61 @@ class _DummyBinaryModel(BaseModel):  # type: ignore[misc]
         self.dummy = nn.Parameter(torch.zeros(1))
 
 
+class _DummyMultiTaskModel(BaseModel):  # type: ignore[misc]
+    @property
+    def model_name(self) -> str:
+        return "DummyMultiTask"
+
+    @property
+    def default_task(self) -> list[str]:
+        return ["binary", "binary"]
+
+    def forward(self, X_input):
+        return torch.zeros(1, 2)
+
+    def __init__(self):
+        super().__init__(
+            dense_features=[],
+            sparse_features=[],
+            sequence_features=[],
+            target=["y1", "y2"],
+            task=["binary", "binary"],
+        )
+        self.dummy = nn.Parameter(torch.zeros(1))
+
+
 def test_compile_acceptsloss_params():
     model = _DummyBinaryModel()
     model.compile(loss="focal", loss_params={"gamma": 1.5})
     assert isinstance(model.loss_fn[0], FocalLoss)
     assert model.loss_fn[0].gamma == 1.5
+
+
+def test_multitask_loss_ignores_negative_labels():
+    model = _DummyMultiTaskModel()
+    model.compile(loss="bce")
+
+    y_pred = torch.tensor([[0.9, 0.1], [0.2, 0.8], [0.7, 0.4]])
+    y_true = torch.tensor([[1.0, -1.0], [0.0, 1.0], [-1.0, -1.0]])
+
+    loss = model.compute_loss(y_pred, y_true)
+
+    task1_mask = y_true[:, 0] != -1
+    task2_mask = y_true[:, 1] != -1
+    task1_loss = model.loss_fn[0](y_pred[task1_mask, 0:1], y_true[task1_mask, 0:1])
+    task2_loss = model.loss_fn[1](y_pred[task2_mask, 1:2], y_true[task2_mask, 1:2])
+    expected = task1_loss + task2_loss
+    assert torch.allclose(loss, expected)
+
+
+def test_multitask_loss_skips_fully_missing_task():
+    model = _DummyMultiTaskModel()
+    model.compile(loss="bce")
+
+    y_pred = torch.tensor([[0.6, 0.3], [0.2, 0.9]])
+    y_true = torch.tensor([[1.0, -1.0], [0.0, -1.0]])
+
+    loss = model.compute_loss(y_pred, y_true)
+
+    task1_loss = model.loss_fn[0](y_pred[:, 0:1], y_true[:, 0:1])
+    assert torch.allclose(loss, task1_loss)
