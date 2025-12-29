@@ -4,11 +4,11 @@
 
 <div align="center">
 
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/nextrec?period=total&units=NONE&left_color=BLACK&right_color=GREEN&left_text=PyPI-downloads)](https://pypistats.org/packages/nextrec)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/nextrec?period=total&units=NONE&left_color=grey&right_color=GREEN&left_text=PyPI-downloads)](https://pypistats.org/packages/nextrec)
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.21-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.22-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -186,11 +186,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.4.21，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.4.22，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.4.21，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.4.22，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
