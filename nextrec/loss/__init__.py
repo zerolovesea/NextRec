@@ -6,7 +6,6 @@ from nextrec.loss.listwise import (
     SampledSoftmaxLoss,
 )
 from nextrec.loss.grad_norm import GradNormLossWeighting
-from nextrec.loss.loss_utils import VALID_TASK_TYPES, get_loss_fn, get_loss_kwargs
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.loss.pointwise import (
     ClassBalancedFocalLoss,
@@ -34,7 +33,4 @@ __all__ = [
     # Multi-task weighting
     "GradNormLossWeighting",
     # Utilities
-    "get_loss_fn",
-    "get_loss_kwargs",
-    "VALID_TASK_TYPES",
 ]

@@ -60,8 +60,8 @@ from nextrec.loss import (
     InfoNCELoss,
     SampledSoftmaxLoss,
     TripletLoss,
-    get_loss_fn,
 )
+from nextrec.utils.loss import get_loss_fn
 from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.console import display_metrics_table, progress
 from nextrec.utils.torch_utils import (
@@ -75,7 +75,13 @@ from nextrec.utils.torch_utils import (
 )
 from nextrec.utils.config import safe_value
 from nextrec.utils.model import compute_ranking_loss
-from nextrec.utils.types import LossName, OptimizerName, SchedulerName
+from nextrec.utils.types import (
+    LossName,
+    OptimizerName,
+    SchedulerName,
+    TrainingModeName,
+    TaskTypeName,
+)
 
 
 class BaseModel(SummarySet, FeatureSet, nn.Module):
@@ -94,11 +100,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | str | None = None,
         id_columns: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        training_mode: (
-            Literal["pointwise", "pairwise", "listwise"]
-            | list[Literal["pointwise", "pairwise", "listwise"]]
-        ) = "pointwise",
+        task: TaskTypeName | list[TaskTypeName] | None = None,
+        training_mode: TrainingModeName | list[TrainingModeName] = "pointwise",
         embedding_l1_reg: float = 0.0,
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
@@ -179,8 +182,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         else:
             training_modes = [training_mode] * self.nums_task
         if any(
-            mode not in {"pointwise", "pairwise", "listwise"}
-            for mode in training_modes
+            mode not in {"pointwise", "pairwise", "listwise"} for mode in training_modes
         ):
             raise ValueError(
                 "[BaseModel-init Error] training_mode must be one of {'pointwise', 'pairwise', 'listwise'}."
@@ -195,6 +197,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.regularization_weights = []
         self.embedding_params = []
         self.loss_weight = None
+        self.ignore_label = None
 
         self.max_gradient_norm = 1.0
         self.logger_initialized = False
@@ -407,6 +410,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         loss_weights: int | float | list[int | float] | dict | str | None = None,
+        ignore_label: int | float | None = -1,
     ):
         """
         Configure the model for training.
@@ -419,7 +423,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             loss_params: Loss function parameters, or list for multi-task. e.g., {'weight': tensor([0.25, 0.75])}.
             loss_weights: Weights for each task loss, int/float for single-task or list for multi-task. e.g., 1.0, or [1.0, 0.5].
                 Use "grad_norm" or {"method": "grad_norm", ...} to enable GradNorm for multi-task loss balancing.
+            ignore_label: Label value to ignore when computing loss. Use this to skip gradients for unknown labels.
         """
+        self.ignore_label = ignore_label
         default_losses = {
             "pointwise": "bce",
             "pairwise": "bpr",
@@ -540,6 +546,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             raise ValueError(
                 "[BaseModel-compute_loss Error] Ground truth labels (y_true) are required."
             )
+
         # single-task
         if self.nums_task == 1:
             if y_pred.dim() == 1:
@@ -547,13 +554,24 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             if y_true.dim() == 1:
                 y_true = y_true.view(-1, 1)
             if y_pred.shape != y_true.shape:
-                raise ValueError(f"Shape mismatch: {y_pred.shape} vs {y_true.shape}")
-            loss_fn = self.loss_fn[0] if getattr(self, "loss_fn", None) else None
-            if loss_fn is None:
                 raise ValueError(
-                    "[BaseModel-compute_loss Error] Loss function is not configured. Call compile() first."
+                    f"[BaseModel-compute_loss Error] Shape mismatch: {y_pred.shape} vs {y_true.shape}"
                 )
+
+            loss_fn = self.loss_fn[0]
+
+            if self.ignore_label is not None:
+                valid_mask = y_true != self.ignore_label
+                if valid_mask.dim() > 1:
+                    valid_mask = valid_mask.all(dim=1)
+                if not torch.any(valid_mask):  # if no valid labels, return zero loss
+                    return y_pred.sum() * 0.0
+
+                y_pred = y_pred[valid_mask]
+                y_true = y_true[valid_mask]
+
             mode = self.training_modes[0]
+
             task_dim = (
                 self.task_dims[0] if hasattr(self, "task_dims") else y_pred.shape[1]  # type: ignore
             )
@@ -584,7 +602,25 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         for i, (start, end) in enumerate(slices):  # type: ignore
             y_pred_i = y_pred[:, start:end]
             y_true_i = y_true[:, start:end]
+            total_count = y_true_i.shape[0]
+            # valid_count = None
+
+            # mask ignored labels
+            if self.ignore_label is not None:
+                valid_mask = y_true_i != self.ignore_label
+                if valid_mask.dim() > 1:
+                    valid_mask = valid_mask.all(dim=1)
+                if not torch.any(valid_mask):
+                    task_losses.append(y_pred_i.sum() * 0.0)
+                    continue
+                # valid_count = valid_mask.sum().to(dtype=y_true_i.dtype)
+                y_pred_i = y_pred_i[valid_mask]
+                y_true_i = y_true_i[valid_mask]
+            # else:
+            # valid_count = y_true_i.new_tensor(float(total_count))
+
             mode = self.training_modes[i]
+
             if mode in {"pairwise", "listwise"}:
                 task_loss = compute_ranking_loss(
                     training_mode=mode,
@@ -594,7 +630,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 )
             else:
                 task_loss = self.loss_fn[i](y_pred_i, y_true_i)
+            # task_loss = normalize_task_loss(
+            #     task_loss, valid_count, total_count
+            # )  # normalize by valid samples to avoid loss scale issues
             task_losses.append(task_loss)
+
         if self.grad_norm is not None:
             if self.grad_norm_shared_params is None:
                 self.grad_norm_shared_params = get_grad_norm_shared_params(
@@ -2164,7 +2204,7 @@ class BaseMatchModel(BaseModel):
             scheduler_params: Parameters for the scheduler. e.g., {'step_size': 10, 'gamma': 0.1}.
             loss: Loss function(s) to use (name, instance, or list). e.g., 'bce'.
             loss_params: Parameters for the loss function(s). e.g., {'reduction': 'mean'}.
-            loss_weights: Weights for the loss function(s). e.g., 1.0 or [0.7, 0.3]. 
+            loss_weights: Weights for the loss function(s). e.g., 1.0 or [0.7, 0.3].
         """
         if self.training_mode not in self.support_training_modes:
             raise ValueError(

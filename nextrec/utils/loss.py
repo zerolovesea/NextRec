@@ -1,11 +1,13 @@
 """
 Loss utilities for NextRec.
 
-Date: create on 27/10/2025
-Checkpoint: edit on 19/12/2025
+Date: create on 28/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
+from __future__ import annotations
+
+import torch
 import torch.nn as nn
 
 from nextrec.loss.listwise import (
@@ -19,11 +21,19 @@ from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.loss.pointwise import ClassBalancedFocalLoss, FocalLoss, WeightedBCELoss
 from nextrec.utils.types import LossName
 
-VALID_TASK_TYPES = [
-    "binary",
-    "multilabel",
-    "regression",
-]
+
+def normalize_task_loss(
+    task_loss,
+    valid_count,
+    total_count,
+    eps=1e-8,
+) -> torch.Tensor:
+    if not torch.is_tensor(valid_count):
+        valid_count = torch.tensor(float(valid_count), device=task_loss.device)
+    if not torch.is_tensor(total_count):
+        total_count = torch.tensor(float(total_count), device=task_loss.device)
+    scale = valid_count.to(task_loss.dtype) / (total_count.to(task_loss.dtype) + eps)
+    return task_loss * scale
 
 
 def build_cb_focal(kw):

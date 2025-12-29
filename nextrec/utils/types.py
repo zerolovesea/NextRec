@@ -34,26 +34,30 @@ LossName = Literal[
 ]
 
 ActivationName = Literal[
-        "dice",
-        "relu",
-        "relu6",
-        "elu",
-        "selu",
-        "leaky_relu",
-        "prelu",
-        "gelu",
-        "sigmoid",
-        "tanh",
-        "softplus",
-        "softsign",
-        "hardswish",
-        "mish",
-        "silu",
-        "swish",
-        "hardsigmoid",
-        "tanhshrink",
-        "softshrink",
-        "none",
-        "linear",
-        "identity",
-    ] 
+    "dice",
+    "relu",
+    "relu6",
+    "elu",
+    "selu",
+    "leaky_relu",
+    "prelu",
+    "gelu",
+    "sigmoid",
+    "tanh",
+    "softplus",
+    "softsign",
+    "hardswish",
+    "mish",
+    "silu",
+    "swish",
+    "hardsigmoid",
+    "tanhshrink",
+    "softshrink",
+    "none",
+    "linear",
+    "identity",
+]
+
+TrainingModeName = Literal["pointwise", "pairwise", "listwise"]
+
+TaskTypeName = Literal["binary", "regression"]

@@ -9,9 +9,9 @@ Author: Yang Zhou, zyaztec@gmail.com
 import torch
 import torch.nn as nn
 
-from typing import Literal
 
 from nextrec.utils.types import ActivationName
+
 
 class Dice(nn.Module):
     """
