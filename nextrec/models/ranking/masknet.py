@@ -56,7 +56,7 @@ embedding 表示生成一个个性化的 “mask” 向量，通过逐元素的�
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from typing import Literal
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
@@ -167,47 +167,27 @@ class MaskNet(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
-        architecture: str = "parallel",  # "serial" or "parallel"
+        architecture: Literal[
+            "serial", "parallel"
+        ] = "parallel",  # "serial" or "parallel"
         num_blocks: int = 3,
         mask_hidden_dim: int = 64,
         block_hidden_dim: int = 256,
         block_dropout: float = 0.0,
         mlp_params: dict | None = None,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
-        target = target or []
         mlp_params = mlp_params or {}
-        optimizer_params = optimizer_params or {}
 
         super().__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
-
-        if loss is None:
-            loss = "bce"
-        self.loss = loss
 
         self.dense_features = dense_features
         self.sparse_features = sparse_features
@@ -293,12 +273,6 @@ class MaskNet(BaseModel):
             self.register_regularization_weights(
                 embedding_attr="embedding", include_modules=["mask_blocks", "final_mlp"]
             )
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
-        )
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         field_emb = self.embedding(x=x, features=self.mask_features, squeeze_dim=False)

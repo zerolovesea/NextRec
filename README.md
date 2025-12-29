@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.22-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.23-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -130,6 +130,8 @@ model = DIN(
     dense_features=dense_features,
     sparse_features=sparse_features,
     sequence_features=sequence_features,
+    behavior_feature_name="sequence_0",
+    candidate_feature_name="item_id",
     mlp_params=mlp_params,
     attention_hidden_units=[80, 40],
     attention_activation='sigmoid',
@@ -143,7 +145,7 @@ model = DIN(
     session_id="din_tutorial",                            # 实验id，用于存放训练日志
 )
 
-# 编译模型，设置优化器和损失函数
+# 编译模型，优化器/损失/学习率调度器统一在 compile 中设置
 model.compile(
             optimizer = "adam",
             optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5},
@@ -186,11 +188,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.4.22，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.4.23，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.4.22，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.4.23，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|

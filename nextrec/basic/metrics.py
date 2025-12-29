@@ -2,7 +2,7 @@
 Metrics computation and configuration for model evaluation.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 20/12/2025
+Checkpoint: edit on 29/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -39,7 +39,6 @@ REGRESSION_METRICS = {"mse", "mae", "rmse", "r2", "mape", "msle"}
 TASK_DEFAULT_METRICS = {
     "binary": ["auc", "gauc", "ks", "logloss", "accuracy", "precision", "recall", "f1"],
     "regression": ["mse", "mae", "rmse", "r2", "mape"],
-    "multilabel": ["auc", "hamming_loss", "subset_accuracy", "micro_f1", "macro_f1"],
     "matching": ["auc", "gauc", "precision@10", "hitrate@10", "map@10", "cosine"]
     + [f"recall@{k}" for k in (5, 10, 20)]
     + [f"ndcg@{k}" for k in (5, 10, 20)]

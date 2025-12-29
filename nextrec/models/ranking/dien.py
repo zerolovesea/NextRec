@@ -58,6 +58,7 @@ from nextrec.basic.layers import (
 )
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import ActivationName
 
 
 class AUGRU(nn.Module):
@@ -211,19 +212,9 @@ class DIEN(BaseModel):
         mlp_params: dict | None = None,
         gru_hidden_size: int = 64,
         attention_hidden_units: list[int] | None = None,
-        attention_activation: str = "sigmoid",
+        attention_activation: ActivationName = "sigmoid",
         use_negsampling: bool = False,
         aux_loss_weight: float = 1.0,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
@@ -232,24 +223,14 @@ class DIEN(BaseModel):
         sequence_features = sequence_features or []
         mlp_params = mlp_params or {}
         attention_hidden_units = attention_hidden_units or [80, 40]
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         super(DIEN, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
 
-        self.loss = loss
         self.use_negsampling = use_negsampling
         self.aux_loss_weight = float(aux_loss_weight)
         self.auxiliary_cache = None
@@ -359,13 +340,6 @@ class DIEN(BaseModel):
                 "candidate_proj",
                 "auxiliary_net",
             ],
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

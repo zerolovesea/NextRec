@@ -2,7 +2,7 @@
 DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
 
 Date: create on 13/11/2025
-Checkpoint: edit on 24/12/2025
+Checkpoint: edit on 29/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -79,6 +79,14 @@ class DataProcessor(FeatureSet):
         ] = "standard",
         fill_na: Optional[float] = None,
     ):
+        """Add a numeric feature configuration.
+
+        Args:
+            name (str): Feature name.
+            scaler (Optional[Literal["standard", "minmax", "robust", "maxabs", "log", "none"]], optional): Scaler type. Defaults to "standard".
+            fill_na (Optional[float], optional): Fill value for missing entries. Defaults to None.
+        """
+
         self.numeric_features[name] = {"scaler": scaler, "fill_na": fill_na}
 
     def add_sparse_feature(
@@ -88,6 +96,14 @@ class DataProcessor(FeatureSet):
         hash_size: Optional[int] = None,
         fill_na: str = "<UNK>",
     ):
+        """Add a sparse feature configuration.
+
+        Args:
+            name (str): Feature name.
+            encode_method (Literal["hash", "label"], optional): Encoding method, including "hash encoding" and "label encoding". Defaults to "label".
+            hash_size (Optional[int], optional): Hash size for hash encoding. Required if encode_method is "hash".
+            fill_na (str, optional): Fill value for missing entries. Defaults to "<UNK>".
+        """
         if encode_method == "hash" and hash_size is None:
             raise ValueError(
                 "[Data Processor Error] hash_size must be specified when encode_method='hash'"
@@ -101,7 +117,7 @@ class DataProcessor(FeatureSet):
     def add_sequence_feature(
         self,
         name: str,
-        encode_method: Literal["hash", "label"] = "label",
+        encode_method: Literal["hash", "label"] = "hash",
         hash_size: Optional[int] = None,
         max_len: Optional[int] = 50,
         pad_value: int = 0,
@@ -110,6 +126,17 @@ class DataProcessor(FeatureSet):
         ] = "pre",  # pre: keep last max_len items, post: keep first max_len items
         separator: str = ",",
     ):
+        """Add a sequence feature configuration.
+
+        Args:
+            name (str): Feature name.
+            encode_method (Literal["hash", "label"], optional): Encoding method, including "hash encoding" and "label encoding". Defaults to "hash".
+            hash_size (Optional[int], optional): Hash size for hash encoding. Required if encode_method is "hash".
+            max_len (Optional[int], optional): Maximum sequence length. Defaults to 50.
+            pad_value (int, optional): Padding value for sequences shorter than max_len. Defaults to 0.
+            truncate (Literal["pre", "post"], optional): Truncation strategy for sequences longer than max_len, including "pre" (keep last max_len items) and "post" (keep first max_len items). Defaults to "pre".
+            separator (str, optional): Separator for string sequences. Defaults to ",".
+        """
         if encode_method == "hash" and hash_size is None:
             raise ValueError(
                 "[Data Processor Error] hash_size must be specified when encode_method='hash'"
@@ -131,6 +158,14 @@ class DataProcessor(FeatureSet):
             Dict[str, int]
         ] = None,  # example: {'click': 1, 'no_click': 0}
     ):
+        """Add a target configuration.
+
+        Args:
+            name (str): Target name.
+            target_type (Literal["binary", "regression"], optional): Target type. Defaults to "binary".
+            label_map (Optional[Dict[str, int]], optional): Label mapping for binary targets. Defaults to None.
+        """
+
         self.target_features[name] = {
             "target_type": target_type,
             "label_map": label_map,
@@ -392,7 +427,15 @@ class DataProcessor(FeatureSet):
         )
 
     def load_dataframe_from_path(self, path: str) -> pd.DataFrame:
-        """Load all data from a file or directory path into a single DataFrame."""
+        """
+        Load all data from a file or directory path into a single DataFrame.
+
+        Args:
+            path (str): File or directory path.
+
+        Returns:
+            pd.DataFrame: Loaded DataFrame.
+        """
         file_paths, file_type = resolve_file_paths(path)
         frames = load_dataframes(file_paths, file_type)
         return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
@@ -411,7 +454,16 @@ class DataProcessor(FeatureSet):
         return [str(value)]
 
     def fit_from_path(self, path: str, chunk_size: int) -> "DataProcessor":
-        """Fit processor statistics by streaming files to reduce memory usage."""
+        """
+        Fit processor statistics by streaming files to reduce memory usage.
+
+        Args:
+            path (str): File or directory path.
+            chunk_size (int): Number of rows per chunk.
+
+        Returns:
+            DataProcessor: Fitted DataProcessor instance.
+        """
         logger = logging.getLogger()
         logger.info(
             colorize(
@@ -428,7 +480,7 @@ class DataProcessor(FeatureSet):
                 "Use fit(dataframe) with in-memory data or convert the data format."
             )
 
-        numeric_acc: Dict[str, Dict[str, float]] = {}
+        numeric_acc = {}
         for name in self.numeric_features.keys():
             numeric_acc[name] = {
                 "sum": 0.0,
@@ -609,6 +661,21 @@ class DataProcessor(FeatureSet):
         output_path: Optional[str],
         warn_missing: bool = True,
     ):
+        """
+        Transform in-memory data and optionally persist the transformed data.
+
+        Args:
+            data (Union[pd.DataFrame, Dict[str, Any]]): Input data.
+            return_dict (bool): Whether to return a dictionary of numpy arrays.
+            persist (bool): Whether to persist the transformed data to disk.
+            save_format (Optional[str]): Format to save the data if persisting.
+            output_path (Optional[str]): Output path to save the data if persisting.
+            warn_missing (bool): Whether to warn about missing features in the data.
+
+        Returns:
+            Union[pd.DataFrame, Dict[str, np.ndarray]]: Transformed data.
+        """
+
         logger = logging.getLogger()
         data_dict = data if isinstance(data, dict) else None
 
@@ -719,6 +786,12 @@ class DataProcessor(FeatureSet):
         """Transform data from files under a path and save them to a new location.
 
         Uses chunked reading/writing to keep peak memory bounded for large files.
+
+        Args:
+            input_path (str): Input file or directory path.
+            output_path (Optional[str]): Output directory path. If None, defaults to input_path/transformed_data.
+            save_format (Optional[str]): Format to save transformed files. If None, uses input file format.
+            chunk_size (int): Number of rows per chunk.
         """
         logger = logging.getLogger()
         file_paths, file_type = resolve_file_paths(input_path)
@@ -876,6 +949,17 @@ class DataProcessor(FeatureSet):
         data: Union[pd.DataFrame, Dict[str, Any], str, os.PathLike],
         chunk_size: int = 200000,
     ):
+        """
+        Fit the DataProcessor to the provided data.
+
+        Args:
+            data (Union[pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data for fitting.
+            chunk_size (int): Number of rows per chunk when streaming from path.
+
+        Returns:
+            DataProcessor: Fitted DataProcessor instance.
+        """
+
         logger = logging.getLogger()
         if isinstance(data, (str, os.PathLike)):
             path_str = str(data)
@@ -915,6 +999,19 @@ class DataProcessor(FeatureSet):
         output_path: Optional[str] = None,
         chunk_size: int = 200000,
     ):
+        """
+        Transform the provided data using the fitted DataProcessor.
+
+        Args:
+            data (Union[pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data to transform.
+            return_dict (bool): Whether to return a dictionary of numpy arrays.
+            save_format (Optional[str]): Format to save the data if output_path is provided.
+            output_path (Optional[str]): Output path to save the transformed data.
+            chunk_size (int): Number of rows per chunk when streaming from path.
+        Returns:
+            Union[pd.DataFrame, Dict[str, np.ndarray], List[str]]: Transformed data or list of saved file paths.
+        """
+
         if not self.is_fitted:
             raise ValueError(
                 "[Data Processor Error] DataProcessor must be fitted before transform"
@@ -943,6 +1040,19 @@ class DataProcessor(FeatureSet):
         output_path: Optional[str] = None,
         chunk_size: int = 200000,
     ):
+        """
+        Fit the DataProcessor to the provided data and then transform it.
+
+        Args:
+            data (Union[pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data for fitting and transforming.
+            return_dict (bool): Whether to return a dictionary of numpy arrays.
+            save_format (Optional[str]): Format to save the data if output_path is provided.
+            output_path (Optional[str]): Output path to save the transformed data.
+            chunk_size (int): Number of rows per chunk when streaming from path.
+        Returns:
+            Union[pd.DataFrame, Dict[str, np.ndarray], List[str]]: Transformed data or list of saved file paths.
+        """
+
         self.fit(data, chunk_size=chunk_size)
         return self.transform(
             data,
@@ -952,6 +1062,12 @@ class DataProcessor(FeatureSet):
         )
 
     def save(self, save_path: str | Path):
+        """
+        Save the fitted DataProcessor to a file.
+
+        Args:
+            save_path (str | Path): Path to save the DataProcessor.
+        """
         logger = logging.getLogger()
         assert isinstance(save_path, (str, Path)), "save_path must be a string or Path"
         save_path = Path(save_path)
@@ -983,6 +1099,16 @@ class DataProcessor(FeatureSet):
 
     @classmethod
     def load(cls, load_path: str | Path) -> "DataProcessor":
+        """
+        Load a fitted DataProcessor from a file.
+
+        Args:
+            load_path (str | Path): Path to load the DataProcessor from.
+
+        Returns:
+            DataProcessor: Loaded DataProcessor instance.
+        """
+
         logger = logging.getLogger()
         load_path = Path(load_path)
         with open(load_path, "rb") as f:
@@ -1003,6 +1129,12 @@ class DataProcessor(FeatureSet):
         return processor
 
     def get_vocab_sizes(self) -> Dict[str, int]:
+        """
+        Get vocabulary sizes for all sparse and sequence features.
+
+        Returns:
+            Dict[str, int]: Mapping of feature names to vocabulary sizes.
+        """
         vocab_sizes = {}
         for name, config in self.sparse_features.items():
             vocab_sizes[name] = config.get("vocab_size", 0)

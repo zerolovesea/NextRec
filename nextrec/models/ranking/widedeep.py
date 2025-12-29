@@ -38,8 +38,6 @@ Wide & Deep 同时使用宽线性部分（记忆共现/手工交叉）与深网�
 - 共享特征空间，减少工程开销
 """
 
-import torch.nn as nn
-
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
@@ -61,39 +59,15 @@ class WideDeep(BaseModel):
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
         mlp_params: dict,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
-
-        if target is None:
-            target = []
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         super(WideDeep, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
-
-        self.loss = loss
 
         # Wide part: use all features for linear model
         self.wide_features = sparse_features + sequence_features
@@ -116,12 +90,6 @@ class WideDeep(BaseModel):
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["linear", "mlp"]
-        )
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

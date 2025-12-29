@@ -42,12 +42,12 @@ CVR 预测 P(conversion|click)，二者相乘得到 CTCVR 并在曝光标签上�
 """
 
 import torch
-import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeName
 
 
 class ESMM(BaseModel):
@@ -77,23 +77,12 @@ class ESMM(BaseModel):
         sequence_features: list[SequenceFeature],
         ctr_params: dict,
         cvr_params: dict,
+        task: TaskTypeName | list[TaskTypeName] | None = None,
         target: list[str] | None = None,  # Note: ctcvr = ctr * cvr
-        task: list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
         target = target or ["ctr", "ctcvr"]
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         if len(target) != 2:
             raise ValueError(
@@ -120,14 +109,8 @@ class ESMM(BaseModel):
             sequence_features=sequence_features,
             target=target,
             task=resolved_task,  # Both CTR and CTCVR are binary classification
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
-
-        self.loss = loss
 
         self.embedding = EmbeddingLayer(features=self.all_features)
         input_dim = self.embedding.input_dim
@@ -138,16 +121,10 @@ class ESMM(BaseModel):
         # CVR tower
         self.cvr_tower = MLP(input_dim=input_dim, output_layer=True, **cvr_params)
         self.grad_norm_shared_modules = ["embedding"]
-        self.prediction_layer = TaskHead(task_type=self.default_task, task_dims=[1, 1])
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1, 1])
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["ctr_tower", "cvr_tower"]
-        )
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

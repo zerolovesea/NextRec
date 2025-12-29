@@ -121,40 +121,17 @@ class xDeepFM(BaseModel):
         mlp_params: dict,
         cin_size: list[int] | None = None,
         split_half: bool = True,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
         cin_size = cin_size or [128, 128]
-        if target is None:
-            target = []
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         super(xDeepFM, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
-
-        self.loss = loss
 
         # Linear part and CIN part: use sparse and sequence features
         self.linear_features = sparse_features + sequence_features
@@ -193,13 +170,6 @@ class xDeepFM(BaseModel):
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding", include_modules=["linear", "cin", "mlp"]
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

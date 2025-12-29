@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.22-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.23-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -148,7 +148,7 @@ model = DIN(
     session_id="din_tutorial",                            # experiment id for logs
 )
 
-# Compile model with optimizer and loss
+# Compile model; configure optimizer/loss/scheduler via compile()
 model.compile(
             optimizer = "adam",
             optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5},
@@ -191,11 +191,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.4.22, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.4.23, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.4.22. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.4.23. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|

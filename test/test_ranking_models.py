@@ -280,9 +280,6 @@ class TestDeepFM:
             sequence_features=sample_sequence_features,
             mlp_params=mlp_params,
             target=["label"],
-            optimizer="adam",
-            optimizer_params={"lr": 0.001},
-            loss="bce",
             device=device,
         )
 

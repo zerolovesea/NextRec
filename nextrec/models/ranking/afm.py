@@ -61,36 +61,17 @@ class AFM(BaseModel):
         sequence_features: list[SequenceFeature] | None = None,
         attention_dim: int = 32,
         attention_dropout: float = 0.0,
-        target: list[str] | str | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
-        optimizer_params = optimizer_params or {}
-        if loss is None:
-            loss = "bce"
 
         super(AFM, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
 
@@ -139,8 +120,10 @@ class AFM(BaseModel):
         self.attention_linear = nn.Linear(self.embedding_dim, attention_dim)
         self.attention_p = nn.Linear(attention_dim, 1, bias=False)
         self.attention_dropout = nn.Dropout(attention_dropout)
+
         self.output_projection = nn.Linear(self.embedding_dim, 1, bias=False)
-        self.prediction_layer = TaskHead(task_type=self.default_task)
+
+        self.prediction_layer = TaskHead(task_type=self.task)
         self.input_mask = InputMask()
 
         # Register regularization weights
@@ -156,13 +139,6 @@ class AFM(BaseModel):
         # add first-order embeddings to embedding regularization list
         self.embedding_params.extend(
             emb.weight for emb in self.first_order_embeddings.values()
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

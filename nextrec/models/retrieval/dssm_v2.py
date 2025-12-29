@@ -9,7 +9,6 @@ DSSM v2 - DSSM with pairwise training using BPR loss
 from typing import Literal
 
 import torch
-import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
@@ -50,17 +49,6 @@ class DSSM_v2(BaseMatchModel):
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
         dense_l2_reg: float = 0.0,
-        optimizer: str | torch.optim.Optimizer = "adam",
-        optimizer_params: dict | None = None,
-        scheduler: (
-            str
-            | torch.optim.lr_scheduler._LRScheduler
-            | type[torch.optim.lr_scheduler._LRScheduler]
-            | None
-        ) = None,
-        scheduler_params: dict | None = None,
-        loss: str | nn.Module | list[str | nn.Module] | None = "bce",
-        loss_params: dict | list[dict] | None = None,
         **kwargs,
     ):
 
@@ -149,18 +137,6 @@ class DSSM_v2(BaseMatchModel):
         )
         self.register_regularization_weights(
             embedding_attr="item_embedding", include_modules=["item_dnn"]
-        )
-
-        if optimizer_params is None:
-            optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5}
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            scheduler=scheduler,
-            scheduler_params=scheduler_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def user_tower(self, user_input: dict) -> torch.Tensor:

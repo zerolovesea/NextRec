@@ -82,16 +82,6 @@ class AutoInt(BaseModel):
         att_head_num: int = 2,
         att_dropout: float = 0.0,
         att_use_residual: bool = True,
-        target: list[str] | None = None,
-        task: str | list[str] | None = None,
-        optimizer: str = "adam",
-        optimizer_params: dict | None = None,
-        loss: str | nn.Module | None = "bce",
-        loss_params: dict | list[dict] | None = None,
-        embedding_l1_reg=0.0,
-        dense_l1_reg=0.0,
-        embedding_l2_reg=0.0,
-        dense_l2_reg=0.0,
         **kwargs,
     ):
 
@@ -99,21 +89,12 @@ class AutoInt(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            target=target,
-            task=task or self.default_task,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
             **kwargs,
         )
 
-        if target is None:
-            target = []
-        if optimizer_params is None:
-            optimizer_params = {}
-        if loss is None:
-            loss = "bce"
+        dense_features = dense_features or []
+        sparse_features = sparse_features or []
+        sequence_features = sequence_features or []
 
         self.att_layer_num = att_layer_num
         self.att_embedding_dim = att_embedding_dim
@@ -123,12 +104,7 @@ class AutoInt(BaseModel):
         # if you want to follow the paper strictly, set dense_features=[]
         # or modify the code accordingly
         self.interaction_features = dense_features + sparse_features + sequence_features
-
-        # All features for embedding
-        self.all_features = dense_features + sparse_features + sequence_features
-
-        # Embedding layer
-        self.embedding = EmbeddingLayer(features=self.all_features)
+        self.embedding = EmbeddingLayer(features=self.interaction_features)
 
         # Project embeddings to attention embedding dimension
         num_fields = len(self.interaction_features)
@@ -159,21 +135,12 @@ class AutoInt(BaseModel):
             ]
         )
 
-        # Final prediction layer
         self.fc = nn.Linear(num_fields * att_embedding_dim, 1)
-        self.prediction_layer = TaskHead(task_type=self.default_task)
+        self.prediction_layer = TaskHead(task_type=self.task)
 
-        # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding",
             include_modules=["projection_layers", "attention_layers", "fc"],
-        )
-
-        self.compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            loss=loss,
-            loss_params=loss_params,
         )
 
     def forward(self, x):

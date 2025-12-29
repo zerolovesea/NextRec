@@ -2,10 +2,11 @@
 Listwise loss functions for ranking and contrastive training.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 29/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
+from typing import Literal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,7 +17,7 @@ class SampledSoftmaxLoss(nn.Module):
     Softmax over one positive and multiple sampled negatives.
     """
 
-    def __init__(self, reduction: str = "mean"):
+    def __init__(self, reduction: Literal["mean", "sum", "none"] = "mean"):
         super().__init__()
         self.reduction = reduction
 
@@ -37,7 +38,11 @@ class InfoNCELoss(nn.Module):
     InfoNCE loss for contrastive learning with one positive and many negatives.
     """
 
-    def __init__(self, temperature: float = 0.07, reduction: str = "mean"):
+    def __init__(
+        self,
+        temperature: float = 0.07,
+        reduction: Literal["mean", "sum", "none"] = "mean",
+    ):
         super().__init__()
         self.temperature = temperature
         self.reduction = reduction
@@ -61,7 +66,11 @@ class ListNetLoss(nn.Module):
     Reference: Cao et al. (ICML 2007)
     """
 
-    def __init__(self, temperature: float = 1.0, reduction: str = "mean"):
+    def __init__(
+        self,
+        temperature: float = 1.0,
+        reduction: Literal["mean", "sum", "none"] = "mean",
+    ):
         super().__init__()
         self.temperature = temperature
         self.reduction = reduction
@@ -84,7 +93,7 @@ class ListMLELoss(nn.Module):
     Reference: Xia et al. (ICML 2008)
     """
 
-    def __init__(self, reduction: str = "mean"):
+    def __init__(self, reduction: Literal["mean", "sum", "none"] = "mean"):
         super().__init__()
         self.reduction = reduction
 
@@ -117,7 +126,11 @@ class ApproxNDCGLoss(nn.Module):
     Reference: Qin et al. (2010)
     """
 
-    def __init__(self, temperature: float = 1.0, reduction: str = "mean"):
+    def __init__(
+        self,
+        temperature: float = 1.0,
+        reduction: Literal["mean", "sum", "none"] = "mean",
+    ):
         super().__init__()
         self.temperature = temperature
         self.reduction = reduction

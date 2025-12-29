@@ -2,7 +2,7 @@
 Pairwise loss functions for learning-to-rank and matching tasks.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/11/2025
+Checkpoint: edit on 29/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -18,7 +18,7 @@ class BPRLoss(nn.Module):
     Bayesian Personalized Ranking loss with support for multiple negatives.
     """
 
-    def __init__(self, reduction: str = "mean"):
+    def __init__(self, reduction: Literal["mean", "sum", "none"] = "mean"):
         super().__init__()
         self.reduction = reduction
 
@@ -42,7 +42,9 @@ class HingeLoss(nn.Module):
     Hinge loss for pairwise ranking.
     """
 
-    def __init__(self, margin: float = 1.0, reduction: str = "mean"):
+    def __init__(
+        self, margin: float = 1.0, reduction: Literal["mean", "sum", "none"] = "mean"
+    ):
         super().__init__()
         self.margin = margin
         self.reduction = reduction
@@ -69,7 +71,7 @@ class TripletLoss(nn.Module):
     def __init__(
         self,
         margin: float = 1.0,
-        reduction: str = "mean",
+        reduction: Literal["mean", "sum", "none"] = "mean",
         distance: Literal["euclidean", "cosine"] = "euclidean",
     ):
         super().__init__()
