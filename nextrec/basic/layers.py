@@ -20,6 +20,7 @@ import torch.nn.functional as F
 from nextrec.basic.activation import activation_layer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.utils.torch_utils import get_initializer
+from nextrec.utils.types import ActivationName
 
 
 class PredictionLayer(nn.Module):
@@ -590,77 +591,95 @@ class MLP(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        output_layer: bool = True,
-        dims: list[int] | None = None,
+        hidden_dims: list[int] | None = None,
+        output_dim: int | None = 1,
         dropout: float = 0.0,
-        activation: Literal[
-            "dice",
-            "relu",
-            "relu6",
-            "elu",
-            "selu",
-            "leaky_relu",
-            "prelu",
-            "gelu",
-            "sigmoid",
-            "tanh",
-            "softplus",
-            "softsign",
-            "hardswish",
-            "mish",
-            "silu",
-            "swish",
-            "hardsigmoid",
-            "tanhshrink",
-            "softshrink",
-            "none",
-            "linear",
-            "identity",
-        ] = "relu",
-        use_norm: bool = True,
-        norm_type: Literal["batch_norm", "layer_norm"] = "layer_norm",
+        activation: ActivationName = "relu",
+        norm_type: Literal["batch_norm", "layer_norm", "none"] = "none",
+        output_activation: ActivationName = "none",
     ):
         """
         Multi-Layer Perceptron (MLP) module.
 
         Args:
             input_dim: Dimension of the input features.
-            output_layer: Whether to include the final output layer. If False, the MLP will output the last hidden layer, else it will output a single value.
-            dims: List of hidden layer dimensions. If None, no hidden layers are added.
+            output_dim: Output dimension of the final layer. If None, no output layer is added.
+            hidden_dims: List of hidden layer dimensions. If None, no hidden layers are added.
             dropout: Dropout rate between layers.
             activation: Activation function to use between layers.
-            use_norm: Whether to use normalization layers.
-            norm_type: Type of normalization to use ("batch_norm" or "layer_norm").
+            norm_type: Type of normalization to use ("batch_norm", "layer_norm", or "none").
+            output_activation: Activation function applied after the output layer.
         """
         super().__init__()
-        if dims is None:
-            dims = []
+        hidden_dims = hidden_dims or []
         layers = []
         current_dim = input_dim
-        for i_dim in dims:
+        for i_dim in hidden_dims:
             layers.append(nn.Linear(current_dim, i_dim))
-            if use_norm:
-                if norm_type == "batch_norm":
-                    # **IMPORTANT** be careful when using BatchNorm1d in distributed training, nextrec does not support sync batch norm now
-                    layers.append(nn.BatchNorm1d(i_dim))
-                elif norm_type == "layer_norm":
-                    layers.append(nn.LayerNorm(i_dim))
-                else:
-                    raise ValueError(f"Unsupported norm_type: {norm_type}")
+            if norm_type == "batch_norm":
+                # **IMPORTANT** be careful when using BatchNorm1d in distributed training, nextrec does not support sync batch norm now
+                layers.append(nn.BatchNorm1d(i_dim))
+            elif norm_type == "layer_norm":
+                layers.append(nn.LayerNorm(i_dim))
+            elif norm_type != "none":
+                raise ValueError(f"Unsupported norm_type: {norm_type}")
 
             layers.append(activation_layer(activation))
             layers.append(nn.Dropout(p=dropout))
             current_dim = i_dim
         # output layer
-        if output_layer:
-            layers.append(nn.Linear(current_dim, 1))
-            self.output_dim = 1
+        if output_dim is not None:
+            layers.append(nn.Linear(current_dim, output_dim))
+            if output_activation != "none":
+                layers.append(activation_layer(output_activation))
+            self.output_dim = output_dim
         else:
             self.output_dim = current_dim
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.mlp(x)
+
+
+class GateMLP(nn.Module):
+    """
+    Lightweight gate network: sigmoid MLP scaled by a constant factor.
+
+    Args:
+        input_dim: Dimension of the input features.
+        hidden_dim: Dimension of the hidden layer. If None, defaults to output_dim.
+        output_dim: Output dimension of the gate.
+        activation: Activation function to use in the hidden layer.
+        dropout: Dropout rate between layers.
+        use_bn: Whether to use batch normalization.
+        scale_factor: Scaling factor applied to the sigmoid output.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int | None,
+        output_dim: int,
+        activation: ActivationName = "relu",
+        dropout: float = 0.0,
+        use_bn: bool = False,
+        scale_factor: float = 2.0,
+    ) -> None:
+        super().__init__()
+        hidden_dim = output_dim if hidden_dim is None else hidden_dim
+        self.gate = MLP(
+            input_dim=input_dim,
+            hidden_dims=[hidden_dim],
+            output_dim=output_dim,
+            activation=activation,
+            dropout=dropout,
+            norm_type="batch_norm" if use_bn else "none",
+            output_activation="sigmoid",
+        )
+        self.scale_factor = scale_factor
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.gate(inputs) * self.scale_factor
 
 
 class FM(nn.Module):
@@ -1007,3 +1026,34 @@ class RMSNorm(torch.nn.Module):
         variance = torch.mean(x**2, dim=-1, keepdim=True)
         x_normalized = x * torch.rsqrt(variance + self.eps)
         return self.weight * x_normalized
+
+
+class DomainBatchNorm(nn.Module):
+    """Domain-specific BatchNorm (applied per-domain with a shared interface)."""
+
+    def __init__(self, num_features: int, num_domains: int):
+        super().__init__()
+        if num_domains < 1:
+            raise ValueError("num_domains must be >= 1")
+        self.bns = nn.ModuleList(
+            [nn.BatchNorm1d(num_features) for _ in range(num_domains)]
+        )
+
+    def forward(self, x: torch.Tensor, domain_mask: torch.Tensor) -> torch.Tensor:
+        if x.dim() != 2:
+            raise ValueError("DomainBatchNorm expects 2D inputs [B, D].")
+        output = x.clone()
+        if domain_mask.dim() == 1:
+            domain_ids = domain_mask.long()
+            for idx, bn in enumerate(self.bns):
+                mask = domain_ids == idx
+                if mask.any():
+                    output[mask] = bn(x[mask])
+            return output
+        if domain_mask.dim() != 2:
+            raise ValueError("domain_mask must be 1D indices or 2D one-hot mask.")
+        for idx, bn in enumerate(self.bns):
+            mask = domain_mask[:, idx] > 0
+            if mask.any():
+                output[mask] = bn(x[mask])
+        return output

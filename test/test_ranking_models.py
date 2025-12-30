@@ -187,7 +187,7 @@ class TestDeepFM:
         logger.info("=" * 80)
 
         mlp_params = {
-            "dims": [256, 128, 64],
+            "hidden_dims": [256, 128, 64],
             "dropout": 0.2,
             "activation": "relu",
         }
@@ -226,7 +226,7 @@ class TestDeepFM:
         logger.info("=" * 80)
 
         mlp_params = {
-            "dims": [128, 64],
+            "hidden_dims": [128, 64],
             "dropout": 0.0,
             "activation": "relu",
         }
@@ -269,7 +269,7 @@ class TestDeepFM:
         logger.info("=" * 80)
 
         mlp_params = {
-            "dims": [64, 32],
+            "hidden_dims": [64, 32],
             "dropout": 0.1,
             "activation": "relu",
         }
@@ -312,7 +312,7 @@ class TestDeepFM:
 
         dims = [128] * mlp_depth
         mlp_params = {
-            "dims": dims,
+            "hidden_dims": dims,
             "dropout": 0.0,
             "activation": "relu",
         }
@@ -387,7 +387,7 @@ class TestDIN:
         dense_features, sparse_features, sequence_features = din_features
 
         mlp_params = {
-            "dims": [256, 128, 64],
+            "hidden_dims": [256, 128, 64],
             "dropout": 0.2,
             "activation": "relu",
         }
@@ -423,7 +423,7 @@ class TestDIN:
         dense_features, sparse_features, sequence_features = din_features
 
         mlp_params = {
-            "dims": [128, 64],
+            "hidden_dims": [128, 64],
             "dropout": 0.0,
             "activation": "relu",
         }
@@ -470,7 +470,7 @@ class TestDIN:
         dense_features, sparse_features, sequence_features = din_features
 
         mlp_params = {
-            "dims": [64],
+            "hidden_dims": [64],
             "dropout": 0.0,
             "activation": "relu",
         }
@@ -520,7 +520,7 @@ class TestDIN:
 
         dense_features, sparse_features, sequence_features = din_features
 
-        mlp_params = {"dims": [64], "dropout": 0.0, "activation": "relu"}
+        mlp_params = {"hidden_dims": [64], "dropout": 0.0, "activation": "relu"}
 
         model = DIN(
             dense_features=dense_features,
@@ -584,7 +584,7 @@ class TestRankingModelsComparison:
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
-            mlp_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
+            mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,
         )
@@ -600,7 +600,7 @@ class TestRankingModelsComparison:
             sequence_features=sequence_features,
             behavior_feature_name="seq1",
             candidate_feature_name="sparse1",
-            mlp_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
+            mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
             attention_hidden_units=[16],
             target=["label"],
             device=device,
@@ -628,7 +628,7 @@ class TestRankingModelsComparison:
             dense_features=[],
             sparse_features=sparse_features,
             sequence_features=[],
-            mlp_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
+            mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,
         )
@@ -657,7 +657,7 @@ class TestRankingModelsComparison:
         logger.info("Testing model save and load")
         logger.info("=" * 80)
 
-        mlp_params = {"dims": [32], "dropout": 0.0, "activation": "relu"}
+        mlp_params = {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"}
 
         # Create and train model
         model1 = DeepFM(
@@ -844,7 +844,7 @@ class TestWideDeep:
         logger.info("=" * 80)
 
         mlp_params = {
-            "dims": [256, 128, 64],
+            "hidden_dims": [256, 128, 64],
             "dropout": 0.2,
             "activation": "relu",
         }
@@ -880,7 +880,7 @@ class TestWideDeep:
         logger.info("=" * 80)
 
         mlp_params = {
-            "dims": [128, 64],
+            "hidden_dims": [128, 64],
             "dropout": 0.0,
             "activation": "relu",
         }
@@ -924,7 +924,7 @@ class TestDCN:
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             cross_num=3,
-            mlp_params={"dims": [128, 64], "dropout": 0.2, "activation": "relu"},
+            mlp_params={"hidden_dims": [128, 64], "dropout": 0.2, "activation": "relu"},
             target=["label"],
             device=device,
         )
@@ -955,7 +955,7 @@ class TestDCN:
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             cross_num=2,
-            mlp_params={"dims": [64, 32], "dropout": 0.0, "activation": "relu"},
+            mlp_params={"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,
         )
@@ -1071,7 +1071,11 @@ class TestxDeepFM:
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             cin_size=[128, 128],
-            mlp_params={"dims": [256, 128, 64], "dropout": 0.2, "activation": "relu"},
+            mlp_params={
+                "hidden_dims": [256, 128, 64],
+                "dropout": 0.2,
+                "activation": "relu",
+            },
             target=["label"],
             device=device,
         )
@@ -1102,7 +1106,7 @@ class TestxDeepFM:
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             cin_size=[64, 64],
-            mlp_params={"dims": [128, 64], "dropout": 0.0, "activation": "relu"},
+            mlp_params={"hidden_dims": [128, 64], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,
         )
@@ -1136,7 +1140,7 @@ class TestxDeepFM:
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
             cin_size=cin_layers,
-            mlp_params={"dims": [64], "dropout": 0.0, "activation": "relu"},
+            mlp_params={"hidden_dims": [64], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,
         )
@@ -1206,7 +1210,11 @@ class TestDIEN:
             candidate_feature_name="candidate_item",
             gru_hidden_size=32,
             attention_hidden_units=[80, 40],
-            mlp_params={"dims": [256, 128, 64], "dropout": 0.2, "activation": "relu"},
+            mlp_params={
+                "hidden_dims": [256, 128, 64],
+                "dropout": 0.2,
+                "activation": "relu",
+            },
             target=["label"],
             device=device,
         )
@@ -1235,7 +1243,7 @@ class TestDIEN:
             candidate_feature_name="candidate_item",
             gru_hidden_size=32,
             attention_hidden_units=[64, 32],
-            mlp_params={"dims": [128, 64], "dropout": 0.0, "activation": "relu"},
+            mlp_params={"hidden_dims": [128, 64], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,
         )
@@ -1283,7 +1291,7 @@ class TestDIEN:
             use_negsampling=True,
             gru_hidden_size=32,
             attention_hidden_units=[64, 32],
-            mlp_params={"dims": [64], "dropout": 0.0, "activation": "relu"},
+            mlp_params={"hidden_dims": [64], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,
         )
@@ -1322,7 +1330,7 @@ class TestFiBiNET:
         sample_sequence_features,
         device,
     ):
-        mlp_params = {"dims": [128, 64], "dropout": 0.0, "activation": "relu"}
+        mlp_params = {"hidden_dims": [128, 64], "dropout": 0.0, "activation": "relu"}
         model = FiBiNET(
             dense_features=sample_dense_features,
             sparse_features=sample_sparse_features,
@@ -1342,7 +1350,7 @@ class TestFiBiNET:
         device,
         batch_size,
     ):
-        mlp_params = {"dims": [64, 32], "dropout": 0.0, "activation": "relu"}
+        mlp_params = {"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"}
         model = FiBiNET(
             dense_features=sample_dense_features,
             sparse_features=sample_sparse_features,
@@ -1447,7 +1455,7 @@ class TestPNN:
         device,
         batch_size,
     ):
-        mlp_params = {"dims": [64], "dropout": 0.0, "activation": "relu"}
+        mlp_params = {"hidden_dims": [64], "dropout": 0.0, "activation": "relu"}
         model = PNN(
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,

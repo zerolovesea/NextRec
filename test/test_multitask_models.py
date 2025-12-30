@@ -5,6 +5,7 @@ This module contains unit tests for all multi-task learning models including:
 - ShareBottom (Shared-Bottom Multi-Task Learning)
 - MMOE (Multi-gate Mixture-of-Experts)
 - PLE (Progressive Layered Extraction)
+- PEPNet (Parameter and Embedding Personalized Network)
 - ESMM (Entire Space Multi-Task Model)
 
 Tests cover model initialization, forward pass, multi-task learning, and task-specific predictions.
@@ -24,6 +25,7 @@ import torch
 
 from nextrec.models.multi_task.esmm import ESMM
 from nextrec.models.multi_task.mmoe import MMOE
+from nextrec.models.multi_task.pepnet import PEPNet
 from nextrec.models.multi_task.ple import PLE
 from nextrec.models.multi_task.share_bottom import ShareBottom
 
@@ -46,14 +48,14 @@ class TestShareBottom:
         logger.info("=" * 80)
 
         bottom_params = {
-            "dims": [256, 128],
+            "hidden_dims": [256, 128],
             "dropout": 0.2,
             "activation": "relu",
         }
 
         tower_params_list = [
-            {"dims": [64, 32], "dropout": 0.1, "activation": "relu"},
-            {"dims": [64, 32], "dropout": 0.1, "activation": "relu"},
+            {"hidden_dims": [64, 32], "dropout": 0.1, "activation": "relu"},
+            {"hidden_dims": [64, 32], "dropout": 0.1, "activation": "relu"},
         ]
 
         model = ShareBottom(
@@ -91,10 +93,10 @@ class TestShareBottom:
         logger.info("Testing ShareBottom forward pass")
         logger.info("=" * 80)
 
-        bottom_params = {"dims": [128, 64], "dropout": 0.0, "activation": "relu"}
+        bottom_params = {"hidden_dims": [128, 64], "dropout": 0.0, "activation": "relu"}
         tower_params_list = [
-            {"dims": [32], "dropout": 0.0, "activation": "relu"},
-            {"dims": [32], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
         ]
 
         model = ShareBottom(
@@ -139,9 +141,9 @@ class TestShareBottom:
         logger.info("=" * 80)
 
         nums_task = 3
-        bottom_params = {"dims": [64], "dropout": 0.0, "activation": "relu"}
+        bottom_params = {"hidden_dims": [64], "dropout": 0.0, "activation": "relu"}
         tower_params_list = [
-            {"dims": [32], "dropout": 0.0, "activation": "relu"}
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"}
             for _ in range(nums_task)
         ]
 
@@ -197,14 +199,14 @@ class TestMMOE:
         logger.info("=" * 80)
 
         expert_params = {
-            "dims": [256, 128],
+            "hidden_dims": [256, 128],
             "dropout": 0.2,
             "activation": "relu",
         }
 
         tower_params_list = [
-            {"dims": [64, 32], "dropout": 0.1, "activation": "relu"},
-            {"dims": [64, 32], "dropout": 0.1, "activation": "relu"},
+            {"hidden_dims": [64, 32], "dropout": 0.1, "activation": "relu"},
+            {"hidden_dims": [64, 32], "dropout": 0.1, "activation": "relu"},
         ]
 
         model = MMOE(
@@ -244,10 +246,10 @@ class TestMMOE:
         logger.info("Testing MMOE forward pass")
         logger.info("=" * 80)
 
-        expert_params = {"dims": [128, 64], "dropout": 0.0, "activation": "relu"}
+        expert_params = {"hidden_dims": [128, 64], "dropout": 0.0, "activation": "relu"}
         tower_params_list = [
-            {"dims": [32], "dropout": 0.0, "activation": "relu"},
-            {"dims": [32], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
         ]
 
         model = MMOE(
@@ -294,10 +296,10 @@ class TestMMOE:
         logger.info(f"Testing MMOE with {num_experts} experts")
         logger.info("=" * 80)
 
-        expert_params = {"dims": [64], "dropout": 0.0, "activation": "relu"}
+        expert_params = {"hidden_dims": [64], "dropout": 0.0, "activation": "relu"}
         tower_params_list = [
-            {"dims": [32], "dropout": 0.0, "activation": "relu"},
-            {"dims": [32], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
         ]
 
         model = MMOE(
@@ -347,20 +349,20 @@ class TestPLE:
         logger.info("=" * 80)
 
         shared_expert_params = {
-            "dims": [128, 64],
+            "hidden_dims": [128, 64],
             "dropout": 0.2,
             "activation": "relu",
         }
 
         specific_expert_params = {
-            "dims": [128, 64],
+            "hidden_dims": [128, 64],
             "dropout": 0.2,
             "activation": "relu",
         }
 
         tower_params_list = [
-            {"dims": [32], "dropout": 0.1, "activation": "relu"},
-            {"dims": [32], "dropout": 0.1, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.1, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.1, "activation": "relu"},
         ]
 
         model = PLE(
@@ -403,11 +405,19 @@ class TestPLE:
         logger.info("Testing PLE forward pass")
         logger.info("=" * 80)
 
-        shared_expert_params = {"dims": [64], "dropout": 0.0, "activation": "relu"}
-        specific_expert_params = {"dims": [64], "dropout": 0.0, "activation": "relu"}
+        shared_expert_params = {
+            "hidden_dims": [64],
+            "dropout": 0.0,
+            "activation": "relu",
+        }
+        specific_expert_params = {
+            "hidden_dims": [64],
+            "dropout": 0.0,
+            "activation": "relu",
+        }
         tower_params_list = [
-            {"dims": [32], "dropout": 0.0, "activation": "relu"},
-            {"dims": [32], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
         ]
 
         model = PLE(
@@ -457,11 +467,19 @@ class TestPLE:
         logger.info(f"Testing PLE with {num_levels} levels")
         logger.info("=" * 80)
 
-        shared_expert_params = {"dims": [32], "dropout": 0.0, "activation": "relu"}
-        specific_expert_params = {"dims": [32], "dropout": 0.0, "activation": "relu"}
+        shared_expert_params = {
+            "hidden_dims": [32],
+            "dropout": 0.0,
+            "activation": "relu",
+        }
+        specific_expert_params = {
+            "hidden_dims": [32],
+            "dropout": 0.0,
+            "activation": "relu",
+        }
         tower_params_list = [
-            {"dims": [16], "dropout": 0.0, "activation": "relu"},
-            {"dims": [16], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
+            {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
         ]
 
         model = PLE(
@@ -498,6 +516,87 @@ class TestPLE:
         logger.info(f"PLE with {num_levels} levels test successful")
 
 
+class TestPEPNet:
+    """Test suite for PEPNet (Parameter and Embedding Personalized Network)"""
+
+    def test_pepnet_initialization(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        device,
+    ):
+        """Test PEPNet model initialization"""
+        logger.info("=" * 80)
+        logger.info("Testing PEPNet initialization")
+        logger.info("=" * 80)
+
+        model = PEPNet(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label_ctr", "label_cvr"],
+            dnn_hidden_units=[128, 64],
+            dnn_activation="relu",
+            dnn_dropout=0.1,
+            domain_features=["category"],
+            user_features=["user_id"],
+            item_features=["item_id"],
+            device=device,
+        )
+
+        assert model is not None
+        assert model.model_name == "PepNet"
+        assert model.nums_task == 2
+        logger.info("PEPNet initialization successful")
+
+        num_params = count_parameters(model)
+        assert num_params > 0
+
+    def test_pepnet_forward_pass(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_multitask_batch_data,
+        device,
+        batch_size,
+        set_random_seed,
+    ):
+        """Test PEPNet forward pass with gated layers"""
+        logger.info("=" * 80)
+        logger.info("Testing PEPNet forward pass")
+        logger.info("=" * 80)
+
+        model = PEPNet(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label_ctr", "label_cvr"],
+            dnn_hidden_units=[64, 32],
+            dnn_activation="relu",
+            dnn_dropout=0.0,
+            domain_features=["category"],
+            user_features=["user_id"],
+            item_features=["item_id"],
+            device=device,
+        )
+
+        data = {
+            k: v.to(device)
+            for k, v in sample_multitask_batch_data.items()
+            if not k.startswith("label")
+        }
+
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size, 2), "PEPNet output shape")
+        assert_model_output_range(output, 0.0, 1.0)
+        assert_no_nan_or_inf(output, "PEPNet output")
+
+        logger.info("PEPNet forward pass successful")
+
+
 class TestESMM:
     """Test suite for ESMM (Entire Space Multi-Task Model)"""
 
@@ -514,13 +613,13 @@ class TestESMM:
         logger.info("=" * 80)
 
         ctr_params = {
-            "dims": [128, 64],
+            "hidden_dims": [128, 64],
             "dropout": 0.2,
             "activation": "relu",
         }
 
         cvr_params = {
-            "dims": [128, 64],
+            "hidden_dims": [128, 64],
             "dropout": 0.2,
             "activation": "relu",
         }
@@ -559,8 +658,8 @@ class TestESMM:
         logger.info("Testing ESMM forward pass")
         logger.info("=" * 80)
 
-        ctr_params = {"dims": [64, 32], "dropout": 0.0, "activation": "relu"}
-        cvr_params = {"dims": [64, 32], "dropout": 0.0, "activation": "relu"}
+        ctr_params = {"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"}
+        cvr_params = {"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"}
 
         model = ESMM(
             dense_features=sample_dense_features,
@@ -612,8 +711,8 @@ class TestESMM:
         logger.info("Testing ESMM CTCVR constraint")
         logger.info("=" * 80)
 
-        ctr_params = {"dims": [32], "dropout": 0.0, "activation": "relu"}
-        cvr_params = {"dims": [32], "dropout": 0.0, "activation": "relu"}
+        ctr_params = {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"}
+        cvr_params = {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"}
 
         model = ESMM(
             dense_features=sample_dense_features,
@@ -698,10 +797,10 @@ class TestMultiTaskModelsComparison:
             dense_features=sample_dense_features,
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
-            bottom_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
+            bottom_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
             tower_params_list=[
-                {"dims": [16], "dropout": 0.0, "activation": "relu"},
-                {"dims": [16], "dropout": 0.0, "activation": "relu"},
+                {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
+                {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
             ],
             target=["task1", "task2"],
             task=["binary", "binary"],
@@ -716,11 +815,11 @@ class TestMultiTaskModelsComparison:
             dense_features=sample_dense_features,
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
-            expert_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
+            expert_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
             num_experts=2,
             tower_params_list=[
-                {"dims": [16], "dropout": 0.0, "activation": "relu"},
-                {"dims": [16], "dropout": 0.0, "activation": "relu"},
+                {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
+                {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
             ],
             target=["task1", "task2"],
             task=["binary", "binary"],
@@ -735,14 +834,22 @@ class TestMultiTaskModelsComparison:
             dense_features=sample_dense_features,
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
-            shared_expert_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
-            specific_expert_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
+            shared_expert_params={
+                "hidden_dims": [32],
+                "dropout": 0.0,
+                "activation": "relu",
+            },
+            specific_expert_params={
+                "hidden_dims": [32],
+                "dropout": 0.0,
+                "activation": "relu",
+            },
             num_shared_experts=1,
             num_specific_experts=1,
             num_levels=1,
             tower_params_list=[
-                {"dims": [16], "dropout": 0.0, "activation": "relu"},
-                {"dims": [16], "dropout": 0.0, "activation": "relu"},
+                {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
+                {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
             ],
             target=["task1", "task2"],
             task=["binary", "binary"],
@@ -752,13 +859,31 @@ class TestMultiTaskModelsComparison:
         ple_output = run_model_inference(ple, data)
         assert_model_output_shape(ple_output, (batch_size, nums_task))
 
+        # Test PEPNet
+        pepnet = PEPNet(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["task1", "task2"],
+            dnn_hidden_units=[32],
+            dnn_activation="relu",
+            dnn_dropout=0.0,
+            domain_features=["category"],
+            user_features=["user_id"],
+            item_features=["item_id"],
+            device=device,
+        )
+
+        pepnet_output = run_model_inference(pepnet, data)
+        assert_model_output_shape(pepnet_output, (batch_size, nums_task))
+
         # Test ESMM
         esmm = ESMM(
             dense_features=sample_dense_features,
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
-            ctr_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
-            cvr_params={"dims": [32], "dropout": 0.0, "activation": "relu"},
+            ctr_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
+            cvr_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
             target=["label_ctr", "label_ctcvr"],
             device=device,
         )

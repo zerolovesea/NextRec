@@ -116,10 +116,10 @@ class ESMM(BaseModel):
         input_dim = self.embedding.input_dim
 
         # CTR tower
-        self.ctr_tower = MLP(input_dim=input_dim, output_layer=True, **ctr_params)
+        self.ctr_tower = MLP(input_dim=input_dim, output_dim=1, **ctr_params)
 
         # CVR tower
-        self.cvr_tower = MLP(input_dim=input_dim, output_layer=True, **cvr_params)
+        self.cvr_tower = MLP(input_dim=input_dim, output_dim=1, **cvr_params)
         self.grad_norm_shared_modules = ["embedding"]
         self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1, 1])
         # Register regularization weights

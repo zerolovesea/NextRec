@@ -134,12 +134,12 @@ class MMOE(BaseModel):
         # Expert networks (shared by all tasks)
         self.experts = nn.ModuleList()
         for _ in range(num_experts):
-            expert = MLP(input_dim=input_dim, output_layer=False, **expert_params)
+            expert = MLP(input_dim=input_dim, output_dim=None, **expert_params)
             self.experts.append(expert)
 
         # Get expert output dimension
-        if "dims" in expert_params and len(expert_params["dims"]) > 0:
-            expert_output_dim = expert_params["dims"][-1]
+        if "hidden_dims" in expert_params and len(expert_params["hidden_dims"]) > 0:
+            expert_output_dim = expert_params["hidden_dims"][-1]
         else:
             expert_output_dim = input_dim
 
@@ -153,7 +153,7 @@ class MMOE(BaseModel):
         # Task-specific towers
         self.towers = nn.ModuleList()
         for tower_params in tower_params_list:
-            tower = MLP(input_dim=expert_output_dim, output_layer=True, **tower_params)
+            tower = MLP(input_dim=expert_output_dim, output_dim=1, **tower_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
             task_type=self.task, task_dims=[1] * self.nums_task

@@ -379,7 +379,7 @@ params:
 model: deepfm
 params:
   mlp_params:
-    dims: [256, 128, 64]               # MLP 层维度
+    hidden_dims: [256, 128, 64]               # MLP 层维度
     activation: relu                   # 激活函数
     dropout: 0.3                       # Dropout 比率
   embedding_l2_reg: 1.0e-5             # Embedding L2 正则化
@@ -392,7 +392,7 @@ model: din
 params:
   attention_mlp_dims: [80, 40]         # 注意力网络维度
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -405,7 +405,7 @@ model: dcn
 params:
   cross_num: 3                         # Cross 层数量
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -419,7 +419,7 @@ params:
   cross_num: 3                         # Cross 层数量
   cross_type: matrix                   # Cross 类型：vector, matrix, mix
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -449,7 +449,7 @@ params:
   num_heads: 2                         # 多头注意力头数
   num_layers: 3                        # Transformer 层数
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -491,7 +491,7 @@ params:
 model: esmm
 params:
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -639,7 +639,7 @@ sequence:
 model: deepfm
 params:
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5

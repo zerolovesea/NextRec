@@ -4,7 +4,7 @@ params:
   bilinear_type: field_interaction
   senet_reduction: 3
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.2
 

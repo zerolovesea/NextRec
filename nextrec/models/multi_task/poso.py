@@ -127,7 +127,7 @@ class POSOMLP(nn.Module):
     """
     POSO-enhanced MLP that stacks multiple POSOFC layers.
 
-    dims: e.g., [256, 128, 64] means
+    hidden_dims: e.g., [256, 128, 64] means
         in_dim -> 256 -> 128 -> 64
     Each layer has its own gate g_l(pc) following Eq. (11).
     """
@@ -136,7 +136,7 @@ class POSOMLP(nn.Module):
         self,
         input_dim: int,
         pc_dim: int,
-        dims: list[int],
+        hidden_dims: list[int],
         gate_hidden_dim: int = 32,
         scale_factor: float = 2.0,
         activation: str = "relu",
@@ -147,7 +147,7 @@ class POSOMLP(nn.Module):
 
         layers = []
         in_dim = input_dim
-        for out_dim in dims:
+        for out_dim in hidden_dims:
             layers.append(
                 POSOFC(
                     in_dim=in_dim,
@@ -213,8 +213,8 @@ class POSOMMoE(nn.Module):
             [
                 MLP(
                     input_dim=input_dim,
-                    output_layer=False,
-                    dims=expert_hidden_dims,
+                    output_dim=None,
+                    hidden_dims=expert_hidden_dims,
                     activation=activation,
                     dropout=expert_dropout,
                 )
@@ -416,16 +416,16 @@ class POSO(BaseModel):
             self.towers = nn.ModuleList()
             self.tower_heads = nn.ModuleList()
             for tower_params in tower_params_list:
-                dims = tower_params.get("dims")
-                if not dims:
+                hidden_dims = tower_params.get("hidden_dims")
+                if not hidden_dims:
                     raise ValueError(
-                        "tower_params must include a non-empty 'dims' list for POSO-MLP towers."
+                        "tower_params must include a non-empty 'hidden_dims' list for POSO-MLP towers."
                     )
                 dropout = tower_params.get("dropout", 0.0)
                 tower = POSOMLP(
                     input_dim=self.main_input_dim,
                     pc_dim=self.pc_input_dim,
-                    dims=dims,
+                    hidden_dims=hidden_dims,
                     gate_hidden_dim=tower_params.get(
                         "gate_hidden_dim", gate_hidden_dim
                     ),
@@ -435,7 +435,9 @@ class POSO(BaseModel):
                     dropout=dropout,
                 )
                 self.towers.append(tower)
-                tower_output_dim = dims[-1] if dims else self.main_input_dim
+                tower_output_dim = (
+                    hidden_dims[-1] if hidden_dims else self.main_input_dim
+                )
                 self.tower_heads.append(nn.Linear(tower_output_dim, 1))
         else:
             if expert_hidden_dims is None or not expert_hidden_dims:
@@ -458,7 +460,7 @@ class POSO(BaseModel):
                 [
                     MLP(
                         input_dim=self.mmoe.expert_output_dim,
-                        output_layer=True,
+                        output_dim=1,
                         **tower_params,
                     )
                     for tower_params in tower_params_list

@@ -2,7 +2,7 @@
 Metrics computation and configuration for model evaluation.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/12/2025
+Checkpoint: edit on 30/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -21,21 +21,9 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
+from nextrec.utils.types import TaskTypeName, MetricsName
 
-CLASSIFICATION_METRICS = {
-    "auc",
-    "gauc",
-    "ks",
-    "logloss",
-    "accuracy",
-    "acc",
-    "precision",
-    "recall",
-    "f1",
-    "micro_f1",
-    "macro_f1",
-}
-REGRESSION_METRICS = {"mse", "mae", "rmse", "r2", "mape", "msle"}
+
 TASK_DEFAULT_METRICS = {
     "binary": ["auc", "gauc", "ks", "logloss", "accuracy", "precision", "recall", "f1"],
     "regression": ["mse", "mae", "rmse", "r2", "mape"],
@@ -58,7 +46,7 @@ def check_user_id(*metric_sources: Any) -> bool:
             stack.extend(item.values())
             continue
         if isinstance(item, str):
-            metric_names.add(item.lower())
+            metric_names.add(item)
             continue
         try:
             stack.extend(item)
@@ -361,9 +349,9 @@ def compute_cosine_separation(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def configure_metrics(
-    task: str | list[str],  # 'binary' or ['binary', 'regression']
+    task: TaskTypeName | list[TaskTypeName],  # 'binary' or ['binary', 'regression']
     metrics: (
-        list[str] | dict[str, list[str]] | None
+        list[MetricsName] | dict[str, list[MetricsName]] | None
     ),  # ['auc', 'logloss'] or {'task1': ['auc'], 'task2': ['mse']}
     target_names: list[str],  # ['target1', 'target2']
 ) -> tuple[list[str], dict[str, list[str]] | None, str]:
@@ -383,13 +371,12 @@ def configure_metrics(
                     f"[Metrics Warning] Task {task_name} not found in targets {target_names}, skipping its metrics"
                 )
                 continue
-            lowered = [m.lower() for m in task_metrics]
-            task_specific_metrics[task_name] = lowered
-            for metric in lowered:
+            task_specific_metrics[task_name] = task_metrics
+            for metric in task_metrics:
                 if metric not in metrics_list:
                     metrics_list.append(metric)
     elif metrics:
-        metrics_list = [m.lower() for m in metrics]
+        metrics_list = [m for m in metrics]
     else:
         # No user provided metrics, derive per task type
         if nums_task > 1 and isinstance(task, list):
@@ -416,11 +403,10 @@ def configure_metrics(
     return metrics_list, task_specific_metrics, best_metrics_mode
 
 
-def getbest_metric_mode(first_metric: str, primary_task: str) -> str:
+def getbest_metric_mode(first_metric: MetricsName, primary_task: TaskTypeName) -> str:
     """Determine if metric should be maximized or minimized."""
-    first_metric_lower = first_metric.lower()
     # Metrics that should be maximized
-    if first_metric_lower in {
+    if first_metric in {
         "auc",
         "gauc",
         "ks",
@@ -436,20 +422,20 @@ def getbest_metric_mode(first_metric: str, primary_task: str) -> str:
         return "max"
     # Ranking metrics that should be maximized (with @K suffix)
     if (
-        first_metric_lower.startswith("recall@")
-        or first_metric_lower.startswith("precision@")
-        or first_metric_lower.startswith("hitrate@")
-        or first_metric_lower.startswith("hr@")
-        or first_metric_lower.startswith("mrr@")
-        or first_metric_lower.startswith("ndcg@")
-        or first_metric_lower.startswith("map@")
+        first_metric.startswith("recall@")
+        or first_metric.startswith("precision@")
+        or first_metric.startswith("hitrate@")
+        or first_metric.startswith("hr@")
+        or first_metric.startswith("mrr@")
+        or first_metric.startswith("ndcg@")
+        or first_metric.startswith("map@")
     ):
         return "max"
     # Cosine separation should be maximized
-    if first_metric_lower == "cosine":
+    if first_metric == "cosine":
         return "max"
     # Metrics that should be minimized
-    if first_metric_lower in {"logloss", "mse", "mae", "rmse", "mape", "msle"}:
+    if first_metric in {"logloss", "mse", "mae", "rmse", "mape", "msle"}:
         return "min"
     # Default based on task type
     if primary_task == "regression":
@@ -458,7 +444,7 @@ def getbest_metric_mode(first_metric: str, primary_task: str) -> str:
 
 
 def compute_single_metric(
-    metric: str,
+    metric: MetricsName,
     y_true: np.ndarray,
     y_pred: np.ndarray,
     task_type: str,
@@ -466,30 +452,32 @@ def compute_single_metric(
 ) -> float:
     """Compute a single metric given true and predicted values."""
 
+    if y_true.size == 0:
+        return 0.0
+
     y_p_binary = (y_pred > 0.5).astype(int)
-    metric_lower = metric.lower()
     try:
-        if metric_lower.startswith("recall@"):
-            k = int(metric_lower.split("@")[1])
+        if metric.startswith("recall@"):
+            k = int(metric.split("@")[1])
             return compute_recall_at_k(y_true, y_pred, user_ids, k)  # type: ignore
-        if metric_lower.startswith("precision@"):
-            k = int(metric_lower.split("@")[1])
+        if metric.startswith("precision@"):
+            k = int(metric.split("@")[1])
             return compute_precision_at_k(y_true, y_pred, user_ids, k)  # type: ignore
-        if metric_lower.startswith("hitrate@") or metric_lower.startswith("hr@"):
-            k_str = metric_lower.split("@")[1]
+        if metric.startswith("hitrate@") or metric.startswith("hr@"):
+            k_str = metric.split("@")[1]
             k = int(k_str)
             return compute_hitrate_at_k(y_true, y_pred, user_ids, k)  # type: ignore
-        if metric_lower.startswith("mrr@"):
-            k = int(metric_lower.split("@")[1])
+        if metric.startswith("mrr@"):
+            k = int(metric.split("@")[1])
             return compute_mrr_at_k(y_true, y_pred, user_ids, k)  # type: ignore
-        if metric_lower.startswith("ndcg@"):
-            k = int(metric_lower.split("@")[1])
+        if metric.startswith("ndcg@"):
+            k = int(metric.split("@")[1])
             return compute_ndcg_at_k(y_true, y_pred, user_ids, k)  # type: ignore
-        if metric_lower.startswith("map@"):
-            k = int(metric_lower.split("@")[1])
+        if metric.startswith("map@"):
+            k = int(metric.split("@")[1])
             return compute_map_at_k(y_true, y_pred, user_ids, k)  # type: ignore
         # cosine for matching task
-        if metric_lower == "cosine":
+        if metric == "cosine":
             return compute_cosine_separation(y_true, y_pred)
         if metric == "auc":
             value = float(
@@ -570,15 +558,31 @@ def compute_single_metric(
 def evaluate_metrics(
     y_true: np.ndarray | None,
     y_pred: np.ndarray | None,
-    metrics: list[str],  # example: ['auc', 'logloss']
-    task: str | list[str],  # example: 'binary' or ['binary', 'regression']
-    target_names: list[str],  # example: ['target1', 'target2']
-    task_specific_metrics: (
-        dict[str, list[str]] | None
-    ) = None,  # example: {'target1': ['auc', 'logloss'], 'target2': ['mse']}
-    user_ids: np.ndarray | None = None,  # example: User IDs for GAUC computation
-) -> dict:  # {'auc': 0.75, 'logloss': 0.45, 'mse_target2': 3.2}
-    """Evaluate specified metrics for given true and predicted values."""
+    metrics: list[MetricsName],
+    task: TaskTypeName | list[TaskTypeName],
+    target_names: list[str],
+    task_specific_metrics: dict[str, list[MetricsName]] | None = None,
+    user_ids: np.ndarray | None = None,
+    ignore_label: int | float | None = None,
+) -> dict:
+    """
+    Evaluate specified metrics for given true and predicted values.
+    Supports single-task and multi-task evaluation.
+    Handles optional ignore_label to exclude certain samples.
+
+    Args:
+        y_true: Ground truth labels.
+        y_pred: Predicted values.
+        metrics: List of metric names to compute.
+        task: Task type(s) - 'binary', 'regression', etc.
+        target_names: Names of target variables. e.g., ['target1', 'target2']
+        task_specific_metrics: Optional dict mapping target names to specific metrics. e.g., {'target1': ['auc', 'logloss'], 'target2': ['mse']}
+        user_ids: Optional user IDs for GAUC and ranking metrics. e.g., User IDs for GAUC computation
+        ignore_label: Optional label value to ignore during evaluation.
+
+    Returns: Dictionary of computed metric values. {'auc': 0.75, 'logloss': 0.45, 'mse_target2': 3.2}
+
+    """
 
     result = {}
     if y_true is None or y_pred is None:
@@ -588,70 +592,81 @@ def evaluate_metrics(
     nums_task = len(task) if isinstance(task, list) else 1
     # Single task evaluation
     if nums_task == 1:
+        if ignore_label is not None:
+            valid_mask = y_true != ignore_label
+            if np.any(valid_mask):
+                y_true = y_true[valid_mask]
+                y_pred = y_pred[valid_mask]
+                if user_ids is not None:
+                    user_ids = user_ids[valid_mask]
+            else:
+                return result
         for metric in metrics:
-            metric_lower = metric.lower()
             value = compute_single_metric(
-                metric_lower, y_true, y_pred, primary_task, user_ids
+                metric, y_true, y_pred, primary_task, user_ids
             )
-            result[metric_lower] = value
+            result[metric] = value
     # Multi-task evaluation
     else:
-        for metric in metrics:
-            metric_lower = metric.lower()
-            for task_idx in range(nums_task):
-                # Check if metric should be computed for given task
-                should_compute = True
-                if task_specific_metrics is not None and task_idx < len(target_names):
-                    task_name = target_names[task_idx]
-                    should_compute = metric_lower in task_specific_metrics.get(
-                        task_name, []
-                    )
-                else:
-                    # Get task type for specific index
-                    if isinstance(task, list) and task_idx < len(task):
-                        task_type = task[task_idx]
-                    elif isinstance(task, str):
-                        task_type = task
-                    else:
-                        task_type = "binary"
-                    if task_type in ["binary", "multilabel"]:
-                        should_compute = metric_lower in {
-                            "auc",
-                            "gauc",
-                            "ks",
-                            "logloss",
-                            "accuracy",
-                            "acc",
-                            "precision",
-                            "recall",
-                            "f1",
-                            "micro_f1",
-                            "macro_f1",
-                        }
-                    elif task_type == "regression":
-                        should_compute = metric_lower in {
-                            "mse",
-                            "mae",
-                            "rmse",
-                            "r2",
-                            "mape",
-                            "msle",
-                        }
-                if not should_compute:
+        task_types = []
+        for task_idx in range(nums_task):
+            if isinstance(task, list) and task_idx < len(task):
+                task_types.append(task[task_idx])
+            elif isinstance(task, str):
+                task_types.append(task)
+            else:
+                task_types.append("binary")
+        metric_allowlist = {
+            "binary": {
+                "auc",
+                "gauc",
+                "ks",
+                "logloss",
+                "accuracy",
+                "acc",
+                "precision",
+                "recall",
+                "f1",
+                "micro_f1",
+                "macro_f1",
+            },
+            "regression": {
+                "mse",
+                "mae",
+                "rmse",
+                "r2",
+                "mape",
+                "msle",
+            },
+        }
+        for task_idx in range(nums_task):
+            task_type = task_types[task_idx]
+            target_name = target_names[task_idx]
+            if task_specific_metrics is not None and task_idx < len(target_names):
+                allowed_metrics = {
+                    m for m in task_specific_metrics.get(target_name, [])
+                }
+            else:
+                allowed_metrics = metric_allowlist.get(task_type)
+            for metric in metrics:
+                if allowed_metrics is not None and metric not in allowed_metrics:
                     continue
-                target_name = target_names[task_idx]
-                # Get task type for specific index
-                if isinstance(task, list) and task_idx < len(task):
-                    task_type = task[task_idx]
-                elif isinstance(task, str):
-                    task_type = task
-                else:
-                    task_type = "binary"
                 y_true_task = y_true[:, task_idx]
                 y_pred_task = y_pred[:, task_idx]
+                task_user_ids = user_ids
+                if ignore_label is not None:
+                    valid_mask = y_true_task != ignore_label
+                    if np.any(valid_mask):
+                        y_true_task = y_true_task[valid_mask]
+                        y_pred_task = y_pred_task[valid_mask]
+                        if task_user_ids is not None:
+                            task_user_ids = task_user_ids[valid_mask]
+                    else:
+                        result[f"{metric}_{target_name}"] = 0.0
+                        continue
                 # Compute metric
                 value = compute_single_metric(
-                    metric_lower, y_true_task, y_pred_task, task_type, user_ids
+                    metric, y_true_task, y_pred_task, task_type, task_user_ids
                 )
-                result[f"{metric_lower}_{target_name}"] = value
+                result[f"{metric}_{target_name}"] = value
     return result

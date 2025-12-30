@@ -8,6 +8,7 @@ Author: Yang Zhou,zyaztec@gmail.com
 
 from nextrec.models.multi_task.esmm import ESMM
 from nextrec.models.multi_task.mmoe import MMOE
+from nextrec.models.multi_task.pepnet import PEPNet
 from nextrec.models.multi_task.ple import PLE
 from nextrec.models.multi_task.share_bottom import ShareBottom
 
@@ -98,7 +99,7 @@ def main():
     valid_df = df.iloc[split_idx:].reset_index(drop=True)
     print(f"Train size: {len(train_df)}, Valid size: {len(valid_df)}")
 
-    tower_params = {"dims": [256, 128, 64], "activation": "relu", "dropout": 0.2}
+    tower_params = {"hidden_dims": [256, 128, 64], "activation": "relu", "dropout": 0.2}
     results = {}
 
     models_to_train = [
@@ -140,6 +141,19 @@ def main():
             {
                 "bottom_params": tower_params,
                 "tower_params_list": [tower_params, tower_params],
+                "target": ["click", "conversion"],
+            },
+        ),
+        (
+            PEPNet,
+            "PEPNet",
+            {
+                "dnn_hidden_units": tower_params["hidden_dims"],
+                "dnn_activation": tower_params["activation"],
+                "dnn_dropout": tower_params["dropout"],
+                "domain_features": ["sparse_0"],
+                "user_features": ["user_id"],
+                "item_features": ["item_id"],
                 "target": ["click", "conversion"],
             },
         ),

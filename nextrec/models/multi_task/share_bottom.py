@@ -110,19 +110,19 @@ class ShareBottom(BaseModel):
         # input_dim = emb_dim_total + dense_input_dim
 
         # Shared bottom network
-        self.bottom = MLP(input_dim=input_dim, output_layer=False, **bottom_params)
+        self.bottom = MLP(input_dim=input_dim, output_dim=None, **bottom_params)
         self.grad_norm_shared_modules = ["embedding", "bottom"]
 
         # Get bottom output dimension
-        if "dims" in bottom_params and len(bottom_params["dims"]) > 0:
-            bottom_output_dim = bottom_params["dims"][-1]
+        if "hidden_dims" in bottom_params and len(bottom_params["hidden_dims"]) > 0:
+            bottom_output_dim = bottom_params["hidden_dims"][-1]
         else:
             bottom_output_dim = input_dim
 
         # Task-specific towers
         self.towers = nn.ModuleList()
         for tower_params in tower_params_list:
-            tower = MLP(input_dim=bottom_output_dim, output_layer=True, **tower_params)
+            tower = MLP(input_dim=bottom_output_dim, output_dim=1, **tower_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
             task_type=self.task, task_dims=[1] * self.nums_task

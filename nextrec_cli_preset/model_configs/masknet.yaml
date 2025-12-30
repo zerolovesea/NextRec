@@ -7,7 +7,7 @@ params:
   block_hidden_dim: 256
   block_dropout: 0.2
   mlp_params:
-    dims: [256, 128]
+    hidden_dims: [256, 128]
     activation: relu
     dropout: 0.2
 

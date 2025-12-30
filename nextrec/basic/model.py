@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/12/2025
+Checkpoint: edit on 30/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -646,6 +646,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             sampler=sampler,
             collate_fn=collate_fn,
             num_workers=num_workers,
+            pin_memory=self.device.type == "cuda",
+            persistent_workers=num_workers > 0,
         )
         return (loader, dataset) if return_dataset else loader
 
@@ -1119,16 +1121,17 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     train_log_payload, step=epoch + 1, split="train"
                 )
             if valid_loader is not None:
-                self.callbacks.on_validation_begin()
-                val_metrics = self.evaluate(
-                    valid_loader,
-                    user_ids=valid_user_ids if self.needs_user_ids else None,
-                    num_workers=num_workers,
-                )
-                should_log_valid = (epoch + 1) % log_interval == 0 or (
+                should_eval_valid = (epoch + 1) % log_interval == 0 or (
                     epoch + 1
                 ) == epochs
-                if should_log_valid:
+                val_metrics = None
+                if should_eval_valid:
+                    self.callbacks.on_validation_begin()
+                    val_metrics = self.evaluate(
+                        valid_loader,
+                        user_ids=valid_user_ids if self.needs_user_ids else None,
+                        num_workers=num_workers,
+                    )
                     display_metrics_table(
                         epoch=epoch + 1,
                         epochs=epochs,
@@ -1142,23 +1145,24 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         is_main_process=self.is_main_process,
                         colorize=lambda s: colorize("  " + s, color="cyan"),
                     )
-                self.callbacks.on_validation_end()
-                if should_log_valid and val_metrics and self.training_logger:
-                    self.training_logger.log_metrics(
-                        val_metrics, step=epoch + 1, split="valid"
-                    )
+                    self.callbacks.on_validation_end()
+                    if val_metrics and self.training_logger:
+                        self.training_logger.log_metrics(
+                            val_metrics, step=epoch + 1, split="valid"
+                        )
                 if not val_metrics:
-                    if self.is_main_process:
+                    if should_eval_valid and self.is_main_process:
                         logging.info(
                             colorize(
                                 "Warning: No validation metrics computed. Skipping validation for this epoch.",
                                 color="yellow",
                             )
                         )
-                    continue
-                epoch_logs = {**train_log_payload}
-                for k, v in val_metrics.items():
-                    epoch_logs[f"val_{k}"] = v
+                    epoch_logs = {**train_log_payload}
+                else:
+                    epoch_logs = {**train_log_payload}
+                    for k, v in val_metrics.items():
+                        epoch_logs[f"val_{k}"] = v
             else:
                 epoch_logs = {**train_log_payload}
                 if self.is_main_process:
@@ -1340,6 +1344,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 target_names=self.target_columns,
                 task_specific_metrics=self.task_specific_metrics,
                 user_ids=combined_user_ids,
+                ignore_label=self.ignore_label,
             )
             return avg_loss, metrics_dict
         return avg_loss
@@ -1387,6 +1392,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 sampler=valid_sampler,
                 collate_fn=collate_fn,
                 num_workers=num_workers,
+                pin_memory=self.device.type == "cuda",
+                persistent_workers=num_workers > 0,
             )
         valid_user_ids = None
         if needs_user_ids:
@@ -1532,6 +1539,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             target_names=self.target_columns,
             task_specific_metrics=self.task_specific_metrics,
             user_ids=final_user_ids,
+            ignore_label=self.ignore_label,
         )
         return metrics_dict
 
