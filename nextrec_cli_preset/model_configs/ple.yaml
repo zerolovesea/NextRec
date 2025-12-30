@@ -6,20 +6,20 @@ params:
   num_shared_experts: 4
 
   shared_expert_params:
-    dims: [256, 128]
+    hidden_dims: [256, 128]
     activation: relu
     dropout: 0.1
 
   specific_expert_params:
-    dims: [192, 96]
+    hidden_dims: [192, 96]
     activation: relu
     dropout: 0.1
 
   tower_params_list:
-    - dims: [96, 48]
+    - hidden_dims: [96, 48]
       activation: relu
       dropout: 0.2
-    - dims: [128, 64]
+    - hidden_dims: [128, 64]
       activation: relu
       dropout: 0.2
 

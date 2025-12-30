@@ -131,8 +131,8 @@ class SDM(BaseMatchModel):
             # User DNN to final embedding
             self.user_dnn = MLP(
                 input_dim=user_final_dim,
-                dims=[rnn_hidden_size * 2, embedding_dim],
-                output_layer=False,
+                hidden_dims=[rnn_hidden_size * 2, embedding_dim],
+                output_dim=None,
                 dropout=dnn_dropout,
                 activation=dnn_activation,
             )
@@ -162,8 +162,8 @@ class SDM(BaseMatchModel):
                 item_dnn_units = item_dnn_hidden_units + [embedding_dim]
                 self.item_dnn = MLP(
                     input_dim=item_input_dim,
-                    dims=item_dnn_units,
-                    output_layer=False,
+                    hidden_dims=item_dnn_units,
+                    output_dim=None,
                     dropout=dnn_dropout,
                     activation=dnn_activation,
                 )

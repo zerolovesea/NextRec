@@ -2,11 +2,11 @@ model: esmm
 
 params:
   ctr_params:
-    dims: [128, 64]
+    hidden_dims: [128, 64]
     activation: relu
     dropout: 0.2
   cvr_params:
-    dims: [128, 64]
+    hidden_dims: [128, 64]
     activation: relu
     dropout: 0.2
 

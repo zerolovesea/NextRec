@@ -234,7 +234,7 @@ class DCNv2(BaseModel):
         if mlp_params is not None:
             self.use_dnn = True
             dnn_params = dict(mlp_params)
-            dnn_params.setdefault("output_layer", False)
+            dnn_params.setdefault("output_dim", None)
             self.mlp = MLP(input_dim=input_dim, **dnn_params)
             deep_dim = self.mlp.output_dim
             final_input_dim = (

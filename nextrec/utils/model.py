@@ -9,6 +9,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 from collections import OrderedDict
 
 import torch
+from torch import nn
 
 from nextrec.loss import (
     ApproxNDCGLoss,
@@ -18,6 +19,14 @@ from nextrec.loss import (
     ListNetLoss,
     SampledSoftmaxLoss,
     TripletLoss,
+)
+from nextrec.utils.types import (
+    LossName,
+    OptimizerName,
+    SchedulerName,
+    TrainingModeName,
+    TaskTypeName,
+    MetricsName,
 )
 
 
@@ -29,9 +38,9 @@ def merge_features(primary, secondary) -> list:
 
 
 def get_mlp_output_dim(params: dict, fallback: int) -> int:
-    dims = params.get("dims")
-    if dims:
-        return dims[-1]
+    hidden_dims = params.get("hidden_dims")
+    if hidden_dims:
+        return hidden_dims[-1]
     return fallback
 
 

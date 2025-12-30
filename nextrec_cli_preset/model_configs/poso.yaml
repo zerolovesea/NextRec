@@ -23,12 +23,11 @@ params:
   gate_use_bias: true
 
   tower_params_list:
-    - dims: [128, 64]
+    - hidden_dims: [128, 64]
       activation: relu
       dropout: 0.2
-      use_norm: true
       norm_type: batch_norm
-    - dims: [160, 80]
+    - hidden_dims: [160, 80]
       activation: relu
       dropout: 0.2
 

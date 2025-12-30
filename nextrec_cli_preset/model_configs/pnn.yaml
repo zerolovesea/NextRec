@@ -4,7 +4,7 @@ params:
   product_type: inner  # inner or outer
   outer_product_dim: 64
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.2
 

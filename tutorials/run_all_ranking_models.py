@@ -142,7 +142,7 @@ def main():
     print(f"Train size: {len(train_df)}, Valid size: {len(valid_df)}")
 
     mlp_params = {
-        "dims": [256, 128, 64],
+        "hidden_dims": [256, 128, 64],
         "activation": "relu",
         "dropout": 0.2,
     }

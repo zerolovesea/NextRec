@@ -379,7 +379,7 @@ params:
 model: deepfm
 params:
   mlp_params:
-    dims: [256, 128, 64]               # MLP layer dimensions
+    hidden_dims: [256, 128, 64]               # MLP layer dimensions
     activation: relu                    # Activation function
     dropout: 0.3                        # Dropout ratio
   embedding_l2_reg: 1.0e-5             # Embedding L2 regularization
@@ -392,7 +392,7 @@ model: din
 params:
   attention_mlp_dims: [80, 40]         # Attention network dimensions
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -405,7 +405,7 @@ model: dcn
 params:
   cross_num: 3                         # Number of cross layers
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -419,7 +419,7 @@ params:
   cross_num: 3                         # Number of cross layers
   cross_type: matrix                   # Cross type: vector, matrix, mix
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -449,7 +449,7 @@ params:
   num_heads: 2                         # Number of multi-head attention heads
   num_layers: 3                        # Number of transformer layers
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -491,7 +491,7 @@ params:
 model: esmm
 params:
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5
@@ -639,7 +639,7 @@ sequence:
 model: deepfm
 params:
   mlp_params:
-    dims: [256, 128, 64]
+    hidden_dims: [256, 128, 64]
     activation: relu
     dropout: 0.3
   embedding_l2_reg: 1.0e-5

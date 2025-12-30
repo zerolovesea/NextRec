@@ -3,7 +3,7 @@ model: dcn
 params:
   cross_num: 3
   mlp_params:
-    dims: [256, 128]
+    hidden_dims: [256, 128]
     activation: relu
     dropout: 0.2
 

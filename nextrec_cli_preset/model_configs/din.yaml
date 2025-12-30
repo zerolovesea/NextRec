@@ -7,7 +7,7 @@ params:
   behavior_feature_name: hist_item_seq   # sequence column holding user behavior
   candidate_feature_name: item           # current item column to attend with
   mlp_params:
-    dims: [256, 128]
+    hidden_dims: [256, 128]
     activation: relu
     dropout: 0.3
 

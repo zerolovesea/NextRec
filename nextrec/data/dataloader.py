@@ -282,6 +282,8 @@ class RecDataLoader(FeatureSet):
             sampler=sampler,
             collate_fn=collate_fn,
             num_workers=num_workers,
+            pin_memory=torch.cuda.is_available(),
+            persistent_workers=num_workers > 0,
         )
 
     def create_from_path(

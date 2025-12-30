@@ -103,8 +103,8 @@ class DSSM(BaseMatchModel):
             user_dnn_units = user_dnn_hidden_units + [embedding_dim]
             self.user_dnn = MLP(
                 input_dim=user_input_dim,
-                dims=user_dnn_units,
-                output_layer=False,
+                hidden_dims=user_dnn_units,
+                output_dim=None,
                 dropout=dnn_dropout,
                 activation=dnn_activation,
             )
@@ -134,8 +134,8 @@ class DSSM(BaseMatchModel):
             item_dnn_units = item_dnn_hidden_units + [embedding_dim]
             self.item_dnn = MLP(
                 input_dim=item_input_dim,
-                dims=item_dnn_units,
-                output_layer=False,
+                hidden_dims=item_dnn_units,
+                output_dim=None,
                 dropout=dnn_dropout,
                 activation=dnn_activation,
             )

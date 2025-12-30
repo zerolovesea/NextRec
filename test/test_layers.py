@@ -41,7 +41,7 @@ class TestMLP:
         logger.info("Testing MLP initialization")
         logger.info("=" * 80)
 
-        mlp = MLP(input_dim=128, dims=[64, 32, 16], dropout=0, activation="relu")
+        mlp = MLP(input_dim=128, hidden_dims=[64, 32, 16], dropout=0, activation="relu")
 
         assert mlp is not None
         logger.info("MLP initialization successful")
@@ -57,10 +57,10 @@ class TestMLP:
 
         mlp = MLP(
             input_dim=input_dim,
-            dims=[64, 32],
+            hidden_dims=[64, 32],
             dropout=0.0,
             activation="relu",
-            output_layer=False,
+            output_dim=None,
         )
 
         x = torch.randn(batch_size, input_dim)
@@ -80,10 +80,10 @@ class TestMLP:
 
         mlp = MLP(
             input_dim=64,
-            dims=[32, 16],
+            hidden_dims=[32, 16],
             dropout=0.0,
             activation=activation,
-            output_layer=False,
+            output_dim=None,
         )
 
         x = torch.randn(16, 64)
@@ -99,19 +99,19 @@ class TestMLP:
         logger.info("Testing MLP with different depths")
         logger.info("=" * 80)
 
-        for dims in [[32], [64, 32], [128, 64, 32], [256, 128, 64, 32]]:
+        for hidden_dims in [[32], [64, 32], [128, 64, 32], [256, 128, 64, 32]]:
             mlp = MLP(
                 input_dim=128,
-                dims=dims,
+                hidden_dims=hidden_dims,
                 dropout=0.0,
                 activation="relu",
-                output_layer=False,
+                output_dim=None,
             )
 
             x = torch.randn(8, 128)
             output = mlp(x)
 
-            assert output.shape == (8, dims[-1])
+            assert output.shape == (8, hidden_dims[-1])
 
         logger.info("MLP different depths test successful")
 
