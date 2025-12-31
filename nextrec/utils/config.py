@@ -116,6 +116,7 @@ def register_processor_features(
             name,
             encode_method=proc_cfg.get("encode_method", "hash"),
             hash_size=proc_cfg.get("hash_size") or proc_cfg.get("vocab_size"),
+            min_freq=proc_cfg.get("min_freq"),
             fill_na=proc_cfg.get("fill_na", "<UNK>"),
         )
 
@@ -125,6 +126,7 @@ def register_processor_features(
             name,
             encode_method=proc_cfg.get("encode_method", "hash"),
             hash_size=proc_cfg.get("hash_size") or proc_cfg.get("vocab_size"),
+            min_freq=proc_cfg.get("min_freq"),
             max_len=proc_cfg.get("max_len", 50),
             pad_value=proc_cfg.get("pad_value", 0),
             truncate=proc_cfg.get("truncate", "post"),

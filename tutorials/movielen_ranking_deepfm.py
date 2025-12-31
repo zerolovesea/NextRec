@@ -41,7 +41,7 @@ sparse_features.append(
 model = DeepFM(
     dense_features=dense_features,
     sparse_features=sparse_features,
-    mlp_params={"dims": [256, 128], "activation": "relu", "dropout": 0.2},
+    mlp_params={"hidden_dims": [256, 128], "activation": "relu", "dropout": 0.2},
     target="label",
     device="cpu",
     session_id="movielens_deepfm_tutorial",

@@ -23,28 +23,28 @@ dense:
 
 sparse:
   user_id:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 100000}
+    processor_config: {type: sparse, encode_method: hash, hash_size: 100000, min_freq: 1}
     embedding_config: {name: user_id, embedding_dim: 8, padding_idx: 0}
   item:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 5000}
+    processor_config: {type: sparse, encode_method: hash, hash_size: 5000, min_freq: 1}
     embedding_config: {name: item, embedding_dim: 8, padding_idx: 0}
   gender:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 10}
+    processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
     embedding_config: {name: gender, embedding_dim: 8, padding_idx: 0}
   city:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 20}
+    processor_config: {type: sparse, encode_method: hash, hash_size: 20, min_freq: 1}
     embedding_config: {name: city, embedding_dim: 8, padding_idx: 0}
   device:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 10}
+    processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
     embedding_config: {name: device, embedding_dim: 8, padding_idx: 0}
   channel:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 10}
+    processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
     embedding_config: {name: channel, embedding_dim: 8, padding_idx: 0}
   age_bucket:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 20}
+    processor_config: {type: sparse, encode_method: hash, hash_size: 20, min_freq: 1}
     embedding_config: {name: age_bucket, embedding_dim: 8, padding_idx: 0}
 
 sequence:
   hist_item_seq:
-    processor_config: {type: sequence, encode_method: hash, hash_size: 5000, max_len: 30, pad_value: 0, truncate: post, separator: ','}
+    processor_config: {type: sequence, encode_method: hash, hash_size: 5000, min_freq: 1, max_len: 30, pad_value: 0, truncate: post, separator: ','}
     embedding_config: {name: hist_item_seq, vocab_size: 5000, max_len: 30, combiner: mean, embedding_dim: 8, padding_idx: 0, shared_with: item}

@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import torch
 
+from nextrec.utils.torch_utils import to_numpy
+
 
 def get_column_data(data: dict | pd.DataFrame, name: str):
 
@@ -23,15 +25,7 @@ def get_column_data(data: dict | pd.DataFrame, name: str):
             return None
         return data[name].values
     else:
-        if hasattr(data, name):
-            return getattr(data, name)
-        raise KeyError(f"Unsupported data type for extracting column {name}")
-
-
-def to_numpy(values: Any) -> np.ndarray:
-    if isinstance(values, torch.Tensor):
-        return values.detach().cpu().numpy()
-    return np.asarray(values)
+        raise KeyError(f"Only dict or DataFrame supported, got {type(data)}")
 
 
 def get_data_length(data: Any) -> int | None:
