@@ -19,12 +19,16 @@ dataloader:
   valid_batch_size: 512
   valid_shuffle: false
   num_workers: 6
+  prefetch_factor: 2
 
 train:
   optimizer: adam
   optimizer_params:
     lr: 0.001
   loss: ['bce','bce']                            # Loss function
+  # loss_params:                                # Optional loss params
+  # loss_weights:                               # Optional loss weights or GradNorm
+  # ignore_label: -1                            # Label value to ignore when computing loss
   metrics:
     - auc
     - gauc
@@ -32,6 +36,12 @@ train:
   epochs: 1
   shuffle: true
   device: cpu
+  log_interval: 1                               # Log validation metrics every N epochs
+  use_wandb: false                              # Enable Weights & Biases logging
+  use_swanlab: false                            # Enable SwanLab logging
+  # note: "baseline run"                         # Optional training note
+  # wandb_api: YOUR_WANDB_API_KEY               # Optional API key for non-tty login
+  # swanlab_api: YOUR_SWANLAB_API_KEY           # Optional API key for non-tty login
 
 # cd nextrec_cli_preset
 # nextrec --mode train --train_config train_config.yaml

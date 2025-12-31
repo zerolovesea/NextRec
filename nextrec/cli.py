@@ -320,6 +320,7 @@ def train_model(train_config_path: str) -> None:
             streaming=True,
             chunk_size=dataloader_chunk_size,
             num_workers=dataloader_cfg.get("num_workers", 0),
+            prefetch_factor=dataloader_cfg.get("prefetch_factor"),
         )
         valid_loader = None
         if val_data_path:
@@ -331,6 +332,7 @@ def train_model(train_config_path: str) -> None:
                 streaming=True,
                 chunk_size=dataloader_chunk_size,
                 num_workers=dataloader_cfg.get("num_workers", 0),
+                prefetch_factor=dataloader_cfg.get("prefetch_factor"),
             )
         elif streaming_valid_files:
             valid_loader = dataloader.create_dataloader(
@@ -340,6 +342,7 @@ def train_model(train_config_path: str) -> None:
                 streaming=True,
                 chunk_size=dataloader_chunk_size,
                 num_workers=dataloader_cfg.get("num_workers", 0),
+                prefetch_factor=dataloader_cfg.get("prefetch_factor"),
             )
     else:
         train_loader = dataloader.create_dataloader(
@@ -347,12 +350,14 @@ def train_model(train_config_path: str) -> None:
             batch_size=dataloader_cfg.get("train_batch_size", 512),
             shuffle=dataloader_cfg.get("train_shuffle", True),
             num_workers=dataloader_cfg.get("num_workers", 0),
+            prefetch_factor=dataloader_cfg.get("prefetch_factor"),
         )
         valid_loader = dataloader.create_dataloader(
             data=valid_data,
             batch_size=dataloader_cfg.get("valid_batch_size", 512),
             shuffle=dataloader_cfg.get("valid_shuffle", False),
             num_workers=dataloader_cfg.get("num_workers", 0),
+            prefetch_factor=dataloader_cfg.get("prefetch_factor"),
         )
 
     model_cfg.setdefault("session_id", session_id)
@@ -383,6 +388,7 @@ def train_model(train_config_path: str) -> None:
         loss=train_cfg.get("loss", "focal"),
         loss_params=train_cfg.get("loss_params", {}),
         loss_weights=train_cfg.get("loss_weights"),
+        ignore_label=train_cfg.get("ignore_label", -1),
     )
 
     model.fit(
@@ -397,6 +403,12 @@ def train_model(train_config_path: str) -> None:
         num_workers=dataloader_cfg.get("num_workers", 0),
         user_id_column=id_column,
         use_tensorboard=False,
+        use_wandb=train_cfg.get("use_wandb", False),
+        use_swanlab=train_cfg.get("use_swanlab", False),
+        wandb_api=train_cfg.get("wandb_api"),
+        swanlab_api=train_cfg.get("swanlab_api"),
+        log_interval=train_cfg.get("log_interval", 1),
+        note=train_cfg.get("note"),
     )
 
 
@@ -583,6 +595,7 @@ def predict_model(predict_config_path: str) -> None:
         shuffle=False,
         streaming=predict_cfg.get("streaming", True),
         chunk_size=predict_cfg.get("chunk_size", 20000),
+        prefetch_factor=predict_cfg.get("prefetch_factor"),
     )
 
     save_format = predict_cfg.get(

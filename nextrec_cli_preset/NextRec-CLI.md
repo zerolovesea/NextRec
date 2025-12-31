@@ -99,6 +99,7 @@ train:
   # loss_weights:                      # Optional loss weights or GradNorm
   #   - pos_weight: 1.0
   #     logits: false
+  # ignore_label: -1                   # Label value to ignore when computing loss
   metrics:                             # Metrics to compute during training/validation
     - auc
     # - gauc
@@ -113,6 +114,11 @@ train:
   epochs: 10                           # Number of training epochs
   batch_size: 512                      # Overrides dataloader.train_batch_size if set
   shuffle: true                        # Shuffle training data
+  log_interval: 1                      # Log validation metrics every N epochs
+  use_wandb: false                     # Enable Weights & Biases logging
+  use_swanlab: false                   # Enable SwanLab logging
+  # wandb_api: YOUR_WANDB_API_KEY      # Optional API key for non-tty login
+  # swanlab_api: YOUR_SWANLAB_API_KEY  # Optional API key for non-tty login
   device: cpu                          # Device: cpu, cuda, cuda:0, mps
 ```
 
@@ -146,6 +152,7 @@ train:
 - `valid_batch_size`: Batch size for validation
 - `valid_shuffle`: Whether to shuffle validation data
 - `num_workers`: Number of data loading workers
+- `prefetch_factor`: Prefetch batches per worker (effective when `num_workers > 0`)
 - `chunk_size`: Data chunk size for streaming processing (when `streaming=true`)
 
 ##### train Section
@@ -163,6 +170,7 @@ train:
   - `mse`: Mean Squared Error
 - `loss_params`: Loss function parameters (optional, per task)
 - `loss_weights`: Loss weights (list/number) or GradNorm config
+- `ignore_label`: Label value to ignore when computing loss
 - `metrics`: List of evaluation metrics, supports:
   - `auc`: Area Under ROC Curve
   - `recall`: Recall
@@ -172,6 +180,11 @@ train:
 - `epochs`: Number of training epochs
 - `batch_size`: Overrides dataloader batch size if set
 - `shuffle`: Whether to shuffle training data
+- `log_interval`: Log validation metrics every N epochs
+- `use_wandb`: Enable Weights & Biases logging
+- `use_swanlab`: Enable SwanLab logging
+- `wandb_api`: W&B API key for non-tty login
+- `swanlab_api`: SwanLab API key for non-tty login
 - `device`: Computing device
   - `cpu`: CPU
   - `cuda`: NVIDIA GPU
@@ -278,6 +291,7 @@ sparse:
       type: sparse
       encode_method: hash               # Hash encoding
       hash_size: 100                    # Hash table size
+      min_freq: 1                       # Minimum token frequency to keep
     embedding_config:
       name: gender
       vocab_size: 100
@@ -289,6 +303,7 @@ sequence:
       type: sequence
       encode_method: hash               # Sequence encoding method
       hash_size: 10000                  # Hash table size
+      min_freq: 1                       # Minimum token frequency to keep
       max_len: 50                       # Maximum sequence length
       pad_value: 0                      # Padding value
       truncate: post                    # Truncation mode: post, pre
@@ -333,12 +348,14 @@ feature_groups:
   - `hash`: Hash encoding (suitable for high-cardinality features)
   - `onehot`: One-hot encoding
 - `processor_config.hash_size`: Hash table size (only for hash encoding)
+- `processor_config.min_freq`: Minimum token frequency to keep; lower-frequency tokens map to unknown
 - `embedding_config.vocab_size`: Embedding vocabulary size
 - `embedding_config.embedding_dim`: Embedding dimension
 
 ##### sequence (Sequence Features)
 - `processor_config.type`: Must be `sequence`
 - `processor_config.encode_method`: Encoding method (usually `hash` or `label`)
+- `processor_config.min_freq`: Minimum token frequency to keep; lower-frequency tokens map to unknown
 - `processor_config.max_len`: Maximum sequence length
 - `processor_config.pad_value`: Padding value (usually 0)
 - `processor_config.truncate`: Truncation mode

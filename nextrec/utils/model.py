@@ -2,14 +2,13 @@
 Model-related utilities for NextRec
 
 Date: create on 03/12/2025
-Checkpoint: edit on 29/12/2025
+Checkpoint: edit on 31/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from collections import OrderedDict
 
 import torch
-from torch import nn
 
 from nextrec.loss import (
     ApproxNDCGLoss,
@@ -19,14 +18,6 @@ from nextrec.loss import (
     ListNetLoss,
     SampledSoftmaxLoss,
     TripletLoss,
-)
-from nextrec.utils.types import (
-    LossName,
-    OptimizerName,
-    SchedulerName,
-    TrainingModeName,
-    TaskTypeName,
-    MetricsName,
 )
 
 
@@ -81,47 +72,26 @@ def compute_pair_scores(model, data, batch_size: int = 512):
     return scores.detach().cpu().numpy()
 
 
-def get_training_modes(
-    training_mode,
-    nums_task: int,
-    valid_modes: set[str] | None = None,
-) -> list:
-    valid_modes = valid_modes or {"pointwise", "pairwise", "listwise"}
-    if isinstance(training_mode, list):
-        training_modes = list(training_mode)
-        if len(training_modes) != nums_task:
-            raise ValueError(
-                "[BaseModel-init Error] training_mode list length must match number of tasks."
-            )
-    else:
-        training_modes = [training_mode] * nums_task
-    if any(mode not in valid_modes for mode in training_modes):
-        raise ValueError(
-            "[BaseModel-init Error] training_mode must be one of {'pointwise', 'pairwise', 'listwise'}."
-        )
-    return training_modes
-
-
 def get_loss_list(
     loss,
     training_modes: list[str],
     nums_task: int,
-    default_losses: dict[str, str],
 ):
-    effective_loss = loss
-    if effective_loss is None:
+    default_losses = {
+        "pointwise": "bce",
+        "pairwise": "bpr",
+        "listwise": "listnet",
+    }
+    if loss is None:
         loss_list = [default_losses[mode] for mode in training_modes]
-    elif isinstance(effective_loss, list):
-        if not effective_loss:
-            loss_list = [default_losses[mode] for mode in training_modes]
-        else:
-            if len(effective_loss) != nums_task:
-                raise ValueError(
-                    f"[BaseModel-compile Error] Number of loss functions ({len(effective_loss)}) must match number of tasks ({nums_task})."
-                )
-            loss_list = list(effective_loss)
+    elif isinstance(loss, list):
+        if len(loss) != nums_task:
+            raise ValueError(
+                f"[BaseModel-compile Error] Number of loss functions ({len(loss)}) must match number of tasks ({nums_task})."
+            )
+        loss_list = loss
     else:
-        loss_list = [effective_loss] * nums_task
+        loss_list = [loss] * nums_task
 
     for idx, mode in enumerate(training_modes):
         if isinstance(loss_list[idx], str) and loss_list[idx] in {
@@ -131,32 +101,6 @@ def get_loss_list(
             if mode in {"pairwise", "listwise"}:
                 loss_list[idx] = default_losses[mode]
     return loss_list
-
-
-def resolve_loss_weights(loss_weights, nums_task: int):
-    if loss_weights is None:
-        return None
-    if nums_task == 1:
-        if isinstance(loss_weights, (list, tuple)):
-            if len(loss_weights) != 1:
-                raise ValueError(
-                    "[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup."
-                )
-            loss_weights = loss_weights[0]
-        return [float(loss_weights)]
-    if isinstance(loss_weights, (int, float)):
-        weights = [float(loss_weights)] * nums_task
-    elif isinstance(loss_weights, (list, tuple)):
-        weights = [float(w) for w in loss_weights]
-        if len(weights) != nums_task:
-            raise ValueError(
-                f"[BaseModel-compile Error] Number of loss_weights ({len(weights)}) must match number of tasks ({nums_task})."
-            )
-    else:
-        raise TypeError(
-            f"[BaseModel-compile Error] loss_weights must be int, float, list or tuple, got {type(loss_weights)}"
-        )
-    return weights
 
 
 def prepare_ranking_targets(

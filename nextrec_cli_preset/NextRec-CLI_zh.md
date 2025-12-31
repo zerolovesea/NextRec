@@ -99,6 +99,7 @@ train:
   # loss_weights:                      # 可选，损失权重或 GradNorm
   #   - pos_weight: 1.0
   #     logits: false
+  # ignore_label: -1                   # 计算损失时忽略的标签值
   metrics:                             # 评估指标
     - auc
     # - gauc
@@ -113,6 +114,11 @@ train:
   epochs: 10                           # 训练轮数
   batch_size: 512                      # 可覆盖 dataloader.train_batch_size
   shuffle: true                        # 是否打乱数据
+  log_interval: 1                      # 每 N 个 epoch 记录一次验证指标
+  use_wandb: false                     # 启用 Weights & Biases 日志
+  use_swanlab: false                   # 启用 SwanLab 日志
+  # wandb_api: YOUR_WANDB_API_KEY      # 可选，非交互登录用 API Key
+  # swanlab_api: YOUR_SWANLAB_API_KEY  # 可选，非交互登录用 API Key
   device: cpu                          # 设备：cpu, cuda, cuda:0, mps
 ```
 
@@ -146,6 +152,7 @@ train:
 - `valid_batch_size`: 验证时的批次大小
 - `valid_shuffle`: 是否打乱验证数据
 - `num_workers`: 数据加载进程数
+- `prefetch_factor`: 每个 worker 预取的 batch 数量（`num_workers > 0` 时生效）
 - `chunk_size`: 流式处理时每次读取的数据量（`streaming=true`）
 
 ##### train 部分
@@ -163,6 +170,7 @@ train:
   - `mse`: Mean Squared Error
 - `loss_params`: 损失函数参数（可选，多任务逐项配置）
 - `loss_weights`: 损失权重（列表/数值）或 GradNorm 配置
+- `ignore_label`: 计算损失时忽略的标签值
 - `metrics`: 评估指标列表，支持：
   - `auc`: Area Under ROC Curve
   - `recall`: 召回率
@@ -172,6 +180,11 @@ train:
 - `epochs`: 训练轮数
 - `batch_size`: 可覆盖 dataloader 的批次大小
 - `shuffle`: 是否打乱训练数据
+- `log_interval`: 每 N 个 epoch 记录一次验证指标
+- `use_wandb`: 启用 Weights & Biases 日志
+- `use_swanlab`: 启用 SwanLab 日志
+- `wandb_api`: W&B API key（非交互登录）
+- `swanlab_api`: SwanLab API key（非交互登录）
 - `device`: 运行设备
   - `cpu`: CPU
   - `cuda`: NVIDIA GPU
@@ -278,6 +291,7 @@ sparse:
       type: sparse
       encode_method: hash               # Hash 编码
       hash_size: 100                    # Hash 表大小
+      min_freq: 1                       # 最低频次阈值
     embedding_config:
       name: gender
       vocab_size: 100
@@ -289,6 +303,7 @@ sequence:
       type: sequence
       encode_method: hash               # 序列编码方法
       hash_size: 10000                  # Hash 表大小
+      min_freq: 1                       # 最低频次阈值
       max_len: 50                       # 最大序列长度
       pad_value: 0                      # 填充值
       truncate: post                    # 截断方式：post, pre
@@ -333,12 +348,14 @@ feature_groups:
   - `hash`: Hash 编码（适用于高基数特征）
   - `onehot`: One-Hot 编码
 - `processor_config.hash_size`: Hash 表大小（仅用于 hash 编码）
+- `processor_config.min_freq`: 最低频次阈值，低于阈值的 token 会映射为未知
 - `embedding_config.vocab_size`: Embedding 词表大小
 - `embedding_config.embedding_dim`: Embedding 维度
 
 ##### sequence（序列特征）
 - `processor_config.type`: 必须为 `sequence`
 - `processor_config.encode_method`: 编码方法（通常为 `hash` 或 `label`）
+- `processor_config.min_freq`: 最低频次阈值，低于阈值的 token 会映射为未知
 - `processor_config.max_len`: 最大序列长度
 - `processor_config.pad_value`: 填充值（通常为 0）
 - `processor_config.truncate`: 截断方式

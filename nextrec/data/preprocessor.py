@@ -45,7 +45,15 @@ from nextrec.utils.data import (
 
 
 class DataProcessor(FeatureSet):
-    def __init__(self, hash_cache_size: int = 200_000):
+    def __init__(
+        self,
+        hash_cache_size: int = 200_000,
+    ):
+        if not logging.getLogger().hasHandlers():
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(message)s",
+            )
         self.numeric_features: Dict[str, Dict[str, Any]] = {}
         self.sparse_features: Dict[str, Dict[str, Any]] = {}
         self.sequence_features: Dict[str, Dict[str, Any]] = {}
@@ -53,9 +61,6 @@ class DataProcessor(FeatureSet):
         self.version = __version__
 
         self.is_fitted = False
-        self._transform_summary_printed = (
-            False  # Track if summary has been printed during transform
-        )
 
         self.scalers: Dict[str, Any] = {}
         self.label_encoders: Dict[str, LabelEncoder] = {}
@@ -92,17 +97,19 @@ class DataProcessor(FeatureSet):
     def add_sparse_feature(
         self,
         name: str,
-        encode_method: Literal["hash", "label"] = "label",
+        encode_method: Literal["hash", "label"] = "hash",
         hash_size: Optional[int] = None,
+        min_freq: Optional[int] = None,
         fill_na: str = "<UNK>",
     ):
         """Add a sparse feature configuration.
 
         Args:
-            name (str): Feature name.
-            encode_method (Literal["hash", "label"], optional): Encoding method, including "hash encoding" and "label encoding". Defaults to "label".
-            hash_size (Optional[int], optional): Hash size for hash encoding. Required if encode_method is "hash".
-            fill_na (str, optional): Fill value for missing entries. Defaults to "<UNK>".
+            name: Feature name.
+            encode_method: Encoding method, including "hash encoding" and "label encoding". Defaults to "hash" because it is more scalable and much faster.
+            hash_size: Hash size for hash encoding. Required if encode_method is "hash".
+            min_freq: Minimum frequency for hash encoding to keep tokens; lower-frequency tokens map to unknown. Defaults to None.
+            fill_na: Fill value for missing entries. Defaults to "<UNK>".
         """
         if encode_method == "hash" and hash_size is None:
             raise ValueError(
@@ -111,6 +118,7 @@ class DataProcessor(FeatureSet):
         self.sparse_features[name] = {
             "encode_method": encode_method,
             "hash_size": hash_size,
+            "min_freq": min_freq,
             "fill_na": fill_na,
         }
 
@@ -119,6 +127,7 @@ class DataProcessor(FeatureSet):
         name: str,
         encode_method: Literal["hash", "label"] = "hash",
         hash_size: Optional[int] = None,
+        min_freq: Optional[int] = None,
         max_len: Optional[int] = 50,
         pad_value: int = 0,
         truncate: Literal[
@@ -129,13 +138,14 @@ class DataProcessor(FeatureSet):
         """Add a sequence feature configuration.
 
         Args:
-            name (str): Feature name.
-            encode_method (Literal["hash", "label"], optional): Encoding method, including "hash encoding" and "label encoding". Defaults to "hash".
-            hash_size (Optional[int], optional): Hash size for hash encoding. Required if encode_method is "hash".
-            max_len (Optional[int], optional): Maximum sequence length. Defaults to 50.
-            pad_value (int, optional): Padding value for sequences shorter than max_len. Defaults to 0.
-            truncate (Literal["pre", "post"], optional): Truncation strategy for sequences longer than max_len, including "pre" (keep last max_len items) and "post" (keep first max_len items). Defaults to "pre".
-            separator (str, optional): Separator for string sequences. Defaults to ",".
+            name: Feature name.
+            encode_method: Encoding method, including "hash encoding" and "label encoding". Defaults to "hash".
+            hash_size: Hash size for hash encoding. Required if encode_method is "hash".
+            min_freq: Minimum frequency for hash encoding to keep tokens; lower-frequency tokens map to unknown. Defaults to None.
+            max_len: Maximum sequence length. Defaults to 50.
+            pad_value: Padding value for sequences shorter than max_len. Defaults to 0.
+            truncate: Truncation strategy for sequences longer than max_len, including "pre" (keep last max_len items) and "post" (keep first max_len items). Defaults to "pre".
+            separator: Separator for string sequences. Defaults to ",".
         """
         if encode_method == "hash" and hash_size is None:
             raise ValueError(
@@ -144,6 +154,7 @@ class DataProcessor(FeatureSet):
         self.sequence_features[name] = {
             "encode_method": encode_method,
             "hash_size": hash_size,
+            "min_freq": min_freq,
             "max_len": max_len,
             "pad_value": pad_value,
             "truncate": truncate,
@@ -174,17 +185,6 @@ class DataProcessor(FeatureSet):
 
     def hash_string(self, s: str, hash_size: int) -> int:
         return self.hash_fn(str(s), int(hash_size))
-
-    def clear_hash_cache(self) -> None:
-        cache_clear = getattr(self.hash_fn, "cache_clear", None)
-        if callable(cache_clear):
-            cache_clear()
-
-    def hash_cache_info(self):
-        cache_info = getattr(self.hash_fn, "cache_info", None)
-        if callable(cache_info):
-            return cache_info()
-        return None
 
     def process_numeric_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
         name = str(data.name)
@@ -241,12 +241,30 @@ class DataProcessor(FeatureSet):
         return result
 
     def process_sparse_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
-        _ = str(data.name)
+        logger = logging.getLogger()
+
         encode_method = config["encode_method"]
         fill_na = config["fill_na"]  # <UNK>
         filled_data = data.fillna(fill_na).astype(str)
         if encode_method == "label":
-            vocab = sorted(set(filled_data.tolist()))
+            min_freq = config.get("min_freq")
+            if min_freq is not None:
+                counts = filled_data.value_counts()
+                config["_token_counts"] = counts.to_dict()
+                vocab = sorted(counts[counts >= min_freq].index.tolist())
+                low_freq_types = int((counts < min_freq).sum())
+                total_types = int(counts.size)
+                kept_types = total_types - low_freq_types
+                if not config.get("_min_freq_logged"):
+                    logger.info(
+                        f"Sparse feature {data.name} min_freq={min_freq}: "
+                        f"{total_types} token types total, "
+                        f"{low_freq_types} low-frequency, "
+                        f"{kept_types} kept."
+                    )
+                    config["_min_freq_logged"] = True
+            else:
+                vocab = sorted(set(filled_data.tolist()))
             if "<UNK>" not in vocab:
                 vocab.append("<UNK>")
             token_to_idx = {token: idx for idx, token in enumerate(vocab)}
@@ -254,6 +272,24 @@ class DataProcessor(FeatureSet):
             config["_unk_index"] = token_to_idx["<UNK>"]
             config["vocab_size"] = len(vocab)
         elif encode_method == "hash":
+            min_freq = config.get("min_freq")
+            if min_freq is not None:
+                counts = filled_data.value_counts()
+                config["_token_counts"] = counts.to_dict()
+                config["_unk_hash"] = self.hash_string(
+                    "<UNK>", int(config["hash_size"])
+                )
+                low_freq_types = int((counts < min_freq).sum())
+                total_types = int(counts.size)
+                kept_types = total_types - low_freq_types
+                if not config.get("_min_freq_logged"):
+                    logger.info(
+                        f"Sparse feature {data.name} min_freq={min_freq}: "
+                        f"{total_types} token types total, "
+                        f"{low_freq_types} low-frequency, "
+                        f"{kept_types} kept."
+                    )
+                    config["_min_freq_logged"] = True
             config["vocab_size"] = config["hash_size"]
 
     def process_sparse_feature_transform(
@@ -283,22 +319,60 @@ class DataProcessor(FeatureSet):
         if encode_method == "hash":
             hash_size = config["hash_size"]
             hash_fn = self.hash_string
+            min_freq = config.get("min_freq")
+            token_counts = config.get("_token_counts")
+            if min_freq is not None and isinstance(token_counts, dict):
+                unk_hash = config.get("_unk_hash")
+                if unk_hash is None:
+                    unk_hash = hash_fn("<UNK>", hash_size)
             return np.fromiter(
-                (hash_fn(v, hash_size) for v in sparse_series.to_numpy()),
+                (
+                    (
+                        unk_hash
+                        if min_freq is not None
+                        and isinstance(token_counts, dict)
+                        and token_counts.get(v, 0) < min_freq
+                        else hash_fn(v, hash_size)
+                    )
+                    for v in sparse_series.to_numpy()
+                ),
                 dtype=np.int64,
                 count=sparse_series.size,
             )
         return np.array([], dtype=np.int64)
 
     def process_sequence_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
+        logger = logging.getLogger()
         _ = str(data.name)
         encode_method = config["encode_method"]
         separator = config["separator"]
         if encode_method == "label":
-            all_tokens = set()
+            min_freq = config.get("min_freq")
+            token_counts: Dict[str, int] = {}
             for seq in data:
-                all_tokens.update(self.extract_sequence_tokens(seq, separator))
-            vocab = sorted(all_tokens)
+                tokens = self.extract_sequence_tokens(seq, separator)
+                for token in tokens:
+                    if str(token).strip():
+                        key = str(token)
+                        token_counts[key] = token_counts.get(key, 0) + 1
+            if min_freq is not None:
+                config["_token_counts"] = token_counts
+                vocab = sorted([k for k, v in token_counts.items() if v >= min_freq])
+                low_freq_types = sum(
+                    1 for count in token_counts.values() if count < min_freq
+                )
+                total_types = len(token_counts)
+                kept_types = total_types - low_freq_types
+                if not config.get("_min_freq_logged"):
+                    logger.info(
+                        f"Sequence feature {data.name} min_freq={min_freq}: "
+                        f"{total_types} token types total, "
+                        f"{low_freq_types} low-frequency, "
+                        f"{kept_types} kept."
+                    )
+                    config["_min_freq_logged"] = True
+            else:
+                vocab = sorted(token_counts.keys())
             if not vocab:
                 vocab = ["<PAD>"]
             if "<UNK>" not in vocab:
@@ -308,6 +382,33 @@ class DataProcessor(FeatureSet):
             config["_unk_index"] = token_to_idx["<UNK>"]
             config["vocab_size"] = len(vocab)
         elif encode_method == "hash":
+            min_freq = config.get("min_freq")
+            if min_freq is not None:
+                token_counts: Dict[str, int] = {}
+                for seq in data:
+                    tokens = self.extract_sequence_tokens(seq, separator)
+                    for token in tokens:
+                        if str(token).strip():
+                            token_counts[str(token)] = (
+                                token_counts.get(str(token), 0) + 1
+                            )
+                config["_token_counts"] = token_counts
+                config["_unk_hash"] = self.hash_string(
+                    "<UNK>", int(config["hash_size"])
+                )
+                low_freq_types = sum(
+                    1 for count in token_counts.values() if count < min_freq
+                )
+                total_types = len(token_counts)
+                kept_types = total_types - low_freq_types
+                if not config.get("_min_freq_logged"):
+                    logger.info(
+                        f"Sequence feature {data.name} min_freq={min_freq}: "
+                        f"{total_types} token types total, "
+                        f"{low_freq_types} low-frequency, "
+                        f"{kept_types} kept."
+                    )
+                    config["_min_freq_logged"] = True
             config["vocab_size"] = config["hash_size"]
 
     def process_sequence_feature_transform(
@@ -338,6 +439,12 @@ class DataProcessor(FeatureSet):
             unk_index = 0
         hash_fn = self.hash_string
         hash_size = config.get("hash_size")
+        min_freq = config.get("min_freq")
+        token_counts = config.get("_token_counts")
+        if min_freq is not None and isinstance(token_counts, dict):
+            unk_hash = config.get("_unk_hash")
+            if unk_hash is None and hash_size is not None:
+                unk_hash = hash_fn("<UNK>", hash_size)
         for i, seq in enumerate(arr):
             # normalize sequence to a list of strings
             tokens = []
@@ -364,7 +471,13 @@ class DataProcessor(FeatureSet):
                         "[Data Processor Error] hash_size must be set for hash encoding"
                     )
                 encoded = [
-                    hash_fn(str(token), hash_size)
+                    (
+                        unk_hash
+                        if min_freq is not None
+                        and isinstance(token_counts, dict)
+                        and token_counts.get(str(token), 0) < min_freq
+                        else hash_fn(str(token), hash_size)
+                    )
                     for token in tokens
                     if str(token).strip()
                 ]
@@ -472,6 +585,10 @@ class DataProcessor(FeatureSet):
                 bold=True,
             )
         )
+        for config in self.sparse_features.values():
+            config.pop("_min_freq_logged", None)
+        for config in self.sequence_features.values():
+            config.pop("_min_freq_logged", None)
         file_paths, file_type = resolve_file_paths(path)
         if not check_streaming_support(file_type):
             raise ValueError(
@@ -495,6 +612,26 @@ class DataProcessor(FeatureSet):
         }
         seq_vocab: Dict[str, set[str]] = {
             name: set() for name in self.sequence_features.keys()
+        }
+        sparse_label_counts: Dict[str, Dict[str, int]] = {
+            name: {}
+            for name, config in self.sparse_features.items()
+            if config.get("encode_method") == "label" and config.get("min_freq")
+        }
+        seq_label_counts: Dict[str, Dict[str, int]] = {
+            name: {}
+            for name, config in self.sequence_features.items()
+            if config.get("encode_method") == "label" and config.get("min_freq")
+        }
+        sparse_hash_counts: Dict[str, Dict[str, int]] = {
+            name: {}
+            for name, config in self.sparse_features.items()
+            if config.get("encode_method") == "hash" and config.get("min_freq")
+        }
+        seq_hash_counts: Dict[str, Dict[str, int]] = {
+            name: {}
+            for name, config in self.sequence_features.items()
+            if config.get("encode_method") == "hash" and config.get("min_freq")
         }
         target_values: Dict[str, set[Any]] = {
             name: set() for name in self.target_features.keys()
@@ -531,6 +668,14 @@ class DataProcessor(FeatureSet):
                             fill_na = config["fill_na"]
                             series = series.fillna(fill_na).astype(str)
                             sparse_vocab[name].update(series.tolist())
+                            if name in sparse_label_counts:
+                                counts = sparse_label_counts[name]
+                                for token in series.tolist():
+                                    counts[token] = counts.get(token, 0) + 1
+                            if name in sparse_hash_counts:
+                                counts = sparse_hash_counts[name]
+                                for token in series.tolist():
+                                    counts[token] = counts.get(token, 0) + 1
                         else:
                             separator = config["separator"]
                             tokens = []
@@ -539,6 +684,18 @@ class DataProcessor(FeatureSet):
                                     self.extract_sequence_tokens(val, separator)
                                 )
                             seq_vocab[name].update(tokens)
+                            if name in seq_label_counts:
+                                counts = seq_label_counts[name]
+                                for token in tokens:
+                                    if str(token).strip():
+                                        key = str(token)
+                                        counts[key] = counts.get(key, 0) + 1
+                            if name in seq_hash_counts:
+                                counts = seq_hash_counts[name]
+                                for token in tokens:
+                                    if str(token).strip():
+                                        key = str(token)
+                                        counts[key] = counts.get(key, 0) + 1
 
                 # target features
                 missing_features.update(self.target_features.keys() - columns)
@@ -605,7 +762,30 @@ class DataProcessor(FeatureSet):
         # finalize sparse label encoders
         for name, config in self.sparse_features.items():
             if config["encode_method"] == "label":
-                vocab = sparse_vocab[name]
+                min_freq = config.get("min_freq")
+                if min_freq is not None:
+                    token_counts = sparse_label_counts.get(name, {})
+                    config["_token_counts"] = token_counts
+                    vocab = {
+                        token
+                        for token, count in token_counts.items()
+                        if count >= min_freq
+                    }
+                    low_freq_types = sum(
+                        1 for count in token_counts.values() if count < min_freq
+                    )
+                    total_types = len(token_counts)
+                    kept_types = total_types - low_freq_types
+                    if not config.get("_min_freq_logged"):
+                        logger.info(
+                            f"Sparse feature {name} min_freq={min_freq}: "
+                            f"{total_types} token types total, "
+                            f"{low_freq_types} low-frequency, "
+                            f"{kept_types} kept."
+                        )
+                        config["_min_freq_logged"] = True
+                else:
+                    vocab = sparse_vocab[name]
                 if not vocab:
                     logger.warning(f"Sparse feature {name} has empty vocabulary")
                     continue
@@ -617,12 +797,55 @@ class DataProcessor(FeatureSet):
                 config["_unk_index"] = token_to_idx["<UNK>"]
                 config["vocab_size"] = len(vocab_list)
             elif config["encode_method"] == "hash":
+                min_freq = config.get("min_freq")
+                if min_freq is not None:
+                    token_counts = sparse_hash_counts.get(name, {})
+                    config["_token_counts"] = token_counts
+                    config["_unk_hash"] = self.hash_string(
+                        "<UNK>", int(config["hash_size"])
+                    )
+                    low_freq_types = sum(
+                        1 for count in token_counts.values() if count < min_freq
+                    )
+                    total_types = len(token_counts)
+                    kept_types = total_types - low_freq_types
+                    if not config.get("_min_freq_logged"):
+                        logger.info(
+                            f"Sparse feature {name} min_freq={min_freq}: "
+                            f"{total_types} token types total, "
+                            f"{low_freq_types} low-frequency, "
+                            f"{kept_types} kept."
+                        )
+                        config["_min_freq_logged"] = True
                 config["vocab_size"] = config["hash_size"]
 
         # finalize sequence vocabularies
         for name, config in self.sequence_features.items():
             if config["encode_method"] == "label":
-                vocab_set = seq_vocab[name]
+                min_freq = config.get("min_freq")
+                if min_freq is not None:
+                    token_counts = seq_label_counts.get(name, {})
+                    config["_token_counts"] = token_counts
+                    vocab_set = {
+                        token
+                        for token, count in token_counts.items()
+                        if count >= min_freq
+                    }
+                    low_freq_types = sum(
+                        1 for count in token_counts.values() if count < min_freq
+                    )
+                    total_types = len(token_counts)
+                    kept_types = total_types - low_freq_types
+                    if not config.get("_min_freq_logged"):
+                        logger.info(
+                            f"Sequence feature {name} min_freq={min_freq}: "
+                            f"{total_types} token types total, "
+                            f"{low_freq_types} low-frequency, "
+                            f"{kept_types} kept."
+                        )
+                        config["_min_freq_logged"] = True
+                else:
+                    vocab_set = seq_vocab[name]
                 vocab_list = sorted(vocab_set) if vocab_set else ["<PAD>"]
                 if "<UNK>" not in vocab_list:
                     vocab_list.append("<UNK>")
@@ -631,6 +854,26 @@ class DataProcessor(FeatureSet):
                 config["_unk_index"] = token_to_idx["<UNK>"]
                 config["vocab_size"] = len(vocab_list)
             elif config["encode_method"] == "hash":
+                min_freq = config.get("min_freq")
+                if min_freq is not None:
+                    token_counts = seq_hash_counts.get(name, {})
+                    config["_token_counts"] = token_counts
+                    config["_unk_hash"] = self.hash_string(
+                        "<UNK>", int(config["hash_size"])
+                    )
+                    low_freq_types = sum(
+                        1 for count in token_counts.values() if count < min_freq
+                    )
+                    total_types = len(token_counts)
+                    kept_types = total_types - low_freq_types
+                    if not config.get("_min_freq_logged"):
+                        logger.info(
+                            f"Sequence feature {name} min_freq={min_freq}: "
+                            f"{total_types} token types total, "
+                            f"{low_freq_types} low-frequency, "
+                            f"{kept_types} kept."
+                        )
+                        config["_min_freq_logged"] = True
                 config["vocab_size"] = config["hash_size"]
 
         # finalize targets
@@ -961,6 +1204,10 @@ class DataProcessor(FeatureSet):
         """
 
         logger = logging.getLogger()
+        for config in self.sparse_features.values():
+            config.pop("_min_freq_logged", None)
+        for config in self.sequence_features.values():
+            config.pop("_min_freq_logged", None)
         if isinstance(data, (str, os.PathLike)):
             path_str = str(data)
             uses_robust = any(

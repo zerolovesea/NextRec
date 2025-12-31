@@ -204,6 +204,11 @@ def get_scheduler(
             )
         else:
             raise NotImplementedError(f"Unsupported scheduler: {scheduler}")
+    elif isinstance(scheduler, type) and issubclass(
+        scheduler,
+        (torch.optim.lr_scheduler._LRScheduler, torch.optim.lr_scheduler.LRScheduler),
+    ):
+        scheduler_fn = scheduler(optimizer, **scheduler_params)
     elif isinstance(
         scheduler,
         (torch.optim.lr_scheduler._LRScheduler, torch.optim.lr_scheduler.LRScheduler),
@@ -213,6 +218,12 @@ def get_scheduler(
         raise TypeError(f"Invalid scheduler type: {type(scheduler)}")
 
     return scheduler_fn
+
+
+def to_numpy(values: Any) -> np.ndarray:
+    if isinstance(values, torch.Tensor):
+        return values.detach().cpu().numpy()
+    return np.asarray(values)
 
 
 def to_tensor(

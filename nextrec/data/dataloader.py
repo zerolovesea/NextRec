@@ -194,6 +194,7 @@ class RecDataLoader(FeatureSet):
         streaming: bool = False,
         chunk_size: int = 10000,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
         sampler=None,
     ) -> DataLoader:
         """
@@ -206,6 +207,7 @@ class RecDataLoader(FeatureSet):
             streaming: If True, use streaming mode for large files; if False, load full data into memory.
             chunk_size: Chunk size for streaming mode (number of rows per chunk).
             num_workers: Number of worker processes for data loading.
+            prefetch_factor: Number of batches loaded in advance by each worker.
             sampler: Optional sampler for DataLoader, only used for distributed training.
         Returns:
             DataLoader instance.
@@ -234,6 +236,7 @@ class RecDataLoader(FeatureSet):
                 streaming=streaming,
                 chunk_size=chunk_size,
                 num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
             )
 
         if isinstance(data, (dict, pd.DataFrame)):
@@ -242,6 +245,7 @@ class RecDataLoader(FeatureSet):
                 batch_size=batch_size,
                 shuffle=shuffle,
                 num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
                 sampler=sampler,
             )
 
@@ -253,6 +257,7 @@ class RecDataLoader(FeatureSet):
         batch_size: int,
         shuffle: bool,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
         sampler=None,
     ) -> DataLoader:
         raw_data = data
@@ -275,6 +280,9 @@ class RecDataLoader(FeatureSet):
                 "[RecDataLoader Error] No valid tensors could be built from the provided data."
             )
         dataset = TensorDictDataset(tensors)
+        loader_kwargs = {}
+        if num_workers > 0 and prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = prefetch_factor
         return DataLoader(
             dataset,
             batch_size=batch_size,
@@ -284,6 +292,7 @@ class RecDataLoader(FeatureSet):
             num_workers=num_workers,
             pin_memory=torch.cuda.is_available(),
             persistent_workers=num_workers > 0,
+            **loader_kwargs,
         )
 
     def create_from_path(
@@ -294,6 +303,7 @@ class RecDataLoader(FeatureSet):
         streaming: bool,
         chunk_size: int = 10000,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
     ) -> DataLoader:
         if isinstance(path, (str, os.PathLike)):
             file_paths, file_type = resolve_file_paths(str(Path(path)))
@@ -327,6 +337,7 @@ class RecDataLoader(FeatureSet):
                 chunk_size,
                 shuffle,
                 num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
             )
 
         dfs = []
@@ -350,7 +361,11 @@ class RecDataLoader(FeatureSet):
                 f"[RecDataLoader Error] Out of memory while concatenating loaded data (approx {total_bytes / (1024**3):.2f} GB). Use streaming=True or reduce chunk_size."
             ) from exc
         return self.create_from_memory(
-            combined_df, batch_size, shuffle, num_workers=num_workers
+            combined_df,
+            batch_size,
+            shuffle,
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
         )
 
     def load_files_streaming(
@@ -361,6 +376,7 @@ class RecDataLoader(FeatureSet):
         chunk_size: int,
         shuffle: bool,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
     ) -> DataLoader:
         if not check_streaming_support(file_type):
             raise ValueError(
@@ -393,8 +409,15 @@ class RecDataLoader(FeatureSet):
             file_type=file_type,
             processor=self.processor,
         )
+        loader_kwargs = {}
+        if num_workers > 0 and prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = prefetch_factor
         return DataLoader(
-            dataset, batch_size=1, collate_fn=collate_fn, num_workers=num_workers
+            dataset,
+            batch_size=1,
+            collate_fn=collate_fn,
+            num_workers=num_workers,
+            **loader_kwargs,
         )
 
 

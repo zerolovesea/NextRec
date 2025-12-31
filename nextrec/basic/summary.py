@@ -48,6 +48,27 @@ class SummarySet:
     checkpoint_path: str
     train_data_summary: dict[str, Any] | None
     valid_data_summary: dict[str, Any] | None
+    note: str | None
+
+    def collect_dataloader_summary(self, data_loader: DataLoader | None):
+        if data_loader is None:
+            return None
+
+        summary = {
+            "batch_size": data_loader.batch_size,
+            "num_workers": data_loader.num_workers,
+            "pin_memory": data_loader.pin_memory,
+            "persistent_workers": data_loader.persistent_workers,
+        }
+        prefetch_factor = getattr(data_loader, "prefetch_factor", None)
+        if prefetch_factor is not None:
+            summary["prefetch_factor"] = prefetch_factor
+
+        sampler = getattr(data_loader, "sampler", None)
+        if sampler is not None:
+            summary["sampler"] = sampler.__class__.__name__
+
+        return summary or None
 
     def build_data_summary(
         self, data: Any, data_loader: DataLoader | None, sample_key: str
@@ -65,6 +86,10 @@ class SummarySet:
         summary = {}
         if train_size is not None:
             summary[sample_key] = int(train_size)
+
+        dataloader_summary = self.collect_dataloader_summary(data_loader)
+        if dataloader_summary:
+            summary["dataloader"] = dataloader_summary
 
         if labels:
             task_types = list(self.task) if isinstance(self.task, list) else [self.task]
@@ -321,6 +346,7 @@ class SummarySet:
             logger.info(f"  Session ID:            {self.session_id}")
             logger.info(f"  Features Config Path:  {self.features_config_path}")
             logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")
+            logger.info(f"  Note:                  {self.note}")
 
         if "Data Summary" in selected_sections and (
             self.train_data_summary or self.valid_data_summary
@@ -341,6 +367,22 @@ class SummarySet:
                         for label, value in lines:
                             logger.info(f"  {format_kv(label, value)}")
 
+                dataloader_info = self.train_data_summary.get("dataloader")
+                if isinstance(dataloader_info, dict):
+                    logger.info("Train DataLoader:")
+                    for key in (
+                        "batch_size",
+                        "num_workers",
+                        "pin_memory",
+                        "persistent_workers",
+                        "sampler",
+                    ):
+                        if key in dataloader_info:
+                            label = key.replace("_", " ").title()
+                            logger.info(
+                                format_kv(label, dataloader_info[key], indent=2)
+                            )
+
             if self.valid_data_summary:
                 if self.train_data_summary:
                     logger.info("")
@@ -355,3 +397,19 @@ class SummarySet:
                         logger.info(f"{target_name}:")
                         for label, value in lines:
                             logger.info(f"  {format_kv(label, value)}")
+
+                dataloader_info = self.valid_data_summary.get("dataloader")
+                if isinstance(dataloader_info, dict):
+                    logger.info("Valid DataLoader:")
+                    for key in (
+                        "batch_size",
+                        "num_workers",
+                        "pin_memory",
+                        "persistent_workers",
+                        "sampler",
+                    ):
+                        if key in dataloader_info:
+                            label = key.replace("_", " ").title()
+                            logger.info(
+                                format_kv(label, dataloader_info[key], indent=2)
+                            )
