@@ -1,11 +1,11 @@
 """
-Date: create on 09/11/2025
-Checkpoint: edit on 30/12/2025
+Date: create on 01/01/2026
+Checkpoint: edit on 01/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Yang et al. "PEPNet: Parameter and Embedding Personalized Network for Multi-Task Learning", 2021.
-[2] MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation:
-https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/blob/main/model/pepnet.py
+- [1] Chang J, Zhang C, Hui Y, Leng D, Niu Y, Song Y, Gai K. PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information. In: Proceedings of the 29th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’23), 2023.
+URL: https://arxiv.org/abs/2302.01115
+- [2] MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation: https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/
 
 PEPNet (Parameter and Embedding Personalized Network) is a multi-task learning
 model that personalizes both input features and layer transformations with
@@ -58,7 +58,7 @@ from nextrec.basic.layers import EmbeddingLayer, GateMLP
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
-from nextrec.utils.types import ActivationName, TaskTypeName
+from nextrec.utils.types import TaskTypeName
 
 
 class PPNetBlock(nn.Module):
@@ -71,34 +71,42 @@ class PPNetBlock(nn.Module):
         input_dim: int,
         output_dim: int,
         gate_input_dim: int,
-        gate_hidden_dim: int | None,
-        hidden_units: list[int] | None = None,
-        hidden_activations: ActivationName | list[ActivationName] = "relu",
-        dropout_rates: float | list[float] = 0.0,
-        batch_norm: bool = False,
+        mlp_params: dict | None = None,
+        gate_mlp_params: dict | None = None,
         use_bias: bool = True,
-        gate_activation: ActivationName = "relu",
-        gate_dropout: float = 0.0,
-        gate_use_bn: bool = False,
     ) -> None:
         super().__init__()
-        hidden_units = hidden_units or []
+        mlp_params = mlp_params or {}
+        gate_mlp_params = gate_mlp_params or {}
 
-        if isinstance(dropout_rates, list):
-            if len(dropout_rates) != len(hidden_units):
+        mlp_params.setdefault("hidden_dims", [])
+        mlp_params.setdefault("activation", "relu")
+        mlp_params.setdefault("dropout", 0.0)
+        mlp_params.setdefault("norm_type", "none")
+
+        gate_mlp_params.setdefault("hidden_dim", None)
+        gate_mlp_params.setdefault("activation", "relu")
+        gate_mlp_params.setdefault("dropout", 0.0)
+        gate_mlp_params.setdefault("use_bn", False)
+
+        hidden_units = mlp_params["hidden_dims"]
+        norm_type = mlp_params["norm_type"]
+
+        if isinstance(mlp_params["dropout"], list):
+            if len(mlp_params["dropout"]) != len(hidden_units):
                 raise ValueError("dropout_rates length must match hidden_units length.")
-            dropout_list = dropout_rates
+            dropout_list = mlp_params["dropout"]
         else:
-            dropout_list = [dropout_rates] * len(hidden_units)
+            dropout_list = [mlp_params["dropout"]] * len(hidden_units)
 
-        if isinstance(hidden_activations, list):
-            if len(hidden_activations) != len(hidden_units):
+        if isinstance(mlp_params["activation"], list):
+            if len(mlp_params["activation"]) != len(hidden_units):
                 raise ValueError(
                     "hidden_activations length must match hidden_units length."
                 )
-            activation_list = hidden_activations
+            activation_list = mlp_params["activation"]
         else:
-            activation_list = [hidden_activations] * len(hidden_units)
+            activation_list = [mlp_params["activation"]] * len(hidden_units)
 
         self.gate_layers = nn.ModuleList()
         self.mlp_layers = nn.ModuleList()
@@ -108,7 +116,7 @@ class PPNetBlock(nn.Module):
             dense_layers: list[nn.Module] = [
                 nn.Linear(layer_units[idx], layer_units[idx + 1], bias=use_bias)
             ]
-            if batch_norm:
+            if norm_type == "batch_norm":
                 dense_layers.append(nn.BatchNorm1d(layer_units[idx + 1]))
             dense_layers.append(activation_layer(activation_list[idx]))
             if dropout_list[idx] > 0:
@@ -117,11 +125,11 @@ class PPNetBlock(nn.Module):
             self.gate_layers.append(
                 GateMLP(
                     input_dim=gate_input_dim,
-                    hidden_dim=gate_hidden_dim,
+                    hidden_dim=gate_mlp_params["hidden_dim"],
                     output_dim=layer_units[idx],
-                    activation=gate_activation,
-                    dropout=gate_dropout,
-                    use_bn=gate_use_bn,
+                    activation=gate_mlp_params["activation"],
+                    dropout=gate_mlp_params["dropout"],
+                    use_bn=gate_mlp_params["use_bn"],
                     scale_factor=2.0,
                 )
             )
@@ -130,11 +138,11 @@ class PPNetBlock(nn.Module):
         self.gate_layers.append(
             GateMLP(
                 input_dim=gate_input_dim,
-                hidden_dim=gate_hidden_dim,
+                hidden_dim=gate_mlp_params["hidden_dim"],
                 output_dim=layer_units[-1],
-                activation=gate_activation,
-                dropout=gate_dropout,
-                use_bn=gate_use_bn,
+                activation=gate_mlp_params["activation"],
+                dropout=gate_mlp_params["dropout"],
+                use_bn=gate_mlp_params["use_bn"],
                 scale_factor=1.0,
             )
         )
@@ -177,15 +185,9 @@ class PEPNet(BaseModel):
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | str | None = None,
         task: TaskTypeName | list[TaskTypeName] | None = None,
-        dnn_hidden_units: list[int] | None = None,
-        dnn_activation: ActivationName = "relu",
-        dnn_dropout: float | list[float] = 0.0,
-        dnn_use_bn: bool = False,
-        feature_gate_hidden_dim: int = 128,
-        gate_hidden_dim: int | None = None,
-        gate_activation: ActivationName = "relu",
-        gate_dropout: float = 0.0,
-        gate_use_bn: bool = False,
+        mlp_params: dict | None = None,
+        feature_gate_mlp_params: dict | None = None,
+        gate_mlp_params: dict | None = None,
         domain_features: list[str] | str | None = None,
         user_features: list[str] | str | None = None,
         item_features: list[str] | str | None = None,
@@ -195,7 +197,24 @@ class PEPNet(BaseModel):
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
-        dnn_hidden_units = dnn_hidden_units or [256, 128]
+        mlp_params = mlp_params or {}
+        feature_gate_mlp_params = feature_gate_mlp_params or {}
+        gate_mlp_params = gate_mlp_params or {}
+
+        mlp_params.setdefault("hidden_dims", [256, 128])
+        mlp_params.setdefault("activation", "relu")
+        mlp_params.setdefault("dropout", 0.0)
+        mlp_params.setdefault("norm_type", "none")
+
+        feature_gate_mlp_params.setdefault("hidden_dim", 128)
+        feature_gate_mlp_params.setdefault("activation", "relu")
+        feature_gate_mlp_params.setdefault("dropout", 0.0)
+        feature_gate_mlp_params.setdefault("use_bn", False)
+
+        gate_mlp_params.setdefault("hidden_dim", None)
+        gate_mlp_params.setdefault("activation", "relu")
+        gate_mlp_params.setdefault("dropout", 0.0)
+        gate_mlp_params.setdefault("use_bn", False)
 
         if target is None:
             target = []
@@ -203,24 +222,13 @@ class PEPNet(BaseModel):
             target = [target]
 
         self.nums_task = len(target) if target else 1
-        resolved_task = task
-        if resolved_task is None:
-            resolved_task = self.default_task
-        elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.nums_task
-        elif len(resolved_task) == 1 and self.nums_task > 1:
-            resolved_task = resolved_task * self.nums_task
-        elif len(resolved_task) != self.nums_task:
-            raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
-            )
 
         super().__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=resolved_task,
+            task=task,
             **kwargs,
         )
 
@@ -268,11 +276,11 @@ class PEPNet(BaseModel):
 
         self.feature_gate = GateMLP(
             input_dim=input_dim + domain_dim,
-            hidden_dim=feature_gate_hidden_dim,
+            hidden_dim=feature_gate_mlp_params["hidden_dim"],
             output_dim=input_dim,
-            activation=gate_activation,
-            dropout=gate_dropout,
-            use_bn=gate_use_bn,
+            activation=feature_gate_mlp_params["activation"],
+            dropout=feature_gate_mlp_params["dropout"],
+            use_bn=feature_gate_mlp_params["use_bn"],
         )
 
         self.ppn_blocks = nn.ModuleList(
@@ -281,15 +289,9 @@ class PEPNet(BaseModel):
                     input_dim=input_dim,
                     output_dim=1,
                     gate_input_dim=input_dim + task_dim,
-                    gate_hidden_dim=gate_hidden_dim,
-                    hidden_units=dnn_hidden_units,
-                    hidden_activations=dnn_activation,
-                    dropout_rates=dnn_dropout,
-                    batch_norm=dnn_use_bn,
+                    mlp_params=mlp_params,
+                    gate_mlp_params=gate_mlp_params,
                     use_bias=use_bias,
-                    gate_activation=gate_activation,
-                    gate_dropout=gate_dropout,
-                    gate_use_bn=gate_use_bn,
                 )
                 for _ in range(self.nums_task)
             ]

@@ -3,8 +3,7 @@ Date: create on 19/12/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Juan Y, Zhuang Y, Chin W-S, et al. Field-aware Factorization Machines for CTR
-Prediction[C]//RecSys. 2016: 43-50.
+- [1] Juan Y, Zhuang Y, Chin W-S, et al. Field-aware Factorization Machines for CTR Prediction[C]//RecSys. 2016: 43-50.
 
 Field-aware Factorization Machines (FFM) extend FM by learning a distinct
 embedding of each feature for every target field. For a pair of fields (i, j),

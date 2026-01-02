@@ -3,9 +3,8 @@ Date: create on 27/10/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
-[1] Guo H, Tang R, Ye Y, et al. DeepFM: A factorization-machine based neural network
-for CTR prediction[J]. arXiv preprint arXiv:1703.04247, 2017.
-(https://arxiv.org/abs/1703.04247)
+- [1] Guo H, Tang R, Ye Y, et al. DeepFM: A factorization-machine based neural network for CTR prediction[J]. arXiv preprint arXiv:1703.04247, 2017.
+URL: https://arxiv.org/abs/1703.04247
 
 DeepFM combines a Factorization Machine (FM) for explicit second-order feature
 interactions with a deep MLP for high-order nonlinear patterns. Both parts share

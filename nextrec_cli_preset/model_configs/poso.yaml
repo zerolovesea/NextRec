@@ -22,7 +22,7 @@ params:
   gate_activation: relu
   gate_use_bias: true
 
-  tower_params_list:
+  tower_mlp_params_list:
     - hidden_dims: [128, 64]
       activation: relu
       dropout: 0.2

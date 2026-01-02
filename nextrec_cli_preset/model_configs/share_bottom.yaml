@@ -1,12 +1,12 @@
 model: share_bottom
 
 params:
-  bottom_params:
+  bottom_mlp_params:
     hidden_dims: [256, 128]
     activation: relu
     dropout: 0.2
 
-  tower_params_list:
+  tower_mlp_params_list:
     - hidden_dims: [96, 48]
       activation: relu
       dropout: 0.2

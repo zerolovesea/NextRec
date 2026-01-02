@@ -9,6 +9,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 from collections import OrderedDict
 
 import torch
+import torch.nn as nn
 
 from nextrec.loss import (
     ApproxNDCGLoss,
@@ -18,6 +19,11 @@ from nextrec.loss import (
     ListNetLoss,
     SampledSoftmaxLoss,
     TripletLoss,
+)
+
+from nextrec.utils.types import (
+    LossName,
+    TrainingModeName,
 )
 
 
@@ -64,7 +70,7 @@ def compute_pair_scores(model, data, batch_size: int = 512):
         user_tensor = torch.as_tensor(user_emb, device=model.device)
         item_tensor = torch.as_tensor(item_emb, device=model.device)
         scores = model.compute_similarity(user_tensor, item_tensor)
-        mode = model.training_mode
+        mode = model.training_modes
         if isinstance(mode, list):
             mode = mode[0] if mode else "pointwise"
         if mode == "pointwise":
@@ -73,8 +79,8 @@ def compute_pair_scores(model, data, batch_size: int = 512):
 
 
 def get_loss_list(
-    loss,
-    training_modes: list[str],
+    loss: LossName | nn.Module | list[LossName | nn.Module] | None,
+    training_modes: TrainingModeName | list[TrainingModeName] | list[str],
     nums_task: int,
 ):
     default_losses = {
@@ -85,21 +91,10 @@ def get_loss_list(
     if loss is None:
         loss_list = [default_losses[mode] for mode in training_modes]
     elif isinstance(loss, list):
-        if len(loss) != nums_task:
-            raise ValueError(
-                f"[BaseModel-compile Error] Number of loss functions ({len(loss)}) must match number of tasks ({nums_task})."
-            )
         loss_list = loss
     else:
         loss_list = [loss] * nums_task
 
-    for idx, mode in enumerate(training_modes):
-        if isinstance(loss_list[idx], str) and loss_list[idx] in {
-            "bce",
-            "binary_crossentropy",
-        }:
-            if mode in {"pairwise", "listwise"}:
-                loss_list[idx] = default_losses[mode]
     return loss_list
 
 

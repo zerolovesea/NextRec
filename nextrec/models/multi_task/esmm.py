@@ -3,9 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
-[1] Ma X, Zhao L, Huang G, et al. Entire space multi-task model: An effective approach
-for estimating post-click conversion rate[C]//SIGIR. 2018: 1137-1140.
-(https://dl.acm.org/doi/10.1145/3209978.3210007)
+- [1] Ma X, Zhao L, Huang G, Wang Z, Hu Z, Zhu X, Gai K. Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate. In: Proceedings of the 41st International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR ’18), 2018, pp. 1137–1140.
+URL: https://dl.acm.org/doi/10.1145/3209978.3210007
 
 Entire Space Multi-task Model (ESMM) targets CVR estimation by jointly optimizing
 CTR and CTCVR on the full impression space, mitigating sample selection bias and
@@ -75,9 +74,9 @@ class ESMM(BaseModel):
         dense_features: list[DenseFeature],
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
-        ctr_params: dict,
-        cvr_params: dict,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        ctr_mlp_params: dict,
+        cvr_mlp_params: dict,
+        task: list[TaskTypeName] | None = None,
         target: list[str] | None = None,  # Note: ctcvr = ctr * cvr
         **kwargs,
     ):
@@ -90,25 +89,13 @@ class ESMM(BaseModel):
             )
 
         self.nums_task = len(target)
-        resolved_task = task
-        if resolved_task is None:
-            resolved_task = self.default_task
-        elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.nums_task
-        elif len(resolved_task) == 1 and self.nums_task > 1:
-            resolved_task = resolved_task * self.nums_task
-        elif len(resolved_task) != self.nums_task:
-            raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
-            )
-        # resolved_task is now guaranteed to be a list[str]
 
         super(ESMM, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=resolved_task,  # Both CTR and CTCVR are binary classification
+            task=task,  # Both CTR and CTCVR are binary classification
             **kwargs,
         )
 
@@ -116,10 +103,10 @@ class ESMM(BaseModel):
         input_dim = self.embedding.input_dim
 
         # CTR tower
-        self.ctr_tower = MLP(input_dim=input_dim, output_dim=1, **ctr_params)
+        self.ctr_tower = MLP(input_dim=input_dim, output_dim=1, **ctr_mlp_params)
 
         # CVR tower
-        self.cvr_tower = MLP(input_dim=input_dim, output_dim=1, **cvr_params)
+        self.cvr_tower = MLP(input_dim=input_dim, output_dim=1, **cvr_mlp_params)
         self.grad_norm_shared_modules = ["embedding"]
         self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1, 1])
         # Register regularization weights

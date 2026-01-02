@@ -3,7 +3,7 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Hosmer D W, Lemeshow S, Sturdivant R X. Applied Logistic Regression.
+- [1] Hosmer D W, Lemeshow S, Sturdivant R X. Applied Logistic Regression.
 
 Logistic Regression (LR) is a classic linear baseline for CTR/ranking tasks.
 It maps each feature (dense, sparse, or sequence) into a numeric vector and

@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.25-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.27-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -44,13 +44,14 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 ## NextRec Progress
 
+- **01/01/2026** Happy New Year! In v0.4.27, added support for multiple multi-task models: [APG](/nextrec/models/multi_task/apg.py), [ESCM](/nextrec/models/multi_task/escm.py), [HMoE](/nextrec/models/multi_task/hmoe.py), [Cross Stitch](/nextrec/models/multi_task/cross_stitch.py)
 - **28/12/2025** Added support for SwanLab and Weights & Biases in v0.4.21, configurable via the model `fit` method: `use_swanlab=True, swanlab_kwargs={"project": "NextRec","name":"tutorial_movielens_deepfm"},`
 - **21/12/2025** Added support for [GradNorm](/nextrec/loss/grad_norm.py) in v0.4.16, configurable via `loss_weight='grad_norm'` in the compile method
 - **12/12/2025** Added [RQ-VAE](/nextrec/models/representation/rqvae.py), a common module for generative retrieval in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](/nextrec_cli_preset/NextRec-CLI.md) and [reference code](/nextrec_cli_preset).
 - **03/12/2025** NextRec reached 100 ⭐—thanks for the support!
 - **06/12/2025** Added single-machine multi-GPU DDP training in v0.4.1 with supporting [code](tutorials/distributed).
-- **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 4 multi-task models, 4 retrieval models, and a unified training/logging/metrics system.
+- **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 11 multi-task models, 4 retrieval models, and a unified training/logging/metrics system.
 
 ## Architecture
 
@@ -136,15 +137,13 @@ model = DIN(
     sparse_features=sparse_features,
     sequence_features=sequence_features,
     mlp_params=mlp_params,
-    attention_hidden_units=[80, 40],
-    attention_activation='sigmoid',
+    attention_mlp_params={
+        "hidden_dims": [80, 40],
+        "activation": "sigmoid",
+    },
     attention_use_softmax=True,
-    target=['label'],                                     # target variable
-    device='mps',                                         
-    embedding_l1_reg=1e-6,
-    embedding_l2_reg=1e-5,
-    dense_l1_reg=1e-5,
-    dense_l2_reg=1e-4,
+    target='label',                                     # target variable
+    device='cpu',                                         
     session_id="din_tutorial",                            # experiment id for logs
 )
 
@@ -162,7 +161,13 @@ model.fit(
     epochs=3,
     batch_size=512,
     shuffle=True,
-    user_id_column='user_id'             # used for GAUC
+    user_id_column='user_id',            # used for GAUC
+    valid_ratio=0.2,                     # auto split validation (optional)
+    num_workers=4,                       # DataLoader workers
+    use_wandb=False,                     # enable W&B (optional)
+    wandb_kwargs={"project": "NextRec", "name": "din_tutorial"},
+    use_swanlab=False,                   # enable SwanLab (optional)
+    swanlab_kwargs={"project": "NextRec", "name": "din_tutorial"},
 )
 
 # Evaluate after training
@@ -191,11 +196,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.4.25, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.4.27, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.4.25. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.4.27. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -210,69 +215,74 @@ The current version is 0.4.25. All models and test code have been validated on t
 
 ### Ranking Models
 
-| Model | Paper | Year | Status |
-|-------|-------|------|--------|
-| [FM](nextrec/models/ranking/fm.py) | Factorization Machines | ICDM 2010 | Supported |
-| [LR](nextrec/models/ranking/lr.py) | Logistic Regression | - | Supported |
-| [AFM](nextrec/models/ranking/afm.py) | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | IJCAI 2017 | Supported |
-| [FFM](nextrec/models/ranking/ffm.py) | Field-aware Factorization Machines | RecSys 2016 | Supported |
-| [DeepFM](nextrec/models/ranking/deepfm.py) | DeepFM: A Factorization-Machine based Neural Network for CTR Prediction | IJCAI 2017 | Supported |
-| [Wide&Deep](nextrec/models/ranking/widedeep.py) | Wide & Deep Learning for Recommender Systems | DLRS 2016 | Supported |
-| [xDeepFM](nextrec/models/ranking/xdeepfm.py) | xDeepFM: Combining Explicit and Implicit Feature Interactions | KDD 2018 | Supported |
-| [FiBiNET](nextrec/models/ranking/fibinet.py) | FiBiNET: Combining Feature Importance and Bilinear Feature Interaction for CTR Prediction | RecSys 2019 | Supported |
-| [PNN](nextrec/models/ranking/pnn.py) | Product-based Neural Networks for User Response Prediction | ICDM 2016 | Supported |
-| [AutoInt](nextrec/models/ranking/autoint.py) | AutoInt: Automatic Feature Interaction Learning | CIKM 2019 | Supported |
-| [DCN](nextrec/models/ranking/dcn.py) | Deep & Cross Network for Ad Click Predictions | ADKDD 2017 | Supported |
-| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | KDD 2021 | In Progress |
-| [DIN](nextrec/models/ranking/din.py) | Deep Interest Network for CTR Prediction | KDD 2018 | Supported |
-| [DIEN](nextrec/models/ranking/dien.py) | Deep Interest Evolution Network | AAAI 2019 | Supported |
-| [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Feature-wise Gating Blocks for High-dimensional Sparse Recommendation Data | 2020 | Supported |
-| [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | SIGIR 2021 | Supported |
+| Model | Paper | Status |
+| ------- | ------- | -------- |
+| [FM](nextrec/models/ranking/fm.py) | Factorization machines | Supported |
+| [LR](nextrec/models/ranking/lr.py) | Applied Logistic Regression | Supported |
+| [AFM](nextrec/models/ranking/afm.py) | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | Supported |
+| [FFM](nextrec/models/ranking/ffm.py) | Field-aware Factorization Machines for CTR Prediction | Supported |
+| [DeepFM](nextrec/models/ranking/deepfm.py) | DeepFM: A factorization-machine based neural network for CTR prediction | Supported |
+| [Wide&Deep](nextrec/models/ranking/widedeep.py) | Wide & Deep learning for recommender systems | Supported |
+| [xDeepFM](nextrec/models/ranking/xdeepfm.py) | xdeepfm: Combining explicit and implicit feature interactions for recommender systems | Supported |
+| [FiBiNET](nextrec/models/ranking/fibinet.py) | FiBiNET: Combining feature importance and bilinear feature interaction for click-through rate prediction | Supported |
+| [PNN](nextrec/models/ranking/pnn.py) | Product-based neural networks for user response prediction | Supported |
+| [AutoInt](nextrec/models/ranking/autoint.py) | AutoInt: Automatic feature interaction learning via self-attentive neural networks | Supported |
+| [DCN](nextrec/models/ranking/dcn.py) | Deep & cross network for ad click predictions | Supported |
+| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | In Progress |
+| [DIN](nextrec/models/ranking/din.py) | Deep interest network for click-through rate prediction | Supported |
+| [DIEN](nextrec/models/ranking/dien.py) | Deep interest evolution network for click-through rate prediction | Supported |
+| [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask | Supported |
+| [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | Supported |
 
 ### Retrieval Models
 
-| Model | Paper | Year | Status |
-|-------|-------|------|--------|
-| [DSSM](nextrec/models/retrieval/dssm.py) | Learning Deep Structured Semantic Models | CIKM 2013 | Supported |
-| [DSSM v2](nextrec/models/retrieval/dssm_v2.py) | DSSM with pairwise BPR-style optimization | - | Supported |
-| [YouTube DNN](nextrec/models/retrieval/youtube_dnn.py) | Deep Neural Networks for YouTube Recommendations | RecSys 2016 | Supported |
-| [MIND](nextrec/models/retrieval/mind.py) | Multi-Interest Network with Dynamic Routing | CIKM 2019 | Supported |
-| [SDM](nextrec/models/retrieval/sdm.py) | Sequential Deep Matching Model | - | Supported |
+| Model | Paper | Status |
+| ------- | ------- | -------- |
+| [DSSM](nextrec/models/retrieval/dssm.py) | Learning deep structured semantic models for web search using clickthrough data | Supported |
+| [DSSM v2](nextrec/models/retrieval/dssm_v2.py) | DSSM v2 - DSSM with pairwise training using BPR loss | Supported |
+| [YouTube DNN](nextrec/models/retrieval/youtube_dnn.py) | Deep neural networks for youtube recommendations | Supported |
+| [MIND](nextrec/models/retrieval/mind.py) | Multi-interest network with dynamic routing for recommendation at Tmall | Supported |
+| [SDM](nextrec/models/retrieval/sdm.py) | Sequential recommender system based on hierarchical attention networks | Supported |
 
 ### Sequential Recommendation Models
 
-| Model | Paper | Year | Status |
-|-------|-------|------|--------|
-| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | KDD 2018 | In Progress |
-| [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | arXiv 2024 | Supported |
+| Model | Paper | Status |
+| ------- | ------- | -------- |
+| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | In Progress |
+| [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | Supported |
 
 ### Multi-task Models
 
-| Model | Paper | Year | Status |
-|-------|-------|------|--------|
-| [MMOE](nextrec/models/multi_task/mmoe.py) | Modeling Task Relationships in Multi-task Learning | KDD 2018 | Supported |
-| [PLE](nextrec/models/multi_task/ple.py) | Progressive Layered Extraction | RecSys 2020 | Supported |
-| [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-task Model | SIGIR 2018 | Supported |
-| [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | - | Supported |
-| [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold-start Modules for Large-scale Recommender Systems | 2021 | Supported |
+| Model | Paper | Status |
+| ------- | ------- | -------- |
+| [MMOE](nextrec/models/multi_task/mmoe.py) | Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts | Supported |
+| [PLE](nextrec/models/multi_task/ple.py) | Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations | Supported |
+| [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate | Supported |
+| [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | Supported |
+| [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold Start Modules for Large-scale Recommender Systems | Supported |
+| [PEPNet](nextrec/models/multi_task/pepnet.py) | PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information | Supported |
+| [APG](nextrec/models/multi_task/apg.py) | APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction | Supported |
+| [CrossStitch](nextrec/models/multi_task/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | Supported |
+| [ESCM](nextrec/models/multi_task/escm.py) | ESCM²: Entire Space Counterfactual Multi-Task Model for Post-Click Conversion Rate Estimation | Supported |
+| [HMOE](nextrec/models/multi_task/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | Supported |
 
 ### Generative Models
 
-| Model | Paper | Year | Status |
-|-------|-------|------|--------|
-| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | NeurIPS 2023 | In Progress |
+| Model | Paper | Status |
+| ------- | ------- | -------- |
+| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | In Progress |
 
 ### Representation Models
 
-| Model | Paper | Year | Status |
-|-------|-------|------|--------|
-| [RQ-VAE](nextrec/models/representation/rqvae.py) | RQ-VAE: RQVAE for Generative Retrieval | - | Supported |
-| [BPR](nextrec/models/representation/bpr.py) | Bayesian Personalized Ranking | UAI 2009 | In Progress |
-| [MF](nextrec/models/representation/mf.py) | Matrix Factorization Techniques for Recommender Systems | - | In Progress |
-| [AutoRec](nextrec/models/representation/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | WWW 2015 | In Progress |
-| [LightGCN](nextrec/models/representation/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | SIGIR 2020 | In Progress |
-| [S3Rec](nextrec/models/representation/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | CIKM 2020 | In Progress |
-| [CL4SRec](nextrec/models/representation/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | 2021 | In Progress |
+| Model | Paper | Status |
+| ------- | ------- | -------- |
+| [RQ-VAE](nextrec/models/representation/rqvae.py) | Autoregressive Image Generation using Residual Quantization | Supported |
+| [BPR](nextrec/models/representation/bpr.py) | Bayesian Personalized Ranking | In Progress |
+| [MF](nextrec/models/representation/mf.py) | Matrix Factorization Techniques for Recommender Systems | In Progress |
+| [AutoRec](nextrec/models/representation/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | In Progress |
+| [LightGCN](nextrec/models/representation/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | In Progress |
+| [S3Rec](nextrec/models/representation/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | In Progress |
+| [CL4SRec](nextrec/models/representation/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | In Progress |
 
 ---
 

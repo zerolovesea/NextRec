@@ -3,10 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions
-for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on
-knowledge discovery & data mining. 2018: 1754-1763.
-(https://arxiv.org/abs/1803.05170)
+- [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1754-1763.
+  URL: https://arxiv.org/abs/1803.05170
 
 xDeepFM is a CTR prediction model that unifies explicit and implicit
 feature interaction learning. It extends DeepFM by adding the

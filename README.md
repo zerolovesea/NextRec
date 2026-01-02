@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.25-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.27-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -41,13 +41,14 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 - **高效训练与评估**：内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理，开箱即用。
 
 ## NextRec近期进展
+- **01/01/2026** 新年好，在v0.4.27中加入了多个多目标模型的支持：[APG](nextrec/models/multi_task/apg.py), [ESCM](nextrec/models/multi_task/escm.py), [HMoE](nextrec/models/multi_task/hmoe.py), [Cross Stitch](nextrec/models/multi_task/cross_stitch.py)
 - **28/12/2025** 在v0.4.21中加入了对SwanLab和Wandb的支持，通过model的`fit`方法进行配置：`use_swanlab=True, swanlab_kwargs={"project": "NextRec","name":"tutorial_movielens_deepfm"},`
 - **21/12/2025** 在v0.4.16中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
 - **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/representation/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](/nextrec_cli_preset/NextRec-CLI_zh.md)和[教学代码](/nextrec_cli_preset)
 - **03/12/2025** NextRec获得了100颗🌟！感谢大家的支持
 - **06/12/2025** 在v0.4.1中支持了单机多卡的分布式DDP训练，并且提供了配套的[代码](tutorials/distributed)
-- **11/11/2025** NextRec v0.1.0发布，我们提供了10余种Ranking模型，4种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
+- **11/11/2025** NextRec v0.1.0发布，我们提供了10余种Ranking模型，11种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
 
 ## 架构
 
@@ -133,15 +134,13 @@ model = DIN(
     behavior_feature_name="sequence_0",
     candidate_feature_name="item_id",
     mlp_params=mlp_params,
-    attention_hidden_units=[80, 40],
-    attention_activation='sigmoid',
+    attention_mlp_params={
+        "hidden_dims": [80, 40],
+        "activation": "sigmoid",
+    },
     attention_use_softmax=True,
-    target=['label'],                                     # 目标变量
-    device='mps',                                         
-    embedding_l1_reg=1e-6,
-    embedding_l2_reg=1e-5,
-    dense_l1_reg=1e-5,
-    dense_l2_reg=1e-4,
+    target='label',                                     # 目标变量
+    device='cpu',                                         
     session_id="din_tutorial",                            # 实验id，用于存放训练日志
 )
 
@@ -159,7 +158,13 @@ model.fit(
     epochs=3,
     batch_size=512,
     shuffle=True,
-    user_id_column='user_id'             # 用于计算GAUC的id列 
+    user_id_column='user_id',            # 用于计算GAUC的id列
+    valid_ratio=0.2,                     # 自动划分验证集（可选）
+    num_workers=4,                       # DataLoader 并行数
+    use_wandb=False,                     # 启用 Wandb（可选）
+    wandb_kwargs={"project": "NextRec", "name": "din_tutorial"},
+    use_swanlab=False,                   # 启用 SwanLab（可选）
+    swanlab_kwargs={"project": "NextRec", "name": "din_tutorial"},
 )
 
 # 训练完成后进行指标评估
@@ -188,11 +193,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.4.25，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.4.27，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.4.25，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.4.27，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -205,69 +210,74 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 ### 排序模型
 
-| 模型 | 论文 | 年份 | 状态 |
-|------|------|------|------|
-| [FM](nextrec/models/ranking/fm.py) | Factorization Machines | ICDM 2010 | 已支持 |
-| [LR](nextrec/models/ranking/lr.py) | Logistic Regression | - | 已支持 |
-| [AFM](nextrec/models/ranking/afm.py) | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | IJCAI 2017 | 已支持 |
-| [FFM](nextrec/models/ranking/ffm.py) | Field-aware Factorization Machines | RecSys 2016 | 已支持 |
-| [DeepFM](nextrec/models/ranking/deepfm.py) | DeepFM: A Factorization-Machine based Neural Network for CTR Prediction | IJCAI 2017 | 已支持 |
-| [Wide&Deep](nextrec/models/ranking/widedeep.py) | Wide & Deep Learning for Recommender Systems | DLRS 2016 | 已支持 |
-| [xDeepFM](nextrec/models/ranking/xdeepfm.py) | xDeepFM: Combining Explicit and Implicit Feature Interactions | KDD 2018 | 已支持 |
-| [FiBiNET](nextrec/models/ranking/fibinet.py) | FiBiNET: Combining Feature Importance and Bilinear Feature Interaction for CTR Prediction | RecSys 2019 | 已支持 |
-| [PNN](nextrec/models/ranking/pnn.py) | Product-based Neural Networks for User Response Prediction | ICDM 2016 | 已支持 |
-| [AutoInt](nextrec/models/ranking/autoint.py) | AutoInt: Automatic Feature Interaction Learning | CIKM 2019 | 已支持 |
-| [DCN](nextrec/models/ranking/dcn.py) | Deep & Cross Network for Ad Click Predictions | ADKDD 2017 | 已支持 |
-| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | KDD 2021 | 已支持 |
-| [DIN](nextrec/models/ranking/din.py) | Deep Interest Network for Click-Through Rate Prediction | KDD 2018 | 已支持 |
-| [DIEN](nextrec/models/ranking/dien.py) | Deep Interest Evolution Network for Click-Through Rate Prediction | AAAI 2019 | 已支持 |
-| [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-wise Gating Blocks for High-dimensional Sparse Recommendation Data | 2020 | 已支持 |
-| [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | SIGIR 2021 | 已支持 |
+| 模型 | 论文 | 状态 |
+| ------ | ------ | ------ |
+| [FM](nextrec/models/ranking/fm.py) | Factorization machines | 已支持 |
+| [LR](nextrec/models/ranking/lr.py) | Applied Logistic Regression | 已支持 |
+| [AFM](nextrec/models/ranking/afm.py) | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | 已支持 |
+| [FFM](nextrec/models/ranking/ffm.py) | Field-aware Factorization Machines for CTR Prediction | 已支持 |
+| [DeepFM](nextrec/models/ranking/deepfm.py) | DeepFM: A factorization-machine based neural network for CTR prediction | 已支持 |
+| [Wide&Deep](nextrec/models/ranking/widedeep.py) | Wide & Deep learning for recommender systems | 已支持 |
+| [xDeepFM](nextrec/models/ranking/xdeepfm.py) | xdeepfm: Combining explicit and implicit feature interactions for recommender systems | 已支持 |
+| [FiBiNET](nextrec/models/ranking/fibinet.py) | FiBiNET: Combining feature importance and bilinear feature interaction for click-through rate prediction | 已支持 |
+| [PNN](nextrec/models/ranking/pnn.py) | Product-based neural networks for user response prediction | 已支持 |
+| [AutoInt](nextrec/models/ranking/autoint.py) | AutoInt: Automatic feature interaction learning via self-attentive neural networks | 已支持 |
+| [DCN](nextrec/models/ranking/dcn.py) | Deep & cross network for ad click predictions | 已支持 |
+| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | 已支持 |
+| [DIN](nextrec/models/ranking/din.py) | Deep interest network for click-through rate prediction | 已支持 |
+| [DIEN](nextrec/models/ranking/dien.py) | Deep interest evolution network for click-through rate prediction | 已支持 |
+| [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask | 已支持 |
+| [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | 已支持 |
 
 ### 召回模型
 
-| 模型 | 论文 | 年份 | 状态 |
-|------|------|------|------|
-| [DSSM](nextrec/models/retrieval/dssm.py) | Learning Deep Structured Semantic Models | CIKM 2013 | 已支持 |
-| [DSSM v2](nextrec/models/retrieval/dssm_v2.py) | DSSM with pairwise BPR-style optimization | - | 已支持 |
-| [YouTube DNN](nextrec/models/retrieval/youtube_dnn.py) | Deep Neural Networks for YouTube Recommendations | RecSys 2016 | 已支持 |
-| [MIND](nextrec/models/retrieval/mind.py) | Multi-Interest Network with Dynamic Routing | CIKM 2019 | 已支持 |
-| [SDM](nextrec/models/retrieval/sdm.py) | Sequential Deep Matching Model | - | 已支持 |
+| 模型 | 论文 | 状态 |
+| ------ | ------ | ------ |
+| [DSSM](nextrec/models/retrieval/dssm.py) | Learning deep structured semantic models for web search using clickthrough data | 已支持 |
+| [DSSM v2](nextrec/models/retrieval/dssm_v2.py) | DSSM v2 - DSSM with pairwise training using BPR loss | 已支持 |
+| [YouTube DNN](nextrec/models/retrieval/youtube_dnn.py) | Deep neural networks for youtube recommendations | 已支持 |
+| [MIND](nextrec/models/retrieval/mind.py) | Multi-interest network with dynamic routing for recommendation at Tmall | 已支持 |
+| [SDM](nextrec/models/retrieval/sdm.py) | Sequential recommender system based on hierarchical attention networks | 已支持 |
 
 ### 序列推荐模型
 
-| 模型 | 论文 | 年份 | 状态 |
-|------|------|------|------|
-| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | KDD 2018 | 开发中 |
-| [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | arXiv 2024 | 已支持 |
+| 模型 | 论文 | 状态 |
+| ------ | ------ | ------ |
+| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | 开发中 |
+| [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | 已支持 |
 
 ### 多任务模型
 
-| 模型 | 论文 | 年份 | 状态 |
-|------|------|------|------|
-| [MMOE](nextrec/models/multi_task/mmoe.py) | Modeling Task Relationships in Multi-task Learning | KDD 2018 | 已支持 |
-| [PLE](nextrec/models/multi_task/ple.py) | Progressive Layered Extraction | RecSys 2020 | 已支持 |
-| [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-Task Model | SIGIR 2018 | 已支持 |
-| [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | - | 已支持 |
-| [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold-start Modules for Large-scale Recommender Systems | 2021 | 已支持 |
+| 模型 | 论文 | 状态 |
+| ------ | ------ | ------ |
+| [MMOE](nextrec/models/multi_task/mmoe.py) | Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts | 已支持 |
+| [PLE](nextrec/models/multi_task/ple.py) | Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations | 已支持 |
+| [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate | 已支持 |
+| [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | 已支持 |
+| [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold Start Modules for Large-scale Recommender Systems | 已支持 |
+| [PEPNet](nextrec/models/multi_task/pepnet.py) | PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information | 已支持 |
+| [APG](nextrec/models/multi_task/apg.py) | APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction | 已支持 |
+| [CrossStitch](nextrec/models/multi_task/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | 已支持 |
+| [ESCM](nextrec/models/multi_task/escm.py) | ESCM²: Entire Space Counterfactual Multi-Task Model for Post-Click Conversion Rate Estimation | 已支持 |
+| [HMOE](nextrec/models/multi_task/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | 已支持 |
 
 ### 生成式模型
 
-| 模型 | 论文 | 年份 | 状态 |
-|------|------|------|------|
-| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | NeurIPS 2023 | 开发中 |
+| 模型 | 论文 | 状态 |
+| ------ | ------ | ------ |
+| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | 开发中 |
 
 ### 表征模型
 
-| 模型 | 论文 | 年份 | 状态 |
-|------|------|------|------|
-| [RQ-VAE](nextrec/models/representation/rqvae.py) | RQ-VAE: RQVAE for Generative Retrieval | - | 已支持 |
-| [BPR](nextrec/models/representation/bpr.py) | Bayesian Personalized Ranking | UAI 2009 | 开发中 |
-| [MF](nextrec/models/representation/mf.py) | Matrix Factorization Techniques for Recommender Systems | - | 开发中 |
-| [AutoRec](nextrec/models/representation/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | WWW 2015 | 开发中 |
-| [LightGCN](nextrec/models/representation/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | SIGIR 2020 | 开发中 |
-| [S3Rec](nextrec/models/representation/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | CIKM 2020 | 开发中 |
-| [CL4SRec](nextrec/models/representation/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | 2021 | 开发中 |
+| 模型 | 论文 | 状态 |
+| ------ | ------ | ------ |
+| [RQ-VAE](nextrec/models/representation/rqvae.py) | Autoregressive Image Generation using Residual Quantization | 已支持 |
+| [BPR](nextrec/models/representation/bpr.py) | Bayesian Personalized Ranking | 开发中 |
+| [MF](nextrec/models/representation/mf.py) | Matrix Factorization Techniques for Recommender Systems | 开发中 |
+| [AutoRec](nextrec/models/representation/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | 开发中 |
+| [LightGCN](nextrec/models/representation/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | 开发中 |
+| [S3Rec](nextrec/models/representation/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | 开发中 |
+| [CL4SRec](nextrec/models/representation/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | 开发中 |
 
 ---
 

@@ -389,131 +389,29 @@ params:
 
 #### Supported Models
 
+Use the following template and fill in model-specific parameters as needed:
+
+```yaml
+model: <model_name>
+params:
+  # model-specific parameters here
+  # see examples in nextrec_cli_preset/ if you need a reference
+```
+
 ##### Ranking Models
 
-**DeepFM**
-```yaml
-model: deepfm
-params:
-  mlp_params:
-    hidden_dims: [256, 128, 64]               # MLP layer dimensions
-    activation: relu                    # Activation function
-    dropout: 0.3                        # Dropout ratio
-  embedding_l2_reg: 1.0e-5             # Embedding L2 regularization
-  dense_l2_reg: 1.0e-4                 # Dense layer L2 regularization
-```
-
-**DIN (Deep Interest Network)**
-```yaml
-model: din
-params:
-  attention_mlp_dims: [80, 40]         # Attention network dimensions
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**DCN (Deep & Cross Network)**
-```yaml
-model: dcn
-params:
-  cross_num: 3                         # Number of cross layers
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**DCN-V2**
-```yaml
-model: dcn_v2
-params:
-  cross_num: 3                         # Number of cross layers
-  cross_type: matrix                   # Cross type: vector, matrix, mix
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**MaskNet**
-```yaml
-model: masknet
-params:
-  architecture: parallel                 # Model type: parallel, serial
-  num_blocks: 3                        # Number of blocks
-  mask_hidden_dim: 64                  # Mask hidden layer dimension
-  block_hidden_dim: 256                # Block hidden layer dimension
-  block_dropout: 0.2                   # Dropout ratio
-  embedding_l1_reg: 1.0e-6            # Embedding L1 regularization
-  dense_l1_reg: 1.0e-5                # Dense L1 regularization
-  embedding_l2_reg: 1.0e-5            # Embedding L2 regularization
-  dense_l2_reg: 1.0e-4                # Dense L2 regularization
-```
-
-**AutoInt**
-```yaml
-model: autoint
-params:
-  attention_size: 16                   # Attention dimension
-  num_heads: 2                         # Number of multi-head attention heads
-  num_layers: 3                        # Number of transformer layers
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
+- deepfm
+- din
+- dcn
+- dcn_v2
+- masknet
+- autoint
 
 ##### Multi-Task Models
 
-**MMOE (Multi-gate Mixture-of-Experts)**
-```yaml
-model: mmoe
-params:
-  num_experts: 8                       # Number of expert networks
-  expert_dims: [256, 128]              # Expert network dimensions
-  gate_dims: [64]                      # Gate network dimensions
-  tower_dims: [64, 32]                 # Tower network dimensions
-  dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**PLE (Progressive Layered Extraction)**
-```yaml
-model: ple
-params:
-  num_levels: 2                        # Number of PLE levels
-  num_experts_specific: 4              # Number of task-specific experts
-  num_experts_shared: 4                # Number of shared experts
-  expert_dims: [256, 128]
-  gate_dims: [64]
-  tower_dims: [64, 32]
-  dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**ESMM (Entire Space Multi-Task Model)**
-```yaml
-model: esmm
-params:
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
+- mmoe
+- ple
+- esmm
 
 ---
 

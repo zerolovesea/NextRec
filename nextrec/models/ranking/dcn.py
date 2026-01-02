@@ -3,9 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Wang R, Fu B, Fu G, et al. Deep & cross network for ad click predictions[C]
-//Proceedings of the ADKDD'17. 2017: 1-7.
-(https://arxiv.org/abs/1708.05123)
+- [1] Wang R, Fu B, Fu G, et al. Deep & cross network for ad click predictions[C] //Proceedings of the ADKDD'17. 2017: 1-7.
+URL: https://arxiv.org/abs/1708.05123
 
 Deep & Cross Network (DCN) mixes explicit polynomial feature crosses with a deep
 MLP branch to capture both low-order and high-order interactions for CTR-style
