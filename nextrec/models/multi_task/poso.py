@@ -3,7 +3,8 @@ Date: create on 28/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
-[1] Wang et al. "POSO: Personalized Cold Start Modules for Large-scale Recommender Systems", 2021.
+- [1] Dai S, Lin H, Zhao Z, Lin J, Wu H, Wang Z, Yang S, Liu J. POSO: Personalized Cold Start Modules for Large-scale Recommender Systems. arXiv preprint arXiv:2108.04690, 2021.
+URL: https://arxiv.org/abs/2108.04690
 
 POSO (Personalized cOld-start mOdules) augments backbone recommenders by injecting a
 personalized cold-start vector `pc` that gates hidden units layer by layer. Each fully
@@ -49,6 +50,7 @@ from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
+from nextrec.utils.types import TaskTypeName
 
 
 class POSOGate(nn.Module):
@@ -306,9 +308,9 @@ class POSO(BaseModel):
         pc_dense_features: list[str] | None,
         pc_sparse_features: list[str] | None,
         pc_sequence_features: list[str] | None,
-        tower_params_list: list[dict],
+        tower_mlp_params_list: list[dict],
         target: list[str] | None = None,
-        task: str | list[str] = "binary",
+        task: TaskTypeName | list[TaskTypeName] | None = None,
         architecture: Literal["mlp", "mmoe"] = "mlp",
         # POSO gating defaults
         gate_hidden_dim: int = 32,
@@ -327,22 +329,10 @@ class POSO(BaseModel):
     ):
         self.nums_task = len(target)
 
-        # Normalize task to match nums_task
-        resolved_task = task
-        if resolved_task is None:
-            resolved_task = self.default_task
-        elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.nums_task
-        elif len(resolved_task) == 1 and self.nums_task > 1:
-            resolved_task = resolved_task * self.nums_task
-        elif len(resolved_task) != self.nums_task:
+        if len(tower_mlp_params_list) != self.nums_task:
             raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
-            )
-
-        if len(tower_params_list) != self.nums_task:
-            raise ValueError(
-                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.nums_task})"
+                "Number of tower mlp params "
+                f"({len(tower_mlp_params_list)}) must match number of tasks ({self.nums_task})"
             )
 
         super().__init__(
@@ -350,7 +340,7 @@ class POSO(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=resolved_task,
+            task=task,
             **kwargs,
         )
 
@@ -415,11 +405,12 @@ class POSO(BaseModel):
         if self.architecture == "mlp":
             self.towers = nn.ModuleList()
             self.tower_heads = nn.ModuleList()
-            for tower_params in tower_params_list:
+            for tower_params in tower_mlp_params_list:
                 hidden_dims = tower_params.get("hidden_dims")
                 if not hidden_dims:
                     raise ValueError(
-                        "tower_params must include a non-empty 'hidden_dims' list for POSO-MLP towers."
+                        "tower_mlp_params_list must include a non-empty 'hidden_dims' "
+                        "list for POSO-MLP towers."
                     )
                 dropout = tower_params.get("dropout", 0.0)
                 tower = POSOMLP(
@@ -463,7 +454,7 @@ class POSO(BaseModel):
                         output_dim=1,
                         **tower_params,
                     )
-                    for tower_params in tower_params_list
+                    for tower_params in tower_mlp_params_list
                 ]
             )
             self.tower_heads = None

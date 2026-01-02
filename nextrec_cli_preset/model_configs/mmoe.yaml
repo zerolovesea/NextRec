@@ -3,12 +3,12 @@ model: mmoe
 params:
   num_experts: 6  
   
-  expert_params:
+  expert_mlp_params:
     hidden_dims: [256, 128]        
     activation: relu
     dropout: 0.1               
   
-  tower_params_list:
+  tower_mlp_params_list:
     - hidden_dims: [256, 128]           
       activation: relu
       dropout: 0.2

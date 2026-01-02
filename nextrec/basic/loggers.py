@@ -2,7 +2,7 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Checkpoint: edit on 27/12/2025
+Checkpoint: edit on 01/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -190,6 +190,19 @@ class BasicLogger:
     def close(self) -> None:
         for backend in self.backends:
             backend.close()
+        for backend in self.backends:
+            if isinstance(backend, SwanLabLogger):
+                swanlab = backend.swanlab
+                if not backend.enabled or swanlab is None:
+                    continue
+                finish_fn = getattr(swanlab, "finish", None)
+                if finish_fn is None:
+                    continue
+                try:
+                    finish_fn()
+                except TypeError:
+                    finish_fn()
+                break
 
 
 class TensorBoardLogger(MetricsLoggerBackend):
@@ -369,10 +382,14 @@ class TrainingLogger(BasicLogger):
         wandb_kwargs = dict(wandb_kwargs or {})
         wandb_kwargs.setdefault("config", {})
         wandb_kwargs["config"].update(config)
+        if "notes" in wandb_kwargs:
+            wandb_kwargs["config"].pop("note", None)
 
         swanlab_kwargs = dict(swanlab_kwargs or {})
         swanlab_kwargs.setdefault("config", {})
         swanlab_kwargs["config"].update(config)
+        if "description" in swanlab_kwargs:
+            swanlab_kwargs["config"].pop("note", None)
 
         self.wandb_logger = None
         if use_wandb:

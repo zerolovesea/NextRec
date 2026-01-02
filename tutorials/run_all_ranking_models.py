@@ -194,8 +194,10 @@ def main():
             "DIN",
             {
                 "mlp_params": mlp_params,
-                "attention_hidden_units": [80, 40],
-                "attention_activation": "sigmoid",
+                "attention_mlp_params": {
+                    "hidden_dims": [80, 40],
+                    "activation": "sigmoid",
+                },
                 "behavior_feature_name": behavior_feature_name,
                 "candidate_feature_name": candidate_feature_name,
             },
@@ -206,7 +208,7 @@ def main():
             {
                 "mlp_params": mlp_params,
                 "gru_hidden_size": 32,
-                "attention_hidden_units": [80, 40],
+                "attention_mlp_params": {"hidden_dims": [80, 40]},
                 # DIEN-specific required args match synthetic data columns
                 "behavior_feature_name": behavior_feature_name,  # first generated sequence
                 "candidate_feature_name": candidate_feature_name,  # candidate item id

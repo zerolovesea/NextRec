@@ -4,8 +4,8 @@ Date: create on 01/12/2025
 Checkpoint: edit on 11/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Meta AI. Generative Recommenders (HSTU encoder) — https://github.com/meta-recsys/generative-recommenders
-[2] Ma W, Li P, Chen C, et al. Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations. arXiv:2402.17152.
+- [1] Meta AI. Generative Recommenders (HSTU encoder) — https://github.com/meta-recsys/generative-recommenders
+- [2] Ma W, Li P, Chen C, et al. Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations. arXiv:2402.17152.
 
 Hierarchical Sequential Transduction Unit (HSTU) is the core encoder behind
 Meta’s Generative Recommenders. It replaces softmax attention with lightweight

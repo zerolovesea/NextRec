@@ -399,8 +399,10 @@ class TestDIN:
             behavior_feature_name="behavior_sequence",
             candidate_feature_name="candidate_item",
             mlp_params=mlp_params,
-            attention_hidden_units=[80, 40],
-            attention_activation="sigmoid",
+            attention_mlp_params={
+                "hidden_dims": [80, 40],
+                "activation": "sigmoid",
+            },
             target=["label"],
             device=device,
         )
@@ -435,8 +437,10 @@ class TestDIN:
             behavior_feature_name="behavior_sequence",
             candidate_feature_name="candidate_item",
             mlp_params=mlp_params,
-            attention_hidden_units=[64, 32],
-            attention_activation="sigmoid",
+            attention_mlp_params={
+                "hidden_dims": [64, 32],
+                "activation": "sigmoid",
+            },
             target=["label"],
             device=device,
         )
@@ -482,8 +486,10 @@ class TestDIN:
             behavior_feature_name="behavior_sequence",
             candidate_feature_name="candidate_item",
             mlp_params=mlp_params,
-            attention_hidden_units=[32],
-            attention_activation="sigmoid",
+            attention_mlp_params={
+                "hidden_dims": [32],
+                "activation": "sigmoid",
+            },
             attention_use_softmax=True,
             target=["label"],
             device=device,
@@ -529,8 +535,10 @@ class TestDIN:
             behavior_feature_name="behavior_sequence",
             candidate_feature_name="candidate_item",
             mlp_params=mlp_params,
-            attention_hidden_units=[32],
-            attention_activation=attention_activation,
+            attention_mlp_params={
+                "hidden_dims": [32],
+                "activation": attention_activation,
+            },
             target=["label"],
             device=device,
         )
@@ -601,7 +609,7 @@ class TestRankingModelsComparison:
             behavior_feature_name="seq1",
             candidate_feature_name="sparse1",
             mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
-            attention_hidden_units=[16],
+            attention_mlp_params={"hidden_dims": [16]},
             target=["label"],
             device=device,
         )
@@ -1209,7 +1217,7 @@ class TestDIEN:
             behavior_feature_name="behavior_sequence",
             candidate_feature_name="candidate_item",
             gru_hidden_size=32,
-            attention_hidden_units=[80, 40],
+            attention_mlp_params={"hidden_dims": [80, 40]},
             mlp_params={
                 "hidden_dims": [256, 128, 64],
                 "dropout": 0.2,
@@ -1242,7 +1250,7 @@ class TestDIEN:
             behavior_feature_name="behavior_sequence",
             candidate_feature_name="candidate_item",
             gru_hidden_size=32,
-            attention_hidden_units=[64, 32],
+            attention_mlp_params={"hidden_dims": [64, 32]},
             mlp_params={"hidden_dims": [128, 64], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,
@@ -1290,7 +1298,7 @@ class TestDIEN:
             neg_behavior_feature_name="neg_behavior_sequence",
             use_negsampling=True,
             gru_hidden_size=32,
-            attention_hidden_units=[64, 32],
+            attention_mlp_params={"hidden_dims": [64, 32]},
             mlp_params={"hidden_dims": [64], "dropout": 0.0, "activation": "relu"},
             target=["label"],
             device=device,

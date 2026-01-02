@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 31/12/2025
+Checkpoint: edit on 01/01/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -36,6 +36,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from nextrec import __version__
+from nextrec.basic.asserts import assert_task
 from nextrec.basic.callback import (
     CallbackList,
     CheckpointSaver,
@@ -101,6 +102,7 @@ from nextrec.utils.types import (
 
 from nextrec.utils.data import FILE_FORMAT_CONFIG
 
+
 class BaseModel(SummarySet, FeatureSet, nn.Module):
     @property
     def model_name(self) -> str:
@@ -110,30 +112,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
     def default_task(self) -> TaskTypeName | list[TaskTypeName]:
         raise NotImplementedError
 
-    @property
-    def training_mode(self) -> TrainingModeName | list[TrainingModeName]:
-        if self.nums_task > 1:
-            return self.training_modes
-        return self.training_modes[0] if self.training_modes else "pointwise"
-
-
-    @training_mode.setter
-    def training_mode(self, training_mode: TrainingModeName | list[TrainingModeName]):
-        valid_modes = {"pointwise", "pairwise", "listwise"}
-        if isinstance(training_mode, list):
-            training_modes = list(training_mode)
-            if len(training_modes) != self.nums_task:
-                raise ValueError(
-                    "[BaseModel-init Error] training_mode list length must match number of tasks."
-                )
-        else:
-            training_modes = [training_mode] * self.nums_task
-        if any(mode not in valid_modes for mode in training_modes):
-            raise ValueError(
-                "[BaseModel-init Error] training_mode must be one of {'pointwise', 'pairwise', 'listwise'}."
-            )
-        self.training_modes = list(training_modes)
-
     def __init__(
         self,
         dense_features: list[DenseFeature] | None = None,
@@ -142,7 +120,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         target: list[str] | str | None = None,
         id_columns: list[str] | str | None = None,
         task: TaskTypeName | list[TaskTypeName] | None = None,
-        training_mode: TrainingModeName | list[TrainingModeName] = "pointwise",
+        training_mode: TrainingModeName | list[TrainingModeName] | None = None,
         embedding_l1_reg: float = 0.0,
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
@@ -162,10 +140,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             dense_features: DenseFeature definitions.
             sparse_features: SparseFeature definitions.
             sequence_features: SequenceFeature definitions.
-            target: Target column name. e.g., 'label' or ['label1', 'label2'].
+            target: Target column name. e.g., 'label_ctr' or ['label_ctr', 'label_cvr'].
             id_columns: Identifier column name, only need to specify if GAUC is required. e.g., 'user_id'.
             task: Task types, e.g., 'binary', 'regression', or ['binary', 'regression']. If None, falls back to self.default_task.
-            training_mode: Training mode for ranking tasks; a single mode or a list per task.
+            training_mode: Training mode for different tasks. e.g., 'pointwise', ['pointwise', 'pairwise'].
 
             embedding_l1_reg: L1 regularization strength for embedding params. e.g., 1e-6.
             dense_l1_reg: L1 regularization strength for dense params. e.g., 1e-5.
@@ -218,7 +196,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.task = task or self.default_task
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
 
-        self.training_mode = training_mode
+        training_mode = training_mode or "pointwise"
+        if isinstance(training_mode, list):
+            self.training_modes = list(training_mode)
+        else:
+            self.training_modes = [training_mode] * self.nums_task
 
         self.embedding_l1_reg = embedding_l1_reg
         self.dense_l1_reg = dense_l1_reg
@@ -328,13 +310,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
     def get_input(self, input_data: dict, require_labels: bool = True):
         """
         Prepare unified input features and labels from the given input data.
-        
+
 
         Args:
             input_data: Input data dictionary containing 'features' and optionally 'labels', e.g., {'features': {'feat1': [...], 'feat2': [...]}, 'labels': {'label': [...]}}.
             require_labels: Whether labels are required in the input data. Default is True: for training and evaluation with labels.
-        
-        Note: 
+
+        Note:
             target tensor shape will always be (batch_size, num_targets)
         """
         feature_source = input_data.get("features", {})
@@ -491,9 +473,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             ignore_label: Label value to ignore when computing loss. Use this to skip gradients for unknown labels.
         """
         self.ignore_label = ignore_label
-        loss_list = get_loss_list(
-            loss, self.training_modes, self.nums_task
-        )
+
+        # get loss list
+        loss_list = get_loss_list(loss, self.training_modes, self.nums_task)
 
         self.loss_params = {} if loss_params is None else loss_params
         self.optimizer_params = optimizer_params or {}
@@ -546,7 +528,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 raise ValueError(
                     "[BaseModel-compile Error] GradNorm requires multi-task setup."
                 )
-            grad_norm_params = dict(loss_weights) if isinstance(loss_weights, dict) else {}
+            grad_norm_params = (
+                dict(loss_weights) if isinstance(loss_weights, dict) else {}
+            )
             grad_norm_params.pop("method", None)
             self.grad_norm = GradNormLossWeighting(
                 nums_task=self.nums_task, device=self.device, **grad_norm_params
@@ -594,7 +578,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 y_true = y_true.view(-1, 1)
 
             loss_fn = self.loss_fn[0]
-            
+
             # mask ignored labels
             # we don't suggest using ignore_label for single task training
             if self.ignore_label is not None:
@@ -685,6 +669,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         batch_size: int = 32,
         shuffle: bool = True,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
         sampler=None,
         return_dataset: bool = False,
     ):
@@ -696,6 +681,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             batch_size: Batch size.
             shuffle: Whether to shuffle the data (ignored when a sampler is provided).
             num_workers: Number of DataLoader workers.
+            prefetch_factor: Number of batches loaded in advance by each worker.
             sampler: Optional sampler for DataLoader.
             return_dataset: Whether to return the tensor dataset along with the DataLoader, used for valid data
         Returns:
@@ -715,6 +701,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 "[BaseModel-prepare_data_loader Error] No data available to create DataLoader."
             )
         dataset = TensorDictDataset(tensors)
+        loader_kwargs = {}
+        if num_workers > 0 and prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = prefetch_factor
         loader = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -724,6 +713,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_workers=num_workers,
             pin_memory=self.device.type == "cuda",
             persistent_workers=num_workers > 0,
+            **loader_kwargs,
         )
         return (loader, dataset) if return_dataset else loader
 
@@ -797,6 +787,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             self.distributed, self.rank, self.world_size, device_id=device_id
         )
         self.to(self.device)
+
+        assert_task(self.task, len(self.target_columns), model_name=self.model_name)
 
         if not self.compiled:
             self.compile(
@@ -901,6 +893,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         )
                     else:
                         swanlab.login(api_key=swanlab_api)
+
+        if use_wandb and self.note:
+            wandb_kwargs = dict(wandb_kwargs or {})
+            wandb_kwargs.setdefault("notes", self.note)
+
+        if use_swanlab and self.note:
+            swanlab_kwargs = dict(swanlab_kwargs or {})
+            swanlab_kwargs.setdefault("description", self.note)
 
         self.training_logger = (
             TrainingLogger(
@@ -1649,7 +1649,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             stream_chunk_size: Number of rows per chunk when using streaming mode for large datasets.
             num_workers: DataLoader worker count.
 
-        Note: 
+        Note:
             predict does not support distributed mode currently, consider it as a single-process operation.
         """
         self.eval()
@@ -1837,7 +1837,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
     ):
         """
         Make predictions on the given data using streaming mode for large datasets.
-        
+
         Args:
             data: Input data for prediction (file path, dict, DataFrame, or DataLoader).
             batch_size: Batch size for prediction.
@@ -2279,9 +2279,10 @@ class BaseMatchModel(BaseModel):
         self.num_negative_samples = num_negative_samples
         self.temperature = temperature
         self.similarity_metric = similarity_metric
-        if self.training_mode not in self.support_training_modes:
+        primary_mode = self.training_modes[0] if self.training_modes else "pointwise"
+        if primary_mode not in self.support_training_modes:
             raise ValueError(
-                f"{self.model_name.upper()} does not support training_mode='{self.training_mode}'. Supported modes: {self.support_training_modes}"
+                f"{self.model_name.upper()} does not support training_mode='{primary_mode}'. Supported modes: {self.support_training_modes}"
             )
         self.user_features_all = (
             self.user_dense_features
@@ -2298,7 +2299,7 @@ class BaseMatchModel(BaseModel):
         self.head = RetrievalHead(
             similarity_metric=self.similarity_metric,
             temperature=self.temperature,
-            training_mode=self.training_mode,
+            training_mode=primary_mode,
             apply_sigmoid=True,
         )
 
@@ -2338,26 +2339,27 @@ class BaseMatchModel(BaseModel):
         }
 
         effective_loss = loss
+        primary_mode = self.training_modes[0] if self.training_modes else "pointwise"
         if effective_loss is None:
-            effective_loss = default_loss_by_mode[self.training_mode]
+            effective_loss = default_loss_by_mode[primary_mode]
         elif isinstance(effective_loss, str):
-            if self.training_mode in {"pairwise", "listwise"} and effective_loss in {
+            if primary_mode in {"pairwise", "listwise"} and effective_loss in {
                 "bce",
                 "binary_crossentropy",
             }:
-                effective_loss = default_loss_by_mode[self.training_mode]
+                effective_loss = default_loss_by_mode[primary_mode]
         elif isinstance(effective_loss, list):
             if not effective_loss:
-                effective_loss = [default_loss_by_mode[self.training_mode]]
+                effective_loss = [default_loss_by_mode[primary_mode]]
             else:
                 first = effective_loss[0]
                 if (
-                    self.training_mode in {"pairwise", "listwise"}
+                    primary_mode in {"pairwise", "listwise"}
                     and isinstance(first, str)
                     and first in {"bce", "binary_crossentropy"}
                 ):
                     effective_loss = [
-                        default_loss_by_mode[self.training_mode],
+                        default_loss_by_mode[primary_mode],
                         *effective_loss[1:],
                     ]
         return super().compile(
@@ -2435,11 +2437,12 @@ class BaseMatchModel(BaseModel):
         return self.head(user_emb, item_emb, similarity_fn=self.compute_similarity)
 
     def compute_loss(self, y_pred, y_true):
-        if self.training_mode == "pointwise":
+        primary_mode = self.training_modes[0] if self.training_modes else "pointwise"
+        if primary_mode == "pointwise":
             return super().compute_loss(y_pred, y_true)
 
         # pairwise / listwise using inbatch neg
-        elif self.training_mode in ["pairwise", "listwise"]:
+        elif primary_mode in ["pairwise", "listwise"]:
             if not isinstance(y_pred, (tuple, list)) or len(y_pred) != 2:
                 raise ValueError(
                     "For pairwise/listwise training, forward should return (user_emb, item_emb). Please check BaseMatchModel.forward implementation."
@@ -2482,7 +2485,7 @@ class BaseMatchModel(BaseModel):
                 loss *= float(self.loss_weights[0])
             return loss
         else:
-            raise ValueError(f"Unknown training mode: {self.training_mode}")
+            raise ValueError(f"Unknown training mode: {primary_mode}")
 
     def prepare_feature_data(
         self,

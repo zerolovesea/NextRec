@@ -3,8 +3,7 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Zhao Z, Zhang H, Tang H, et al. EulerNet: Efficient and Effective Feature
-Interaction Modeling with Euler's Formula. (SIGIR 2021)
+- [1] Zhao Z, Zhang H, Tang H, et al. EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula. (SIGIR 2021)
 
 EulerNet models feature interactions in the complex domain using Euler's
 formula. Each field embedding is transformed into amplitude and phase,

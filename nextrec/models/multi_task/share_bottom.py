@@ -2,9 +2,6 @@
 Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
-Reference:
-[1] Caruana R. Multitask learning[J]. Machine Learning, 1997, 28: 41-75.
-(https://link.springer.com/article/10.1023/A:1007379606734)
 
 Shared-Bottom is the classic hard-parameter-sharing baseline for multi-task learning.
 All tasks share a common bottom network to learn general representations, and each
@@ -65,8 +62,8 @@ class ShareBottom(BaseModel):
         dense_features: list[DenseFeature],
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
-        bottom_params: dict,
-        tower_params_list: list[dict],
+        bottom_mlp_params: dict,
+        tower_mlp_params_list: list[dict],
         target: list[str],
         task: str | list[str] | None = None,
         **kwargs,
@@ -74,32 +71,21 @@ class ShareBottom(BaseModel):
 
         self.nums_task = len(target)
 
-        resolved_task = task
-        if resolved_task is None:
-            resolved_task = self.default_task
-        elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.nums_task
-        elif len(resolved_task) == 1 and self.nums_task > 1:
-            resolved_task = resolved_task * self.nums_task
-        elif len(resolved_task) != self.nums_task:
-            raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
-            )
-
         super(ShareBottom, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=resolved_task,
+            task=task,
             **kwargs,
         )
 
         # Number of tasks
         self.nums_task = len(target)
-        if len(tower_params_list) != self.nums_task:
+        if len(tower_mlp_params_list) != self.nums_task:
             raise ValueError(
-                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.nums_task})"
+                "Number of tower mlp params "
+                f"({len(tower_mlp_params_list)}) must match number of tasks ({self.nums_task})"
             )
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
@@ -110,19 +96,22 @@ class ShareBottom(BaseModel):
         # input_dim = emb_dim_total + dense_input_dim
 
         # Shared bottom network
-        self.bottom = MLP(input_dim=input_dim, output_dim=None, **bottom_params)
+        self.bottom = MLP(input_dim=input_dim, output_dim=None, **bottom_mlp_params)
         self.grad_norm_shared_modules = ["embedding", "bottom"]
 
         # Get bottom output dimension
-        if "hidden_dims" in bottom_params and len(bottom_params["hidden_dims"]) > 0:
-            bottom_output_dim = bottom_params["hidden_dims"][-1]
+        if (
+            "hidden_dims" in bottom_mlp_params
+            and len(bottom_mlp_params["hidden_dims"]) > 0
+        ):
+            bottom_output_dim = bottom_mlp_params["hidden_dims"][-1]
         else:
             bottom_output_dim = input_dim
 
         # Task-specific towers
         self.towers = nn.ModuleList()
-        for tower_params in tower_params_list:
-            tower = MLP(input_dim=bottom_output_dim, output_dim=1, **tower_params)
+        for tower_mlp_params in tower_mlp_params_list:
+            tower = MLP(input_dim=bottom_output_dim, output_dim=1, **tower_mlp_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
             task_type=self.task, task_dims=[1] * self.nums_task

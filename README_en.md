@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.25-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.26-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -50,7 +50,7 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](/nextrec_cli_preset/NextRec-CLI.md) and [reference code](/nextrec_cli_preset).
 - **03/12/2025** NextRec reached 100 ⭐—thanks for the support!
 - **06/12/2025** Added single-machine multi-GPU DDP training in v0.4.1 with supporting [code](tutorials/distributed).
-- **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 4 multi-task models, 4 retrieval models, and a unified training/logging/metrics system.
+- **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 11 multi-task models, 4 retrieval models, and a unified training/logging/metrics system.
 
 ## Architecture
 
@@ -136,15 +136,13 @@ model = DIN(
     sparse_features=sparse_features,
     sequence_features=sequence_features,
     mlp_params=mlp_params,
-    attention_hidden_units=[80, 40],
-    attention_activation='sigmoid',
+    attention_mlp_params={
+        "hidden_dims": [80, 40],
+        "activation": "sigmoid",
+    },
     attention_use_softmax=True,
-    target=['label'],                                     # target variable
-    device='mps',                                         
-    embedding_l1_reg=1e-6,
-    embedding_l2_reg=1e-5,
-    dense_l1_reg=1e-5,
-    dense_l2_reg=1e-4,
+    target='label',                                     # target variable
+    device='cpu',                                         
     session_id="din_tutorial",                            # experiment id for logs
 )
 
@@ -162,7 +160,13 @@ model.fit(
     epochs=3,
     batch_size=512,
     shuffle=True,
-    user_id_column='user_id'             # used for GAUC
+    user_id_column='user_id',            # used for GAUC
+    valid_ratio=0.2,                     # auto split validation (optional)
+    num_workers=4,                       # DataLoader workers
+    use_wandb=False,                     # enable W&B (optional)
+    wandb_kwargs={"project": "NextRec", "name": "din_tutorial"},
+    use_swanlab=False,                   # enable SwanLab (optional)
+    swanlab_kwargs={"project": "NextRec", "name": "din_tutorial"},
 )
 
 # Evaluate after training
@@ -191,11 +195,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.4.25, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.4.26, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.4.25. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.4.26. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -255,6 +259,11 @@ The current version is 0.4.25. All models and test code have been validated on t
 | [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-task Model | SIGIR 2018 | Supported |
 | [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | - | Supported |
 | [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold-start Modules for Large-scale Recommender Systems | 2021 | Supported |
+| [PEPNet](nextrec/models/multi_task/pepnet.py) | PEPNet: Parameter and Embedding Personalized Network | KDD 2023 | Supported |
+| [APG](nextrec/models/multi_task/apg.py) | APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction | NeurIPS 2022 | Supported |
+| [CrossStitch](nextrec/models/multi_task/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | CVPR 2016 | Supported |
+| [ESCM](nextrec/models/multi_task/escm.py) | ESCM2: Entire Space Counterfactual Multi-Task Model for Post-Click Conversion Rate Estimation | 2022 | Supported |
+| [HMOE](nextrec/models/multi_task/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | - | Supported |
 
 ### Generative Models
 

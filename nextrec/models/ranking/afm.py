@@ -3,8 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Xiao J, Ye H, He X, et al. Attentional factorization machines: Learning the weight of
-feature interactions via attention networks[C]//IJCAI. 2017: 3119-3125.
+- [1] Xiao J, Ye H, He X, et al. Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks
+URL: https://arxiv.org/abs/1708.04617
 
 Attentional Factorization Machine (AFM) builds on FM by learning an importance
 weight for every second-order interaction instead of treating all pairs equally.

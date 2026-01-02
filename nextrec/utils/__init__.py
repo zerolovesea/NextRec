@@ -37,7 +37,11 @@ from .data import (
 )
 from .embedding import get_auto_embedding_dim
 from .feature import to_list
-from .model import compute_pair_scores, get_mlp_output_dim, merge_features
+from .model import (
+    compute_pair_scores,
+    get_mlp_output_dim,
+    merge_features,
+)
 from .loss import normalize_task_loss
 from .torch_utils import (
     add_distributed_sampler,

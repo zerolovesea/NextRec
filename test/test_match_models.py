@@ -81,8 +81,8 @@ class TestDSSM:
             item_dense_features=item_dense,
             item_sparse_features=item_sparse,
             item_sequence_features=item_sequence,
-            user_dnn_hidden_units=[128, 64],
-            item_dnn_hidden_units=[128, 64],
+            user_mlp_params={"hidden_dims": [128, 64]},
+            item_mlp_params={"hidden_dims": [128, 64]},
             embedding_dim=32,
             training_mode="pointwise",
             similarity_metric="cosine",
@@ -116,8 +116,8 @@ class TestDSSM:
             item_dense_features=item_dense,
             item_sparse_features=item_sparse,
             item_sequence_features=item_sequence,
-            user_dnn_hidden_units=[128, 64],
-            item_dnn_hidden_units=[128, 64],
+            user_mlp_params={"hidden_dims": [128, 64]},
+            item_mlp_params={"hidden_dims": [128, 64]},
             embedding_dim=32,
             training_mode="pointwise",
             similarity_metric="cosine",
@@ -288,8 +288,8 @@ class TestYoutubeDNN:
             item_dense_features=item_dense,
             item_sparse_features=item_sparse,
             item_sequence_features=item_sequence,
-            user_dnn_hidden_units=[256, 128],
-            item_dnn_hidden_units=[256, 128],
+            user_mlp_params={"hidden_dims": [256, 128]},
+            item_mlp_params={"hidden_dims": [256, 128]},
             embedding_dim=64,
             training_mode="listwise",
             num_negative_samples=100,
@@ -633,7 +633,7 @@ class TestSDM:
             item_sparse_features=item_sparse,
             item_sequence_features=item_sequence,
             rnn_type="GRU",
-            rnn_hidden_size=64,
+            rnn_params={"hidden_size": 64},
             training_mode="pointwise",
             device=device,
         )
@@ -664,7 +664,7 @@ class TestSDM:
             item_sparse_features=item_sparse,
             item_sequence_features=item_sequence,
             rnn_type="GRU",
-            rnn_hidden_size=64,
+            rnn_params={"hidden_size": 64},
             training_mode="pointwise",
             device=device,
         )
@@ -703,7 +703,7 @@ class TestSDM:
             item_sparse_features=item_sparse,
             item_sequence_features=item_sequence,
             rnn_type=rnn_type,
-            rnn_hidden_size=64,
+            rnn_params={"hidden_size": 64},
             device=device,
         )
 
@@ -756,7 +756,7 @@ class TestTrainingModes:
         elif training_mode == "listwise":
             model.compile(loss="sampled_softmax")
 
-        assert model.training_mode == training_mode
+        assert model.training_modes[0] == training_mode
         assert training_mode in model.support_training_modes
 
         logger.info(f"DSSM {training_mode} training mode test successful")
@@ -868,7 +868,7 @@ class TestTrainingModes:
 
         model.compile(loss=loss_name)
 
-        assert model.training_mode == "pairwise"
+        assert model.training_modes[0] == "pairwise"
 
         logger.info(f"{loss_name} loss test successful")
 
@@ -891,7 +891,7 @@ class TestTrainingModes:
 
         model.compile(loss=loss_name)
 
-        assert model.training_mode == "listwise"
+        assert model.training_modes[0] == "listwise"
 
         logger.info(f"{loss_name} loss test successful")
 

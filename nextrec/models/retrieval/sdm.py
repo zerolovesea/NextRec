@@ -3,8 +3,7 @@ Date: create on 09/11/2025
 Checkpoint: edit on 18/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Ying H, Zhuang F, Zhang F, et al. Sequential recommender system based on hierarchical attention networks[C]
-//IJCAI. 2018: 3926-3932.
+- [1] Ying H, Zhuang F, Zhang F, et al. Sequential recommender system based on hierarchical attention networks[C] //IJCAI. 2018: 3926-3932.
 """
 
 from typing import Literal
@@ -37,14 +36,11 @@ class SDM(BaseMatchModel):
         item_sequence_features: list[SequenceFeature] | None = None,
         embedding_dim: int = 64,
         rnn_type: Literal["GRU", "LSTM"] = "GRU",
-        rnn_hidden_size: int = 64,
-        rnn_num_layers: int = 1,
-        rnn_dropout: float = 0.0,
+        rnn_params: dict | None = None,
         use_short_term: bool = True,
         use_long_term: bool = True,
-        item_dnn_hidden_units: list[int] = [256, 128],
-        dnn_activation: str = "relu",
-        dnn_dropout: float = 0.0,
+        user_mlp_params: dict | None = None,
+        item_mlp_params: dict | None = None,
         training_mode: Literal["pointwise", "pairwise", "listwise"] = "pointwise",
         num_negative_samples: int = 4,
         temperature: float = 1.0,
@@ -76,10 +72,26 @@ class SDM(BaseMatchModel):
 
         self.embedding_dim = embedding_dim
         self.rnn_type = rnn_type
-        self.rnn_hidden_size = rnn_hidden_size
         self.use_short_term = use_short_term
         self.use_long_term = use_long_term
-        self.item_dnn_hidden_units = item_dnn_hidden_units
+        rnn_params = rnn_params or {}
+        user_mlp_params = user_mlp_params or {}
+        item_mlp_params = item_mlp_params or {}
+
+        rnn_params.setdefault("hidden_size", 64)
+        rnn_params.setdefault("num_layers", 1)
+        rnn_params.setdefault("dropout", 0.0)
+        self.rnn_hidden_size = rnn_params["hidden_size"]
+
+        user_mlp_params.setdefault("hidden_dims", [self.rnn_hidden_size * 2])
+        user_mlp_params.setdefault("activation", "relu")
+        user_mlp_params.setdefault("dropout", 0.0)
+        user_mlp_params.setdefault("output_dim", embedding_dim)
+
+        item_mlp_params.setdefault("hidden_dims", [256, 128])
+        item_mlp_params.setdefault("activation", "relu")
+        item_mlp_params.setdefault("dropout", 0.0)
+        item_mlp_params.setdefault("output_dim", embedding_dim)
 
         # User tower
         user_features = []
@@ -101,25 +113,29 @@ class SDM(BaseMatchModel):
             if rnn_type == "GRU":
                 self.rnn = nn.GRU(
                     input_size=seq_emb_dim,
-                    hidden_size=rnn_hidden_size,
-                    num_layers=rnn_num_layers,
+                    hidden_size=self.rnn_hidden_size,
+                    num_layers=rnn_params["num_layers"],
                     batch_first=True,
-                    dropout=rnn_dropout if rnn_num_layers > 1 else 0.0,
+                    dropout=(
+                        rnn_params["dropout"] if rnn_params["num_layers"] > 1 else 0.0
+                    ),
                 )
             elif rnn_type == "LSTM":
                 self.rnn = nn.LSTM(
                     input_size=seq_emb_dim,
-                    hidden_size=rnn_hidden_size,
-                    num_layers=rnn_num_layers,
+                    hidden_size=self.rnn_hidden_size,
+                    num_layers=rnn_params["num_layers"],
                     batch_first=True,
-                    dropout=rnn_dropout if rnn_num_layers > 1 else 0.0,
+                    dropout=(
+                        rnn_params["dropout"] if rnn_params["num_layers"] > 1 else 0.0
+                    ),
                 )
             else:
                 raise ValueError(f"Unknown RNN type: {rnn_type}")
 
             user_final_dim = 0
             if use_long_term:
-                user_final_dim += rnn_hidden_size
+                user_final_dim += self.rnn_hidden_size
             if use_short_term:
                 user_final_dim += seq_emb_dim
 
@@ -129,13 +145,7 @@ class SDM(BaseMatchModel):
                 user_final_dim += feat.embedding_dim
 
             # User DNN to final embedding
-            self.user_dnn = MLP(
-                input_dim=user_final_dim,
-                hidden_dims=[rnn_hidden_size * 2, embedding_dim],
-                output_dim=None,
-                dropout=dnn_dropout,
-                activation=dnn_activation,
-            )
+            self.user_dnn = MLP(input_dim=user_final_dim, **user_mlp_params)
 
         # Item tower
         item_features = []
@@ -158,15 +168,8 @@ class SDM(BaseMatchModel):
                 item_input_dim += feat.embedding_dim
 
             # Item DNN
-            if len(item_dnn_hidden_units) > 0:
-                item_dnn_units = item_dnn_hidden_units + [embedding_dim]
-                self.item_dnn = MLP(
-                    input_dim=item_input_dim,
-                    hidden_dims=item_dnn_units,
-                    output_dim=None,
-                    dropout=dnn_dropout,
-                    activation=dnn_activation,
-                )
+            if len(item_mlp_params["hidden_dims"]) > 0:
+                self.item_dnn = MLP(input_dim=item_input_dim, **item_mlp_params)
             else:
                 self.item_dnn = None
 

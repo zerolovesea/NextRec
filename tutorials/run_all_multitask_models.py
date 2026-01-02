@@ -6,10 +6,16 @@ Checkpoint: edit on 06/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
+from nextrec.models.multi_task.apg import APG
+from nextrec.models.multi_task.cross_stitch import CrossStitch
+from nextrec.models.multi_task.escm import ESCM
 from nextrec.models.multi_task.esmm import ESMM
+from nextrec.models.multi_task.hmoe import HMOE
 from nextrec.models.multi_task.mmoe import MMOE
 from nextrec.models.multi_task.pepnet import PEPNet
 from nextrec.models.multi_task.ple import PLE
+from nextrec.models.multi_task.poso import POSO
+from nextrec.models.multi_task.poso_iflytek import POSO_IFLYTEK
 from nextrec.models.multi_task.share_bottom import ShareBottom
 
 from nextrec.utils import generate_multitask_data
@@ -100,47 +106,75 @@ def main():
     print(f"Train size: {len(train_df)}, Valid size: {len(valid_df)}")
 
     tower_params = {"hidden_dims": [256, 128, 64], "activation": "relu", "dropout": 0.2}
+    shared_mlp_params = {"hidden_dims": [128], "activation": "relu", "dropout": 0.1}
+    task_mlp_params = {"hidden_dims": [128, 64], "activation": "relu", "dropout": 0.1}
+    small_tower_params = {
+        "hidden_dims": [128, 64],
+        "activation": "relu",
+        "dropout": 0.1,
+    }
+    expert_mlp_params = {"hidden_dims": [128, 64], "activation": "relu", "dropout": 0.1}
+    gate_mlp_params = {"hidden_dims": [64], "activation": "relu", "dropout": 0.1}
+    task_weight_params = {"hidden_dims": [64], "activation": "relu", "dropout": 0.1}
     results = {}
 
     models_to_train = [
         (
+            APG,
+            "APG",
+            {
+                "mlp_params": {"hidden_dims": [128, 64], "activation": "relu"},
+                "scene_features": ["sparse_0"],
+                "target": ["click", "conversion"],
+            },
+        ),
+        (
+            CrossStitch,
+            "CrossStitch",
+            {
+                "shared_mlp_params": shared_mlp_params,
+                "task_mlp_params": task_mlp_params,
+                "tower_mlp_params": {"hidden_dims": [64], "activation": "relu"},
+                "target": ["click", "conversion"],
+            },
+        ),
+        (
+            ESCM,
+            "ESCM",
+            {
+                "ctr_mlp_params": small_tower_params,
+                "cvr_mlp_params": small_tower_params,
+                "target": ["click", "conversion", "ctcvr"],
+            },
+        ),
+        (
             ESMM,
             "ESMM",
             {
-                "ctr_params": tower_params,
-                "cvr_params": tower_params,
+                "ctr_mlp_params": tower_params,
+                "cvr_mlp_params": tower_params,
                 "target": ["click", "ctcvr"],
+            },
+        ),
+        (
+            HMOE,
+            "HMOE",
+            {
+                "expert_mlp_params": expert_mlp_params,
+                "gate_mlp_params": gate_mlp_params,
+                "tower_mlp_params_list": [small_tower_params, small_tower_params],
+                "task_weight_mlp_params": [task_weight_params, task_weight_params],
+                "num_experts": 4,
+                "target": ["click", "conversion"],
             },
         ),
         (
             MMOE,
             "MMOE",
             {
-                "expert_params": tower_params,
-                "tower_params_list": [tower_params, tower_params],
+                "expert_mlp_params": tower_params,
+                "tower_mlp_params_list": [tower_params, tower_params],
                 "num_experts": 4,
-                "target": ["click", "conversion"],
-            },
-        ),
-        (
-            PLE,
-            "PLE",
-            {
-                "shared_expert_params": tower_params,
-                "specific_expert_params": tower_params,
-                "tower_params_list": [tower_params, tower_params],
-                "num_shared_experts": 2,
-                "num_specific_experts": 2,
-                "num_levels": 2,
-                "target": ["click", "conversion"],
-            },
-        ),
-        (
-            ShareBottom,
-            "ShareBottom",
-            {
-                "bottom_params": tower_params,
-                "tower_params_list": [tower_params, tower_params],
                 "target": ["click", "conversion"],
             },
         ),
@@ -148,12 +182,70 @@ def main():
             PEPNet,
             "PEPNet",
             {
-                "dnn_hidden_units": tower_params["hidden_dims"],
-                "dnn_activation": tower_params["activation"],
-                "dnn_dropout": tower_params["dropout"],
+                "mlp_params": {
+                    "hidden_dims": tower_params["hidden_dims"],
+                    "activation": tower_params["activation"],
+                    "dropout": tower_params["dropout"],
+                },
                 "domain_features": ["sparse_0"],
                 "user_features": ["user_id"],
                 "item_features": ["item_id"],
+                "target": ["click", "conversion"],
+            },
+        ),
+        (
+            PLE,
+            "PLE",
+            {
+                "shared_expert_mlp_params": tower_params,
+                "specific_expert_mlp_params": [tower_params, tower_params],
+                "tower_mlp_params_list": [tower_params, tower_params],
+                "num_shared_experts": 2,
+                "num_specific_experts": 2,
+                "num_levels": 2,
+                "target": ["click", "conversion"],
+            },
+        ),
+        (
+            POSO,
+            "POSO",
+            {
+                "main_dense_features": ["dense_0", "dense_1", "dense_2"],
+                "main_sparse_features": ["user_id", "item_id"],
+                "main_sequence_features": [],
+                "pc_dense_features": ["dense_3", "dense_4"],
+                "pc_sparse_features": ["sparse_0"],
+                "pc_sequence_features": [],
+                "tower_mlp_params_list": [small_tower_params, small_tower_params],
+                "target": ["click", "conversion"],
+                "architecture": "mlp",
+            },
+        ),
+        (
+            POSO_IFLYTEK,
+            "POSO_IFLYTEK",
+            {
+                "main_dense_features": ["dense_0", "dense_1", "dense_2"],
+                "main_sparse_features": ["user_id", "item_id"],
+                "main_sequence_features": [],
+                "pc_dense_features": ["dense_3", "dense_4"],
+                "pc_sparse_features": ["sparse_0"],
+                "pc_sequence_features": [],
+                "shared_expert_params": {"hidden_dims": [64], "activation": "relu"},
+                "specific_expert_params": {"hidden_dims": [64], "activation": "relu"},
+                "tower_params_list": [{"hidden_dims": [64]}, {"hidden_dims": [64]}],
+                "target": ["click", "conversion"],
+                "num_shared_experts": 2,
+                "num_specific_experts": 2,
+                "num_levels": 2,
+            },
+        ),
+        (
+            ShareBottom,
+            "ShareBottom",
+            {
+                "bottom_mlp_params": tower_params,
+                "tower_mlp_params_list": [tower_params, tower_params],
                 "target": ["click", "conversion"],
             },
         ),

@@ -3,9 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] R. Wang et al. DCN V2: Improved Deep & Cross Network and Practical Lessons for
-Web-scale Learning to Rank Systems. KDD 2021.
-(https://arxiv.org/abs/2008.13535)
+- [1] R. Wang et al. DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems. KDD 2021.
+URL: https://arxiv.org/abs/2008.13535
 
 DCN v2 enhances the original Deep & Cross Network by replacing the scalar cross
 weights with vector-wise (matrix) parameters and a Mixture-of-Low-Rank-Experts

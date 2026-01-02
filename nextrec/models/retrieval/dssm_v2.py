@@ -36,11 +36,9 @@ class DSSM_v2(BaseMatchModel):
         item_dense_features: list[DenseFeature] | None = None,
         item_sparse_features: list[SparseFeature] | None = None,
         item_sequence_features: list[SequenceFeature] | None = None,
-        user_dnn_hidden_units: list[int] = [256, 128, 64],
-        item_dnn_hidden_units: list[int] = [256, 128, 64],
+        user_mlp_params: dict | None = None,
+        item_mlp_params: dict | None = None,
         embedding_dim: int = 64,
-        dnn_activation: str = "relu",
-        dnn_dropout: float = 0.0,
         training_mode: Literal["pointwise", "pairwise", "listwise"] = "pairwise",
         num_negative_samples: int = 4,
         temperature: float = 1.0,
@@ -71,8 +69,17 @@ class DSSM_v2(BaseMatchModel):
         )
 
         self.embedding_dim = embedding_dim
-        self.user_dnn_hidden_units = user_dnn_hidden_units
-        self.item_dnn_hidden_units = item_dnn_hidden_units
+        user_mlp_params = user_mlp_params or {}
+        item_mlp_params = item_mlp_params or {}
+
+        user_mlp_params.setdefault("hidden_dims", [256, 128, 64])
+        item_mlp_params.setdefault("hidden_dims", [256, 128, 64])
+        user_mlp_params.setdefault("activation", "relu")
+        user_mlp_params.setdefault("dropout", 0.0)
+        item_mlp_params.setdefault("activation", "relu")
+        item_mlp_params.setdefault("dropout", 0.0)
+        user_mlp_params.setdefault("output_dim", embedding_dim)
+        item_mlp_params.setdefault("output_dim", embedding_dim)
 
         # User tower
         user_features = []
@@ -94,14 +101,7 @@ class DSSM_v2(BaseMatchModel):
             for feat in user_sequence_features or []:
                 user_input_dim += feat.embedding_dim
 
-            user_dnn_units = user_dnn_hidden_units + [embedding_dim]
-            self.user_dnn = MLP(
-                input_dim=user_input_dim,
-                hidden_dims=user_dnn_units,
-                output_dim=None,
-                dropout=dnn_dropout,
-                activation=dnn_activation,
-            )
+            self.user_dnn = MLP(input_dim=user_input_dim, **user_mlp_params)
 
         # Item tower
         item_features = []
@@ -123,14 +123,7 @@ class DSSM_v2(BaseMatchModel):
             for feat in item_sequence_features or []:
                 item_input_dim += feat.embedding_dim
 
-            item_dnn_units = item_dnn_hidden_units + [embedding_dim]
-            self.item_dnn = MLP(
-                input_dim=item_input_dim,
-                hidden_dims=item_dnn_units,
-                output_dim=None,
-                dropout=dnn_dropout,
-                activation=dnn_activation,
-            )
+            self.item_dnn = MLP(input_dim=item_input_dim, **item_mlp_params)
 
         self.register_regularization_weights(
             embedding_attr="user_embedding", include_modules=["user_dnn"]

@@ -3,10 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 09/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate
-prediction[C] //Proceedings of the 24th ACM SIGKDD international conference on
-knowledge discovery & data mining. 2018: 1059-1068.
-(https://arxiv.org/abs/1706.06978)
+- [1] Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate prediction[C] //Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1059-1068.
+  URL: https://arxiv.org/abs/1706.06978
 
 Deep Interest Network (DIN) is a CTR model that builds a target-aware user
 representation by attending over the historical behavior sequence. Instead of
@@ -58,7 +56,6 @@ from nextrec.basic.layers import (
 )
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
-from nextrec.utils.types import ActivationName
 
 
 class DIN(BaseModel):
@@ -78,8 +75,7 @@ class DIN(BaseModel):
         behavior_feature_name: str | None = None,
         candidate_feature_name: str | None = None,
         mlp_params: dict | None = None,
-        attention_hidden_units: list[int] | None = None,
-        attention_activation: ActivationName = "dice",
+        attention_mlp_params: dict | None = None,
         attention_use_softmax: bool = True,
         **kwargs,
     ):
@@ -88,7 +84,9 @@ class DIN(BaseModel):
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
         mlp_params = mlp_params or {}
-        attention_hidden_units = attention_hidden_units or [80, 40]
+        attention_mlp_params = attention_mlp_params or {}
+        attention_mlp_params.setdefault("hidden_dims", [80, 40])
+        attention_mlp_params.setdefault("activation", "dice")
 
         super(DIN, self).__init__(
             dense_features=dense_features,
@@ -135,8 +133,8 @@ class DIN(BaseModel):
             )
         self.attention = AttentionPoolingLayer(
             embedding_dim=behavior_emb_dim,
-            hidden_units=attention_hidden_units,
-            activation=attention_activation,
+            hidden_units=attention_mlp_params["hidden_dims"],
+            activation=attention_mlp_params["activation"],
             use_softmax=attention_use_softmax,
         )
 

@@ -3,9 +3,7 @@ Date: create on 09/11/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Checkpoint: edit on 09/12/2025
 Reference:
-[1] Zhou G, Mou N, Fan Y, et al. Deep interest evolution network for click-through
-rate prediction[C] // Proceedings of the AAAI conference on artificial intelligence.
-2019, 33(01): 5941-5948. (https://arxiv.org/abs/1809.03672)
+- [1] Zhou G, Mou N, Fan Y, et al. Deep interest evolution network for click-through rate prediction[C] // Proceedings of the AAAI conference on artificial intelligence. 2019, 33(01): 5941-5948. (https://arxiv.org/abs/1809.03672)
 
 DIEN is a CTR prediction model that explicitly models how user interests evolve
 over time. It introduces a two-stage pipeline:
@@ -58,7 +56,6 @@ from nextrec.basic.layers import (
 )
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
-from nextrec.utils.types import ActivationName
 
 
 class AUGRU(nn.Module):
@@ -211,8 +208,7 @@ class DIEN(BaseModel):
         neg_behavior_feature_name: str | None = None,
         mlp_params: dict | None = None,
         gru_hidden_size: int = 64,
-        attention_hidden_units: list[int] | None = None,
-        attention_activation: ActivationName = "sigmoid",
+        attention_mlp_params: dict | None = None,
         use_negsampling: bool = False,
         aux_loss_weight: float = 1.0,
         **kwargs,
@@ -222,7 +218,9 @@ class DIEN(BaseModel):
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
         mlp_params = mlp_params or {}
-        attention_hidden_units = attention_hidden_units or [80, 40]
+        attention_mlp_params = attention_mlp_params or {}
+        attention_mlp_params.setdefault("hidden_dims", [80, 40])
+        attention_mlp_params.setdefault("activation", "sigmoid")
 
         super(DIEN, self).__init__(
             dense_features=dense_features,
@@ -285,8 +283,8 @@ class DIEN(BaseModel):
 
         self.attention_layer = AttentionPoolingLayer(
             embedding_dim=gru_hidden_size,
-            hidden_units=attention_hidden_units,
-            activation=attention_activation,
+            hidden_units=attention_mlp_params["hidden_dims"],
+            activation=attention_mlp_params["activation"],
             use_softmax=False,
         )
 

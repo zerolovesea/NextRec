@@ -3,9 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
-[1] Tang H, Liu J, Zhao M, et al. Progressive layered extraction (PLE): A novel
-multi-task learning (MTL) model for personalized recommendations[C]//RecSys. 2020: 269-278.
-(https://dl.acm.org/doi/10.1145/3383313.3412236)
+- [1] Tang H, Liu J, Zhao M, Gong X. Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations. In: Proceedings of the 14th ACM Conference on Recommender Systems (RecSys ’20), 2020, pp. 269–278.
+URL: https://dl.acm.org/doi/10.1145/3383313.3412236
 
 Progressive Layered Extraction (PLE) advances multi-task learning by stacking CGC
 (Customized Gate Control) blocks that mix shared and task-specific experts. Each
@@ -67,18 +66,21 @@ class CGCLayer(nn.Module):
         nums_task: int,
         num_shared_experts: int,
         num_specific_experts: int,
-        shared_expert_params: dict,
-        specific_expert_params: dict | list[dict],
+        shared_expert_mlp_params: dict,
+        specific_expert_mlp_params: list[dict],
     ):
         super().__init__()
         if nums_task < 1:
             raise ValueError("nums_task must be >= 1")
 
-        specific_params_list = self.normalize_specific_params(
-            specific_expert_params, nums_task
-        )
+        if len(specific_expert_mlp_params) != nums_task:
+            raise ValueError(
+                "Length of specific_expert_mlp_params "
+                f"({len(specific_expert_mlp_params)}) must match number of tasks ({nums_task})."
+            )
+        specific_params_list = [params.copy() for params in specific_expert_mlp_params]
 
-        self.output_dim = get_mlp_output_dim(shared_expert_params, input_dim)
+        self.output_dim = get_mlp_output_dim(shared_expert_mlp_params, input_dim)
         specific_dims = [
             get_mlp_output_dim(params, input_dim) for params in specific_params_list
         ]
@@ -94,7 +96,7 @@ class CGCLayer(nn.Module):
                 MLP(
                     input_dim=input_dim,
                     output_dim=None,
-                    **shared_expert_params,
+                    **shared_expert_mlp_params,
                 )
                 for _ in range(num_shared_experts)
             ]
@@ -166,18 +168,6 @@ class CGCLayer(nn.Module):
 
         return new_task_fea, new_shared
 
-    @staticmethod
-    def normalize_specific_params(
-        params: dict | list[dict], nums_task: int
-    ) -> list[dict]:
-        if isinstance(params, list):
-            if len(params) != nums_task:
-                raise ValueError(
-                    f"Length of specific_expert_params ({len(params)}) must match nums_task ({nums_task})."
-                )
-            return [p.copy() for p in params]
-        return [params.copy() for _ in range(nums_task)]
-
 
 class PLE(BaseModel):
     """
@@ -205,12 +195,12 @@ class PLE(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
-        shared_expert_params: dict | None = None,
-        specific_expert_params: dict | list[dict] | None = None,
+        shared_expert_mlp_params: dict | None = None,
+        specific_expert_mlp_params: list[dict] | None = None,
         num_shared_experts: int = 2,
         num_specific_experts: int = 2,
         num_levels: int = 2,
-        tower_params_list: list[dict] | None = None,
+        tower_mlp_params_list: list[dict] | None = None,
         target: list[str] | None = None,
         task: str | list[str] | None = None,
         **kwargs,
@@ -218,24 +208,19 @@ class PLE(BaseModel):
 
         self.nums_task = len(target) if target is not None else 1
 
-        resolved_task = task
-        if resolved_task is None:
-            resolved_task = self.default_task
-        elif isinstance(resolved_task, str):
-            resolved_task = [resolved_task] * self.nums_task
-        elif len(resolved_task) == 1 and self.nums_task > 1:
-            resolved_task = resolved_task * self.nums_task
-        elif len(resolved_task) != self.nums_task:
+        shared_expert_mlp_params = shared_expert_mlp_params or {}
+        if specific_expert_mlp_params is None:
             raise ValueError(
-                f"Length of task ({len(resolved_task)}) must match number of targets ({self.nums_task})."
+                "specific_expert_mlp_params must be a list of dicts, one per task."
             )
+        tower_mlp_params_list = tower_mlp_params_list or []
 
         super(PLE, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            task=resolved_task,
+            task=task,
             **kwargs,
         )
 
@@ -245,9 +230,10 @@ class PLE(BaseModel):
         self.num_specific_experts = num_specific_experts
         self.num_levels = num_levels
 
-        if len(tower_params_list) != self.nums_task:
+        if len(tower_mlp_params_list) != self.nums_task:
             raise ValueError(
-                f"Number of tower params ({len(tower_params_list)}) must match number of tasks ({self.nums_task})"
+                "Number of tower mlp params "
+                f"({len(tower_mlp_params_list)}) must match number of tasks ({self.nums_task})"
             )
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
@@ -260,10 +246,10 @@ class PLE(BaseModel):
 
         # Get expert output dimension
         if (
-            "hidden_dims" in shared_expert_params
-            and len(shared_expert_params["hidden_dims"]) > 0
+            "hidden_dims" in shared_expert_mlp_params
+            and len(shared_expert_mlp_params["hidden_dims"]) > 0
         ):
-            expert_output_dim = shared_expert_params["hidden_dims"][-1]
+            expert_output_dim = shared_expert_mlp_params["hidden_dims"][-1]
         else:
             expert_output_dim = input_dim
 
@@ -276,8 +262,8 @@ class PLE(BaseModel):
                 nums_task=self.nums_task,
                 num_shared_experts=num_shared_experts,
                 num_specific_experts=num_specific_experts,
-                shared_expert_params=shared_expert_params,
-                specific_expert_params=specific_expert_params,
+                shared_expert_mlp_params=shared_expert_mlp_params,
+                specific_expert_mlp_params=specific_expert_mlp_params,
             )
             self.cgc_layers.append(cgc_layer)
             expert_output_dim = cgc_layer.output_dim
@@ -285,8 +271,8 @@ class PLE(BaseModel):
 
         # Task-specific towers
         self.towers = nn.ModuleList()
-        for tower_params in tower_params_list:
-            tower = MLP(input_dim=expert_output_dim, output_dim=1, **tower_params)
+        for tower_mlp_params in tower_mlp_params_list:
+            tower = MLP(input_dim=expert_output_dim, output_dim=1, **tower_mlp_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(
             task_type=self.task, task_dims=[1] * self.nums_task

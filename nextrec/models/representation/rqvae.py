@@ -4,11 +4,11 @@ Residual Quantized Variational AutoEncoder (RQ-VAE) for Generative Recommendatio
 Date: created on 11/12/2025
 Checkpoint: edit on 13/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
-Source code reference:
-[1] Tencent-Advertising-Algorithm-Competition-2025-Baseline
+Source Code Reference:
+- [1] Tencent-Advertising-Algorithm-Competition-2025-Baseline
 Reference:
-[1] Lee et al. Autoregressive Image Generation using Residual Quantization. CVPR 2022.
-[2] Zeghidour et al. SoundStream: An End-to-End Neural Audio Codec. IEEE/ACM TASLP 2021.
+- [1] Lee et al. Autoregressive Image Generation using Residual Quantization. CVPR 2022.
+- [2] Zeghidour et al. SoundStream: An End-to-End Neural Audio Codec. IEEE/ACM TASLP 2021.
 
 RQ-VAE learns hierarchical discrete representations via residual quantization.
 It encodes continuous embeddings (e.g., item/user embeddings) into multi-level

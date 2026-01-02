@@ -389,131 +389,29 @@ params:
 
 #### 支持的模型
 
+使用以下模板，并按需填写模型特定参数：
+
+```yaml
+model: <model_name>
+params:
+  # 模型特定参数
+  # 如需参考，可查看 nextrec_cli_preset/ 里的示例配置
+```
+
 ##### 排序模型（Ranking）
 
-**DeepFM**
-```yaml
-model: deepfm
-params:
-  mlp_params:
-    hidden_dims: [256, 128, 64]               # MLP 层维度
-    activation: relu                   # 激活函数
-    dropout: 0.3                       # Dropout 比率
-  embedding_l2_reg: 1.0e-5             # Embedding L2 正则化
-  dense_l2_reg: 1.0e-4                 # Dense 层 L2 正则化
-```
-
-**DIN (Deep Interest Network)**
-```yaml
-model: din
-params:
-  attention_mlp_dims: [80, 40]         # 注意力网络维度
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**DCN (Deep & Cross Network)**
-```yaml
-model: dcn
-params:
-  cross_num: 3                         # Cross 层数量
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**DCN-V2**
-```yaml
-model: dcn_v2
-params:
-  cross_num: 3                         # Cross 层数量
-  cross_type: matrix                   # Cross 类型：vector, matrix, mix
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**MaskNet**
-```yaml
-model: masknet
-params:
-  architecture: parallel               # 模型类型：parallel, serial
-  num_blocks: 3                        # Block 数量
-  mask_hidden_dim: 64                  # Mask 隐藏层维度
-  block_hidden_dim: 256                # Block 隐藏层维度
-  block_dropout: 0.2                   # Dropout 比率
-  embedding_l1_reg: 1.0e-6            # Embedding L1 正则化
-  dense_l1_reg: 1.0e-5                # Dense L1 正则化
-  embedding_l2_reg: 1.0e-5            # Embedding L2 正则化
-  dense_l2_reg: 1.0e-4                # Dense L2 正则化
-```
-
-**AutoInt**
-```yaml
-model: autoint
-params:
-  attention_size: 16                   # 注意力维度
-  num_heads: 2                         # 多头注意力头数
-  num_layers: 3                        # Transformer 层数
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
+- deepfm
+- din
+- dcn
+- dcn_v2
+- masknet
+- autoint
 
 ##### 多任务模型（Multi-Task）
 
-**MMOE (Multi-gate Mixture-of-Experts)**
-```yaml
-model: mmoe
-params:
-  num_experts: 8                       # 专家网络数量
-  expert_dims: [256, 128]              # 专家网络维度
-  gate_dims: [64]                      # 门控网络维度
-  tower_dims: [64, 32]                 # Tower 网络维度
-  dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**PLE (Progressive Layered Extraction)**
-```yaml
-model: ple
-params:
-  num_levels: 2                        # PLE 层数
-  num_experts_specific: 4              # 任务特定专家数量
-  num_experts_shared: 4                # 共享专家数量
-  expert_dims: [256, 128]
-  gate_dims: [64]
-  tower_dims: [64, 32]
-  dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
-
-**ESMM (Entire Space Multi-Task Model)**
-```yaml
-model: esmm
-params:
-  mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.3
-  embedding_l2_reg: 1.0e-5
-  dense_l2_reg: 1.0e-4
-```
+- mmoe
+- ple
+- esmm
 
 ---
 

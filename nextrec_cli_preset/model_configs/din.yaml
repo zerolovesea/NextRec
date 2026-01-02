@@ -1,8 +1,9 @@
 model: din
 
 params:
-  attention_hidden_units: [80, 40]
-  attention_activation: sigmoid
+  attention_mlp_params:
+    hidden_dims: [80, 40]
+    activation: sigmoid
   attention_use_softmax: true
   behavior_feature_name: hist_item_seq   # sequence column holding user behavior
   candidate_feature_name: item           # current item column to attend with

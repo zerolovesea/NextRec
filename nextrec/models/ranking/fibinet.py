@@ -3,9 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 09/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Huang T, Zhang Z, Zhang B, et al. FiBiNET: Combining feature importance and bilinear
-feature interaction for click-through rate prediction[C]//RecSys. 2019: 169-177.
-(https://arxiv.org/abs/1905.09433)
+- [1] Huang T, Zhang Z, Zhang B, et al. FiBiNET: Combining feature importance and bilinear feature interaction for click-through rate prediction[C]//RecSys. 2019: 169-177.
+  URL: https://arxiv.org/abs/1905.09433
 
 FiBiNET (Feature Importance and Bilinear Interaction Network) is a CTR model that
 jointly learns which fields matter most and how they interact. It first uses SENET

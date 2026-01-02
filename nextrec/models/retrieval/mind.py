@@ -3,8 +3,7 @@ Date: create on 09/11/2025
 Checkpoint: edit on 18/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Li C, Liu Z, Wu M, et al. Multi-interest network with dynamic routing for recommendation at Tmall[C]
-//Proceedings of the 28th ACM international conference on information and knowledge management. 2019: 2615-2623.
+- [1] Li C, Liu Z, Wu M, et al. Multi-interest network with dynamic routing for recommendation at Tmall[C] //Proceedings of the 28th ACM international conference on information and knowledge management. 2019: 2615-2623.
 """
 
 from typing import Literal
@@ -195,9 +194,7 @@ class MIND(BaseMatchModel):
         capsule_bilinear_type: int = 2,
         routing_times: int = 3,
         relu_layer: bool = False,
-        item_dnn_hidden_units: list[int] = [256, 128],
-        dnn_activation: str = "relu",
-        dnn_dropout: float = 0.0,
+        item_mlp_params: dict | None = None,
         training_mode: Literal["pointwise", "pairwise", "listwise"] = "pointwise",
         num_negative_samples: int = 100,
         temperature: float = 1.0,
@@ -229,7 +226,11 @@ class MIND(BaseMatchModel):
 
         self.embedding_dim = embedding_dim
         self.num_interests = num_interests
-        self.item_dnn_hidden_units = item_dnn_hidden_units
+        item_mlp_params = item_mlp_params or {}
+        item_mlp_params.setdefault("hidden_dims", [256, 128])
+        item_mlp_params.setdefault("activation", "relu")
+        item_mlp_params.setdefault("dropout", 0.0)
+        item_mlp_params.setdefault("output_dim", embedding_dim)
 
         user_features = []
         if user_dense_features:
@@ -291,15 +292,8 @@ class MIND(BaseMatchModel):
                 item_input_dim += feat.embedding_dim
 
             # Item DNN
-            if len(item_dnn_hidden_units) > 0:
-                item_dnn_units = item_dnn_hidden_units + [embedding_dim]
-                self.item_dnn = MLP(
-                    input_dim=item_input_dim,
-                    hidden_dims=item_dnn_units,
-                    output_dim=None,
-                    dropout=dnn_dropout,
-                    activation=dnn_activation,
-                )
+            if len(item_mlp_params["hidden_dims"]) > 0:
+                self.item_dnn = MLP(input_dim=item_input_dim, **item_mlp_params)
             else:
                 self.item_dnn = None
 

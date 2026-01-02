@@ -3,10 +3,8 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Song W, Shi C, Xiao Z, et al. Autoint: Automatic feature interaction learning via
-self-attentive neural networks[C]//Proceedings of the 28th ACM international conference
-on information and knowledge management. 2019: 1161-1170.
-(https://arxiv.org/abs/1810.11921)
+- [1] Song W, Shi C, Xiao Z, et al. AutoInt: Automatic feature interaction learning via self-attentive neural networks. In: Proceedings of the 28th ACM International Conference on Information and Knowledge Management (CIKM ’19), 2019, pp. 1161–1170.
+URL: https://arxiv.org/abs/1810.11921
 
 AutoInt is a CTR prediction model that leverages multi-head self-attention
 to automatically learn high-order feature interactions in an explicit and

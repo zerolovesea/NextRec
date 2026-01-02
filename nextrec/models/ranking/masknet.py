@@ -3,8 +3,7 @@ Date: create on 09/11/2025
 Checkpoint: edit on 23/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
-[1] Wang Z, She Q, Zhang J. MaskNet: Introducing Feature-Wise
-Multiplication to CTR Ranking Models by Instance-Guided Mask.
+- [1] Wang Z, She Q, Zhang J. MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask.
 
 MaskNet is a CTR prediction model that introduces instance-guided,
 feature-wise multiplicative interactions into deep ranking networks.
