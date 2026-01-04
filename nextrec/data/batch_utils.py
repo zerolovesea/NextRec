@@ -5,13 +5,27 @@ Date: create on 03/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Literal
 
 import numpy as np
 import torch
 
 
-def stack_section(batch: list[dict], section: str):
+def stack_section(batch: list[dict], section: Literal["features", "labels", "ids"]):
+    """   
+    input example:
+    batch = [
+        {"features": {"f1": tensor1, "f2": tensor2}, "labels": {"label": tensor3}},
+        {"features": {"f1": tensor4, "f2": tensor5}, "labels": {"label": tensor6}},
+        ...
+    ]
+    output example:
+    {
+        "f1": torch.stack([tensor1, tensor4], dim=0),
+        "f2": torch.stack([tensor2, tensor5], dim=0),
+    }
+    
+    """
     entries = [item.get(section) for item in batch if item.get(section) is not None]
     if not entries:
         return None
@@ -22,7 +36,13 @@ def stack_section(batch: list[dict], section: str):
             for item in batch
             if item.get(section) is not None and name in item[section]
         ]
-        merged[name] = torch.stack(tensors, dim=0)
+        tensor_sample = tensors[0]
+        if isinstance(tensor_sample, torch.Tensor):
+            merged[name] = torch.stack(tensors, dim=0)
+        elif isinstance(tensor_sample, np.ndarray):
+            merged[name] = np.stack(tensors, axis=0)
+        else:
+            merged[name] = tensors
     return merged
 
 
