@@ -61,9 +61,9 @@ from nextrec.utils.model import select_features
 from nextrec.utils.types import TaskTypeName
 
 
-class PPNetBlock(nn.Module):
+class PPNet(nn.Module):
     """
-    PEPNet block with per-layer gates conditioned on task context.
+    PPNet: per-task tower with layer-wise gates conditioned on task context.
     """
 
     def __init__(
@@ -274,18 +274,21 @@ class PEPNet(BaseModel):
         )
         task_dim = domain_dim + user_dim + item_dim
 
-        self.feature_gate = GateMLP(
+        # EPNet: shared feature-level gate (paper's EPNet).
+        self.epnet = GateMLP(
             input_dim=input_dim + domain_dim,
             hidden_dim=feature_gate_mlp_params["hidden_dim"],
             output_dim=input_dim,
             activation=feature_gate_mlp_params["activation"],
             dropout=feature_gate_mlp_params["dropout"],
             use_bn=feature_gate_mlp_params["use_bn"],
+            scale_factor=2.0,
         )
 
-        self.ppn_blocks = nn.ModuleList(
+        # PPNet: per-task gated towers (paper's PPNet).
+        self.ppnet_blocks = nn.ModuleList(
             [
-                PPNetBlock(
+                PPNet(
                     input_dim=input_dim,
                     output_dim=1,
                     gate_input_dim=input_dim + task_dim,
@@ -300,9 +303,9 @@ class PEPNet(BaseModel):
         self.prediction_layer = TaskHead(
             task_type=self.task, task_dims=[1] * self.nums_task
         )
-        self.grad_norm_shared_modules = ["embedding", "feature_gate"]
+        self.grad_norm_shared_modules = ["embedding", "epnet"]
         self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["feature_gate", "ppn_blocks"]
+            embedding_attr="embedding", include_modules=["epnet", "ppnet_blocks"]
         )
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -327,11 +330,11 @@ class PEPNet(BaseModel):
         task_sf_emb = torch.cat(task_parts, dim=-1)
 
         gate_input = torch.cat([dnn_input.detach(), domain_emb], dim=-1)
-        dnn_input = self.feature_gate(gate_input) * dnn_input
+        dnn_input = self.epnet(gate_input) * dnn_input
 
         task_logits = []
-        for block in self.ppn_blocks:
-            task_logits.append(block(o_ep=dnn_input, o_prior=task_sf_emb))
+        for block in self.ppnet_blocks:
+             task_logits.append(block(o_ep=dnn_input, o_prior=task_sf_emb))
 
         y = torch.cat(task_logits, dim=1)
         return self.prediction_layer(y)

@@ -2,7 +2,7 @@
 Dataloader definitions
 
 Date: create on 27/10/2025
-Checkpoint: edit on 24/12/2025
+Checkpoint: edit on 01/01/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -523,13 +523,8 @@ def build_tensors_from_data(
                 raise KeyError(
                     f"[RecDataLoader Error] ID column '{id_col}' not found in provided data."
                 )
-            try:
-                id_arr = np.asarray(column, dtype=np.int64)
-            except Exception as exc:
-                raise TypeError(
-                    f"[RecDataLoader Error] ID column '{id_col}' must contain numeric values. Received dtype={np.asarray(column).dtype}, error: {exc}"
-                ) from exc
-            id_tensors[id_col] = to_tensor(id_arr, dtype=torch.long)
+            # Normalize all id columns to strings for consistent downstream handling.
+            id_tensors[id_col] = np.asarray(column, dtype=str)
     if not feature_tensors:
         return None
     return {"features": feature_tensors, "labels": label_tensors, "ids": id_tensors}
