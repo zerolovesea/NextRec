@@ -820,7 +820,7 @@ nextrec_logs/
     ├── features_config.pkl        # Feature configuration
     ├── model_epoch_1.pt        # Model checkpoint
     ├── model_epoch_2.pt
-    └── runs.log               # Training log
+    └── runs_log.txt               # Training log
 ```
 
 ### Q3: How to resume training?
@@ -829,7 +829,7 @@ The current CLI doesn't support resuming training. Please use the Python API.
 
 ### Q4: How to view training logs?
 
-Logs are saved in `{artifact_root}/{session_id}/runs.log` and also output to terminal.
+Logs are saved in `{artifact_root}/{session_id}/runs_log.txt` and also output to terminal.
 
 ### Q5: Does it support distributed training?
 

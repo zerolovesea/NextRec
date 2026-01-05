@@ -820,7 +820,7 @@ nextrec_logs/
     ├── features_config.pkl        # 特征配置
     ├── model_epoch_1.pt        # 模型检查点
     ├── model_epoch_2.pt
-    └── runs.log               # 训练日志
+    └── runs_log.txt               # 训练日志
 ```
 
 ### Q3: 如何恢复训练？
@@ -829,7 +829,7 @@ nextrec_logs/
 
 ### Q4: 如何查看训练日志？
 
-日志保存在 `{artifact_root}/{session_id}/runs.log`，也会输出到终端。
+日志保存在 `{artifact_root}/{session_id}/runs_log.txt`，也会输出到终端。
 
 ### Q5: 支持分布式训练吗？
 
