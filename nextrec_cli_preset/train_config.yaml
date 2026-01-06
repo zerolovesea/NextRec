@@ -42,6 +42,12 @@ train:
   # note: "baseline run"                         # Optional training note
   # wandb_api: YOUR_WANDB_API_KEY               # Optional API key for non-tty login
   # swanlab_api: YOUR_SWANLAB_API_KEY           # Optional API key for non-tty login
+  # wandb_kwargs:                               # Optional kwargs for wandb.init(...)
+  #   project: NextRec
+  #   name: example_run
+  # swanlab_kwargs:                             # Optional kwargs for swanlab.init(...)
+  #   project: NextRec
+  #   name: example_run
 
 # cd nextrec_cli_preset
 # nextrec --mode train --train_config train_config.yaml
