@@ -59,9 +59,11 @@ class WideDeep(BaseModel):
         sequence_features: list[SequenceFeature],
         target: str | list[str] | None = None,
         task: str | list[str] | None = None,
-        mlp_params: dict,
+        mlp_params: dict | None = None,
         **kwargs,
     ):
+
+        mlp_params = mlp_params or {}
 
         super(WideDeep, self).__init__(
             dense_features=dense_features,
