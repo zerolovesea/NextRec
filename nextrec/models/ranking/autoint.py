@@ -75,6 +75,8 @@ class AutoInt(BaseModel):
         dense_features: list[DenseFeature],
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
+        target: str | list[str] | None = None,
+        task: str | list[str] | None = None,
         att_layer_num: int = 3,
         att_embedding_dim: int = 8,
         att_head_num: int = 2,
@@ -87,6 +89,8 @@ class AutoInt(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            target=target,
+            task=task,
             **kwargs,
         )
 

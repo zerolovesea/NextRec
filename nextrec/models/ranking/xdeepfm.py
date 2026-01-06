@@ -116,18 +116,23 @@ class xDeepFM(BaseModel):
         dense_features: list[DenseFeature],
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
-        mlp_params: dict,
+        target: str | list[str] | None = None,
+        task: str | list[str] | None = None,
+        mlp_params: dict | None = None,
         cin_size: list[int] | None = None,
         split_half: bool = True,
         **kwargs,
     ):
 
         cin_size = cin_size or [128, 128]
+        mlp_params = mlp_params or {}
 
         super(xDeepFM, self).__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            target=target,
+            task=task,
             **kwargs,
         )
 

@@ -72,6 +72,8 @@ class DIN(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
+        target: str | list[str] | None = None,
+        task: str | list[str] | None = None,
         behavior_feature_name: str | None = None,
         candidate_feature_name: str | None = None,
         mlp_params: dict | None = None,
@@ -92,6 +94,8 @@ class DIN(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            target=target,
+            task=task,
             **kwargs,
         )
 
