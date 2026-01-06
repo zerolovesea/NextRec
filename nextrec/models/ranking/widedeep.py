@@ -57,6 +57,8 @@ class WideDeep(BaseModel):
         dense_features: list[DenseFeature],
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
+        target: str | list[str] | None = None,
+        task: str | list[str] | None = None,
         mlp_params: dict,
         **kwargs,
     ):
@@ -65,6 +67,8 @@ class WideDeep(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            target=target,
+            task=task,
             **kwargs,
         )
 

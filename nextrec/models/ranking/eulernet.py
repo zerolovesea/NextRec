@@ -199,6 +199,8 @@ class EulerNet(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
+        target: str | list[str] | None = None,
+        task: str | list[str] | None = None,
         num_layers: int = 2,
         num_orders: int = 8,
         use_implicit: bool = True,
@@ -215,6 +217,8 @@ class EulerNet(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            target=target,
+            task=task,
             **kwargs,
         )
 

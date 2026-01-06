@@ -116,6 +116,8 @@ class xDeepFM(BaseModel):
         dense_features: list[DenseFeature],
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
+        target: str | list[str] | None = None,
+        task: str | list[str] | None = None,
         mlp_params: dict,
         cin_size: list[int] | None = None,
         split_half: bool = True,
@@ -128,6 +130,8 @@ class xDeepFM(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            target=target,
+            task=task,
             **kwargs,
         )
 

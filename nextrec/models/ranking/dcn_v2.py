@@ -191,6 +191,8 @@ class DCNv2(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
+        target: str | list[str] | None = None,
+        task: str | list[str] | None = None,
         cross_num: int = 3,
         cross_type: Literal["matrix", "mix", "low_rank"] = "matrix",
         architecture: Literal["parallel", "stacked"] = "parallel",
@@ -208,6 +210,8 @@ class DCNv2(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            target=target,
+            task=task,
             **kwargs,
         )
 
