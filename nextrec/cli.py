@@ -407,6 +407,8 @@ def train_model(train_config_path: str) -> None:
         use_swanlab=train_cfg.get("use_swanlab", False),
         wandb_api=train_cfg.get("wandb_api"),
         swanlab_api=train_cfg.get("swanlab_api"),
+        wandb_kwargs=train_cfg.get("wandb_kwargs"),
+        swanlab_kwargs=train_cfg.get("swanlab_kwargs"),
         log_interval=train_cfg.get("log_interval", 1),
         note=train_cfg.get("note"),
     )

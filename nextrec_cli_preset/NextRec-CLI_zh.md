@@ -119,6 +119,12 @@ train:
   use_swanlab: false                   # 启用 SwanLab 日志
   # wandb_api: YOUR_WANDB_API_KEY      # 可选，非交互登录用 API Key
   # swanlab_api: YOUR_SWANLAB_API_KEY  # 可选，非交互登录用 API Key
+  # wandb_kwargs:                      # 可选，wandb.init(...) 参数
+  #   project: NextRec
+  #   name: example_run
+  # swanlab_kwargs:                    # 可选，swanlab.init(...) 参数
+  #   project: NextRec
+  #   name: example_run
   device: cpu                          # 设备：cpu, cuda, cuda:0, mps
 ```
 
@@ -185,6 +191,8 @@ train:
 - `use_swanlab`: 启用 SwanLab 日志
 - `wandb_api`: W&B API key（非交互登录）
 - `swanlab_api`: SwanLab API key（非交互登录）
+- `wandb_kwargs`: `wandb.init(...)` 参数
+- `swanlab_kwargs`: `swanlab.init(...)` 参数
 - `device`: 运行设备
   - `cpu`: CPU
   - `cuda`: NVIDIA GPU

@@ -119,6 +119,12 @@ train:
   use_swanlab: false                   # Enable SwanLab logging
   # wandb_api: YOUR_WANDB_API_KEY      # Optional API key for non-tty login
   # swanlab_api: YOUR_SWANLAB_API_KEY  # Optional API key for non-tty login
+  # wandb_kwargs:                      # Optional kwargs for wandb.init(...)
+  #   project: NextRec
+  #   name: example_run
+  # swanlab_kwargs:                    # Optional kwargs for swanlab.init(...)
+  #   project: NextRec
+  #   name: example_run
   device: cpu                          # Device: cpu, cuda, cuda:0, mps
 ```
 
@@ -185,6 +191,8 @@ train:
 - `use_swanlab`: Enable SwanLab logging
 - `wandb_api`: W&B API key for non-tty login
 - `swanlab_api`: SwanLab API key for non-tty login
+- `wandb_kwargs`: Optional kwargs for `wandb.init(...)`
+- `swanlab_kwargs`: Optional kwargs for `swanlab.init(...)`
 - `device`: Computing device
   - `cpu`: CPU
   - `cuda`: NVIDIA GPU
