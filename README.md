@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.31-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.4.32-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -193,11 +193,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.4.31，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.4.32，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.4.31，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.4.32，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -339,7 +339,7 @@ NextRec 的开发受到以下优秀项目的启发：
 @misc{nextrec,
     title = {NextRec},
     author = {Yang Zhou},
-    year = {2025},
+    year = {2026},
     publisher = {GitHub},
     journal = {GitHub repository},
     howpublished = {\url{https://github.com/zerolovesea/NextRec}},

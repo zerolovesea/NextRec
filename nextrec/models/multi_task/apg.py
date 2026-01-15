@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Yan B, Wang P, Zhang K, Li F, Deng H, Xu J, Zheng B. APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction. Advances in Neural Information Processing Systems 35 (NeurIPS 2022), 2022.
@@ -20,7 +20,7 @@ from nextrec.basic.layers import EmbeddingLayer, MLP
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
-from nextrec.utils.types import ActivationName, TaskTypeName
+from nextrec.utils.types import ActivationName, TaskTypeInput, TaskTypeName
 
 
 class APGLayer(nn.Module):
@@ -233,7 +233,7 @@ class APG(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | str | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
         inner_activation: ActivationName | None = None,
         generate_activation: ActivationName | None = None,

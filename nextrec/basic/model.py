@@ -13,7 +13,7 @@ import sys
 import pickle
 import socket
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast, overload
 
 import numpy as np
 import pandas as pd
@@ -97,6 +97,7 @@ from nextrec.utils.types import (
     SchedulerName,
     TrainingModeName,
     TaskTypeName,
+    TaskTypeInput,
     MetricsName,
 )
 
@@ -119,7 +120,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | str | None = None,
         id_columns: list[str] | str | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         training_mode: TrainingModeName | list[TrainingModeName] | None = None,
         embedding_l1_reg: float = 0.0,
         dense_l1_reg: float = 0.0,
@@ -193,7 +194,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             dense_features, sparse_features, sequence_features, target, id_columns
         )
 
-        self.task = task or self.default_task
+        self.task = cast(TaskTypeName | list[TaskTypeName], task or self.default_task)
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
 
         training_mode = training_mode or "pointwise"
@@ -1623,6 +1624,49 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         )
         return metrics_dict
 
+    @overload
+    def predict(
+        self,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int = 32,
+        save_path: str | os.PathLike | None = None,
+        save_format: str = "csv",
+        include_ids: bool | None = None,
+        id_columns: str | list[str] | None = None,
+        return_dataframe: Literal[True] = True,
+        stream_chunk_size: int = 10000,
+        num_workers: int = 0,
+    ) -> pd.DataFrame: ...
+
+    @overload
+    def predict(
+        self,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int = 32,
+        save_path: None = None,
+        save_format: str = "csv",
+        include_ids: bool | None = None,
+        id_columns: str | list[str] | None = None,
+        return_dataframe: Literal[False] = False,
+        stream_chunk_size: int = 10000,
+        num_workers: int = 0,
+    ) -> np.ndarray: ...
+
+    @overload
+    def predict(
+        self,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int = 32,
+        *,
+        save_path: str | os.PathLike,
+        save_format: str = "csv",
+        include_ids: bool | None = None,
+        id_columns: str | list[str] | None = None,
+        return_dataframe: Literal[False] = False,
+        stream_chunk_size: int = 10000,
+        num_workers: int = 0,
+    ) -> Path: ...
+
     def predict(
         self,
         data: str | dict | pd.DataFrame | DataLoader,
@@ -2225,7 +2269,7 @@ class BaseMatchModel(BaseModel):
         dense_l2_reg: float = 0.0,
         target: list[str] | str | None = "label",
         id_columns: list[str] | str | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         session_id: str | None = None,
         distributed: bool = False,
         rank: int | None = None,

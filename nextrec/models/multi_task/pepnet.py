@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Chang J, Zhang C, Hui Y, Leng D, Niu Y, Song Y, Gai K. PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information. In: Proceedings of the 29th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’23), 2023.
@@ -58,7 +58,7 @@ from nextrec.basic.layers import EmbeddingLayer, GateMLP
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput, TaskTypeName
 
 
 class PPNet(nn.Module):
@@ -184,7 +184,7 @@ class PEPNet(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | str | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
         feature_gate_mlp_params: dict | None = None,
         gate_mlp_params: dict | None = None,
@@ -334,7 +334,7 @@ class PEPNet(BaseModel):
 
         task_logits = []
         for block in self.ppnet_blocks:
-             task_logits.append(block(o_ep=dnn_input, o_prior=task_sf_emb))
+            task_logits.append(block(o_ep=dnn_input, o_prior=task_sf_emb))
 
         y = torch.cat(task_logits, dim=1)
         return self.prediction_layer(y)

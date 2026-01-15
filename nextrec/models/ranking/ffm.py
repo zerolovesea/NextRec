@@ -1,6 +1,6 @@
 """
 Date: create on 19/12/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Juan Y, Zhuang Y, Chin W-S, et al. Field-aware Factorization Machines for CTR Prediction[C]//RecSys. 2016: 43-50.
@@ -45,6 +45,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import AveragePooling, InputMask, SumPooling
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeInput
 from nextrec.utils.torch_utils import get_initializer
 
 
@@ -63,7 +64,7 @@ class FFM(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: str | list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ):
         dense_features = dense_features or []

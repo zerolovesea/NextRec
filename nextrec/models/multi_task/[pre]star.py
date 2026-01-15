@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026 - prerelease version: still need to align with the source paper
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Sheng XR, Zhao L, Zhou G, Ding X, Dai B, Luo Q, Yang S, Lv J, Zhang C, Deng H, Zhu X. One Model to Serve All: Star Topology Adaptive Recommender for Multi-Domain CTR Prediction. arXiv preprint arXiv:2101.11427, 2021.
@@ -22,7 +22,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.layers import DomainBatchNorm, EmbeddingLayer
 from nextrec.basic.model import BaseModel
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput, TaskTypeName
 
 
 class SharedSpecificLinear(nn.Module):
@@ -73,7 +73,7 @@ class STAR(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | str | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
         use_shared: bool = True,
         **kwargs,

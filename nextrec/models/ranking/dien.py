@@ -1,7 +1,7 @@
 """
 Date: create on 09/11/2025
 Author: Yang Zhou, zyaztec@gmail.com
-Checkpoint: edit on 09/12/2025
+Checkpoint: edit on 01/14/2026
 Reference:
 - [1] Zhou G, Mou N, Fan Y, et al. Deep interest evolution network for click-through rate prediction[C] // Proceedings of the AAAI conference on artificial intelligence. 2019, 33(01): 5941-5948. (https://arxiv.org/abs/1809.03672)
 
@@ -56,6 +56,7 @@ from nextrec.basic.layers import (
 )
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeInput
 
 
 class AUGRU(nn.Module):
@@ -204,7 +205,7 @@ class DIEN(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: str | list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         behavior_feature_name: str | None = None,
         candidate_feature_name: str | None = None,
         neg_behavior_feature_name: str | None = None,

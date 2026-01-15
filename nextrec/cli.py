@@ -682,16 +682,22 @@ Examples:
     if not args.mode:
         parser.error("[NextRec CLI Error] --mode is required (train|predict)")
 
-    if args.mode == "train":
-        config_path = args.train_config
-        if not config_path:
-            parser.error("[NextRec CLI Error] train mode requires --train_config")
-        train_model(config_path)
-    else:
-        config_path = args.predict_config
-        if not config_path:
-            parser.error("[NextRec CLI Error] predict mode requires --predict_config")
-        predict_model(config_path)
+    try:
+        if args.mode == "train":
+            config_path = args.train_config
+            if not config_path:
+                parser.error("[NextRec CLI Error] train mode requires --train_config")
+            train_model(config_path)
+        else:
+            config_path = args.predict_config
+            if not config_path:
+                parser.error(
+                    "[NextRec CLI Error] predict mode requires --predict_config"
+                )
+            predict_model(config_path)
+    except Exception:
+        logging.getLogger(__name__).exception("[NextRec CLI Error] Unhandled exception")
+        raise
 
 
 if __name__ == "__main__":

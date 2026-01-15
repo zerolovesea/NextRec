@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 09/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Huang T, Zhang Z, Zhang B, et al. FiBiNET: Combining feature importance and bilinear feature interaction for click-through rate prediction[C]//RecSys. 2019: 169-177.
@@ -52,6 +52,7 @@ from nextrec.basic.layers import (
 )
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeInput
 
 
 class FiBiNET(BaseModel):
@@ -69,7 +70,7 @@ class FiBiNET(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: str | list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
         interaction_combo: Literal[
             "01", "11", "10", "00"

@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026 - prerelease version: still need to align with the source paper
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Ma J, Zhao Z, Chen J, Li A, Hong L, Chi EH. SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space. Proceedings of the 33rd AAAI Conference on Artificial Intelligence (AAAI 2019), 2019, pp. 216-223.
@@ -22,7 +22,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MLP
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput, TaskTypeName
 
 
 class SNRTransGate(nn.Module):
@@ -101,7 +101,7 @@ class SNRTrans(BaseModel):
         num_experts: int = 4,
         tower_mlp_params_list: list[dict] | None = None,
         target: list[str] | str | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ) -> None:
         dense_features = dense_features or []

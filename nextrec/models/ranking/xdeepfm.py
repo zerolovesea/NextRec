@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1754-1763.
@@ -57,6 +57,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeInput
 
 
 class CIN(nn.Module):
@@ -117,7 +118,7 @@ class xDeepFM(BaseModel):
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
         target: str | list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
         cin_size: list[int] | None = None,
         split_half: bool = True,

@@ -12,7 +12,7 @@ import torch
 
 
 def stack_section(batch: list[dict], section: Literal["features", "labels", "ids"]):
-    """   
+    """
     input example:
     batch = [
         {"features": {"f1": tensor1, "f2": tensor2}, "labels": {"label": tensor3}},
@@ -24,7 +24,7 @@ def stack_section(batch: list[dict], section: Literal["features", "labels", "ids
         "f1": torch.stack([tensor1, tensor4], dim=0),
         "f2": torch.stack([tensor2, tensor5], dim=0),
     }
-    
+
     """
     entries = [item.get(section) for item in batch if item.get(section) is not None]
     if not entries:

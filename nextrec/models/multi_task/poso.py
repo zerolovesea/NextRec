@@ -1,6 +1,6 @@
 """
 Date: create on 28/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Dai S, Lin H, Zhao Z, Lin J, Wu H, Wang Z, Yang S, Liu J. POSO: Personalized Cold Start Modules for Large-scale Recommender Systems. arXiv preprint arXiv:2108.04690, 2021.
@@ -50,7 +50,7 @@ from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput
 
 
 class POSOGate(nn.Module):
@@ -310,7 +310,7 @@ class POSO(BaseModel):
         pc_sequence_features: list[str] | None,
         tower_mlp_params_list: list[dict],
         target: list[str] | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         architecture: Literal["mlp", "mmoe"] = "mlp",
         # POSO gating defaults
         gate_hidden_dim: int = 32,

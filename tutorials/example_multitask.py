@@ -55,16 +55,16 @@ print(f"Sparse features: {len(sparse_features)} (including user_id and item_id)"
 print(f"Sequence features: {len(sequence_features)}")
 
 # ESMM model
-ctr_params = {"dims": [64, 32], "activation": "relu", "dropout": 0.4}
+ctr_params = {"hidden_dims": [64, 32], "activation": "relu", "dropout": 0.4}
 
-cvr_params = {"dims": [64, 32], "activation": "relu", "dropout": 0.4}
+cvr_params = {"hidden_dims": [64, 32], "activation": "relu", "dropout": 0.4}
 
 model = ESMM(
     dense_features=dense_features,
     sparse_features=sparse_features,
     sequence_features=sequence_features,
-    ctr_params=ctr_params,
-    cvr_params=cvr_params,
+    ctr_mlp_params=ctr_params,
+    cvr_mlp_params=cvr_params,
     target=task_labels,
     task=["binary", "binary"],
     device="cpu",
