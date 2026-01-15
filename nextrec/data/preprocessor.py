@@ -566,35 +566,16 @@ class DataProcessor(FeatureSet):
             return [str(v) for v in value]
         return [str(value)]
 
-    def fit_from_path(self, path: str, chunk_size: int) -> "DataProcessor":
-        """
-        Fit processor statistics by streaming files to reduce memory usage.
-
-        Args:
-            path (str): File or directory path.
-            chunk_size (int): Number of rows per chunk.
-
-        Returns:
-            DataProcessor: Fitted DataProcessor instance.
-        """
+    def fit_from_file_paths(
+        self, file_paths: list[str], file_type: str, chunk_size: int
+    ) -> "DataProcessor":
         logger = logging.getLogger()
-        logger.info(
-            colorize(
-                "Fitting DataProcessor (streaming path mode)...",
-                color="cyan",
-                bold=True,
-            )
-        )
-        for config in self.sparse_features.values():
-            config.pop("_min_freq_logged", None)
-        for config in self.sequence_features.values():
-            config.pop("_min_freq_logged", None)
-        file_paths, file_type = resolve_file_paths(path)
+        if not file_paths:
+            raise ValueError("[DataProcessor Error] Empty file list for streaming fit")
         if not check_streaming_support(file_type):
             raise ValueError(
                 f"[DataProcessor Error] Format '{file_type}' does not support streaming. "
-                "fit_from_path only supports streaming formats (csv, parquet) to avoid high memory usage. "
-                "Use fit(dataframe) with in-memory data or convert the data format."
+                "Streaming fit only supports csv, parquet to avoid high memory usage."
             )
 
         numeric_acc = {}
@@ -636,6 +617,7 @@ class DataProcessor(FeatureSet):
         target_values: Dict[str, set[Any]] = {
             name: set() for name in self.target_features.keys()
         }
+
         missing_features = set()
         for file_path in file_paths:
             for chunk in iter_file_chunks(file_path, file_type, chunk_size):
@@ -702,10 +684,12 @@ class DataProcessor(FeatureSet):
                 for name in self.target_features.keys() & columns:
                     vals = chunk[name].dropna().tolist()
                     target_values[name].update(vals)
+
         if missing_features:
             logger.warning(
                 f"The following configured features were not found in provided files: {sorted(missing_features)}"
             )
+
         # finalize numeric scalers
         for name, config in self.numeric_features.items():
             acc = numeric_acc[name]
@@ -894,6 +878,69 @@ class DataProcessor(FeatureSet):
             )
         )
         return self
+
+    def fit_from_files(
+        self, file_paths: list[str], file_type: str, chunk_size: int
+    ) -> "DataProcessor":
+        """Fit processor statistics by streaming an explicit list of files.
+
+        This is useful when you want to fit statistics on training files only (exclude
+        validation files) in streaming mode.
+        """
+        logger = logging.getLogger()
+        logger.info(
+            colorize(
+                "Fitting DataProcessor (streaming files mode)...",
+                color="cyan",
+                bold=True,
+            )
+        )
+        for config in self.sparse_features.values():
+            config.pop("_min_freq_logged", None)
+        for config in self.sequence_features.values():
+            config.pop("_min_freq_logged", None)
+        uses_robust = any(
+            cfg.get("scaler") == "robust" for cfg in self.numeric_features.values()
+        )
+        if uses_robust:
+            logger.warning(
+                "Robust scaler requires full data; loading provided files into memory. "
+                "Consider smaller chunk_size or different scaler if memory is limited."
+            )
+            frames = [read_table(p, file_type) for p in file_paths]
+            df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+            return self.fit(df)
+        return self.fit_from_file_paths(file_paths=file_paths, file_type=file_type, chunk_size=chunk_size)
+
+    def fit_from_path(self, path: str, chunk_size: int) -> "DataProcessor":
+        """
+        Fit processor statistics by streaming files to reduce memory usage.
+
+        Args:
+            path (str): File or directory path.
+            chunk_size (int): Number of rows per chunk.
+
+        Returns:
+            DataProcessor: Fitted DataProcessor instance.
+        """
+        logger = logging.getLogger()
+        logger.info(
+            colorize(
+                "Fitting DataProcessor (streaming path mode)...",
+                color="cyan",
+                bold=True,
+            )
+        )
+        for config in self.sparse_features.values():
+            config.pop("_min_freq_logged", None)
+        for config in self.sequence_features.values():
+            config.pop("_min_freq_logged", None)
+        file_paths, file_type = resolve_file_paths(path)
+        return self.fit_from_file_paths(
+            file_paths=file_paths,
+            file_type=file_type,
+            chunk_size=chunk_size,
+        )
 
     @overload
     def transform_in_memory(

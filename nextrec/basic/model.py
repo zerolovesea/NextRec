@@ -933,6 +933,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         existing_callbacks = self.callbacks.callbacks
 
+        has_validation = valid_data is not None or valid_split is not None
+        checkpoint_monitor = monitor_metric
+        checkpoint_mode = self.best_metrics_mode
+        if not has_validation:
+            checkpoint_monitor = "loss"
+            checkpoint_mode = "min"
+
         if self.early_stop_patience > 0 and not any(
             isinstance(cb, EarlyStopper) for cb in existing_callbacks
         ):
@@ -946,6 +953,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 )
             )
 
+        has_validation = valid_data is not None or valid_split is not None
+
         if self.is_main_process and not any(
             isinstance(cb, CheckpointSaver) for cb in existing_callbacks
         ):
@@ -953,9 +962,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 CheckpointSaver(
                     best_path=self.best_path,
                     checkpoint_path=self.checkpoint_path,
-                    monitor=monitor_metric,
-                    mode=self.best_metrics_mode,
-                    save_best_only=True,
+                    monitor=checkpoint_monitor,
+                    mode=checkpoint_mode,
+                    save_best_only=has_validation,
                     verbose=1,
                 )
             )
@@ -1246,11 +1255,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         epoch_logs[f"val_{k}"] = v
             else:
                 epoch_logs = {**train_log_payload}
-                if self.is_main_process:
-                    self.save_model(
-                        self.checkpoint_path, add_timestamp=False, verbose=False
-                    )
-                    self.best_checkpoint_path = self.checkpoint_path
 
             # Call on_epoch_end for all callbacks (handles early stopping, checkpointing, lr scheduling)
             self.callbacks.on_epoch_end(epoch, epoch_logs)

@@ -73,7 +73,8 @@ class SummarySet:
     def build_data_summary(
         self, data: Any, data_loader: DataLoader | None, sample_key: str
     ):
-        dataset = data_loader.dataset if data_loader else None
+        
+        dataset = data_loader.dataset if data_loader is not None else None
 
         train_size = get_data_length(dataset)
         if train_size is None:
