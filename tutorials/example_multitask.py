@@ -88,9 +88,9 @@ model.compile(
 
 model.fit(
     train_data=train_df,
-    valid_data=valid_df,
+    # valid_data=valid_df,
     metrics=["auc", "gauc", "logloss"],  # Added GAUC metric
-    epochs=1,
+    epochs=5,
     batch_size=512,
     shuffle=True,
     user_id_column="user_id",  # Specify user_id column for GAUC
@@ -107,16 +107,16 @@ preview = predictions.head(5)
 print(f"Prediction shape: {predictions.shape}")
 print(f"Prediction sample: {predictions[:10]}")
 
-# Evaluation
-metrics = model.evaluate(
-    valid_df,
-    metrics=["auc", "gauc", "logloss"],
-    batch_size=512,
-    user_id_column="user_id",
-)
-for name, value in metrics.items():
-    print(f"{name}: {value:.4f}")
+# # Evaluation
+# metrics = model.evaluate(
+#     valid_df,
+#     metrics=["auc", "gauc", "logloss"],
+#     batch_size=512,
+#     user_id_column="user_id",
+# )
+# for name, value in metrics.items():
+#     print(f"{name}: {value:.4f}")
 
-print("")
-print("Multi-task Example Complete!")
-print("")
+# print("")
+# print("Multi-task Example Complete!")
+# print("")

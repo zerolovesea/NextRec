@@ -152,15 +152,18 @@ def train_model(train_config_path: str) -> None:
     )
     if data_cfg.get("valid_ratio") is not None:
         logger.info(format_kv("Valid ratio", data_cfg.get("valid_ratio")))
-    if data_cfg.get("val_path") or data_cfg.get("valid_path"):
+    if data_cfg.get("valid_path"):
         logger.info(
             format_kv(
                 "Validation path",
                 resolve_path(
-                    data_cfg.get("val_path") or data_cfg.get("valid_path"), config_dir
+                    data_cfg.get("valid_path"), config_dir
                 ),
             )
         )
+
+    # Determine validation dataset path early for streaming split / fitting
+    val_data_path = data_cfg.get("valid_path")
 
     if streaming:
         file_paths, file_type = resolve_file_paths(str(data_path))
@@ -179,6 +182,34 @@ def train_model(train_config_path: str) -> None:
         except StopIteration as exc:
             raise ValueError(f"Data file is empty: {first_file}") from exc
         df_columns = list(first_chunk.columns)
+
+        # Decide training/validation file lists before fitting processor, to avoid
+        # leaking validation statistics into preprocessing (scalers/encoders).
+        streaming_train_files = file_paths
+        streaming_valid_ratio = data_cfg.get("valid_ratio")
+        if val_data_path:
+            streaming_valid_files = None
+        elif streaming_valid_ratio is not None:
+            ratio = float(streaming_valid_ratio)
+            if not (0 < ratio < 1):
+                raise ValueError(
+                    f"[NextRec CLI Error] Valid_ratio must be between 0 and 1, current value is {streaming_valid_ratio}"
+                )
+            total_files = len(file_paths)
+            if total_files < 2:
+                raise ValueError(
+                    "[NextRec CLI Error] Must provide valid_path or increase the number of data files. At least 2 files are required for streaming validation split."
+                )
+            val_count = max(1, int(round(total_files * ratio)))
+            if val_count >= total_files:
+                val_count = total_files - 1
+            streaming_valid_files = file_paths[-val_count:]
+            streaming_train_files = file_paths[:-val_count]
+            logger.info(
+                f"Split files for streaming training and validation using valid_ratio={ratio:.3f}: training {len(streaming_train_files)} files, validation {len(streaming_valid_files)} files"
+            )
+        else:
+            streaming_valid_files = None
 
     else:
         df = read_table(data_path, data_cfg.get("format"))
@@ -215,7 +246,13 @@ def train_model(train_config_path: str) -> None:
     )
 
     if streaming:
-        processor.fit(str(data_path), chunk_size=dataloader_chunk_size)
+        if file_type is None:
+            raise ValueError("[NextRec CLI Error] Streaming mode requires a valid file_type")
+        processor.fit_from_files(
+            file_paths=streaming_train_files or file_paths,
+            file_type=file_type,
+            chunk_size=dataloader_chunk_size,
+        )
         processed = None
         df = None  # type: ignore[assignment]
     else:
@@ -232,34 +269,6 @@ def train_model(train_config_path: str) -> None:
         sequence_names,
     )
 
-    # Check if validation dataset path is specified
-    val_data_path = data_cfg.get("val_path") or data_cfg.get("valid_path")
-    if streaming:
-        if not file_paths:
-            file_paths, file_type = resolve_file_paths(str(data_path))
-        streaming_train_files = file_paths
-        streaming_valid_ratio = data_cfg.get("valid_ratio")
-        if val_data_path:
-            streaming_valid_files = None
-        elif streaming_valid_ratio is not None:
-            ratio = float(streaming_valid_ratio)
-            if not (0 < ratio < 1):
-                raise ValueError(
-                    f"[NextRec CLI Error] Valid_ratio must be between 0 and 1, current value is {streaming_valid_ratio}"
-                )
-            total_files = len(file_paths)
-            if total_files < 2:
-                raise ValueError(
-                    "[NextRec CLI Error] Must provide val_path or increase the number of data files. At least 2 files are required for streaming validation split."
-                )
-            val_count = max(1, int(round(total_files * ratio)))
-            if val_count >= total_files:
-                val_count = total_files - 1
-            streaming_valid_files = file_paths[-val_count:]
-            streaming_train_files = file_paths[:-val_count]
-            logger.info(
-                f"Split files for streaming training and validation using valid_ratio={ratio:.3f}: training {len(streaming_train_files)} files, validation {len(streaming_valid_files)} files"
-            )
     train_data: Dict[str, Any]
     valid_data: Dict[str, Any] | None
 
