@@ -62,6 +62,8 @@ TrainingModeName = Literal["pointwise", "pairwise", "listwise"]
 
 TaskTypeName = Literal["binary", "regression"]
 
+TaskTypeInput = TaskTypeName | str
+
 MetricsName = Literal[
     "auc",
     "gauc",

@@ -1,6 +1,6 @@
 """
 Date: create on 27/10/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Guo H, Tang R, Ye Y, et al. DeepFM: A factorization-machine based neural network for CTR prediction[J]. arXiv preprint arXiv:1703.04247, 2017.
@@ -45,6 +45,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FM, LR, MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeInput
 
 
 class DeepFM(BaseModel):
@@ -62,7 +63,7 @@ class DeepFM(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: str | list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
         **kwargs,
     ):

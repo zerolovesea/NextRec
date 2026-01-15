@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Song W, Shi C, Xiao Z, et al. AutoInt: Automatic feature interaction learning via self-attentive neural networks. In: Proceedings of the 28th ACM International Conference on Information and Knowledge Management (CIKM ’19), 2019, pp. 1161–1170.
@@ -59,6 +59,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MultiHeadSelfAttention
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeInput
 
 
 class AutoInt(BaseModel):
@@ -76,7 +77,7 @@ class AutoInt(BaseModel):
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
         target: str | list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         att_layer_num: int = 3,
         att_embedding_dim: int = 8,
         att_head_num: int = 2,

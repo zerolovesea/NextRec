@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Misra I, Shrivastava A, Gupta A, Hebert M. Cross-Stitch Networks for Multi-Task Learning. Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR 2016), 2016, pp. 3994–4003.
@@ -21,7 +21,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MLP
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput, TaskTypeName
 
 
 class CrossStitchLayer(nn.Module):
@@ -76,7 +76,7 @@ class CrossStitch(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | str | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         shared_mlp_params: dict | None = None,
         task_mlp_params: dict | None = None,
         tower_mlp_params: dict | None = None,

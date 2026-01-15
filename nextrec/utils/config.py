@@ -342,6 +342,7 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
             f"nextrec.models.match.{name.lower()}",
             f"nextrec.models.multi_task.{name.lower()}",
             f"nextrec.models.generative.{name.lower()}",
+            f"nextrec.models.tree_base.{name.lower()}",
         ]
         errors = []
 

@@ -13,7 +13,7 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union, overload
 
 import numpy as np
 import pandas as pd
@@ -895,6 +895,28 @@ class DataProcessor(FeatureSet):
         )
         return self
 
+    @overload
+    def transform_in_memory(
+        self,
+        data: Union[pd.DataFrame, Dict[str, Any]],
+        return_dict: Literal[True],
+        persist: bool,
+        save_format: Optional[str],
+        output_path: Optional[str],
+        warn_missing: bool = True,
+    ) -> Dict[str, np.ndarray]: ...
+
+    @overload
+    def transform_in_memory(
+        self,
+        data: Union[pd.DataFrame, Dict[str, Any]],
+        return_dict: Literal[False],
+        persist: bool,
+        save_format: Optional[str],
+        output_path: Optional[str],
+        warn_missing: bool = True,
+    ) -> pd.DataFrame: ...
+
     def transform_in_memory(
         self,
         data: Union[pd.DataFrame, Dict[str, Any]],
@@ -1237,6 +1259,36 @@ class DataProcessor(FeatureSet):
                 fit_fn(data[name], config)
         self.is_fitted = True
         return self
+
+    @overload
+    def transform(
+        self,
+        data: Union[pd.DataFrame, Dict[str, Any]],
+        return_dict: Literal[True] = True,
+        save_format: Optional[str] = None,
+        output_path: Optional[str] = None,
+        chunk_size: int = 200000,
+    ) -> Dict[str, np.ndarray]: ...
+
+    @overload
+    def transform(
+        self,
+        data: Union[pd.DataFrame, Dict[str, Any]],
+        return_dict: Literal[False] = False,
+        save_format: Optional[str] = None,
+        output_path: Optional[str] = None,
+        chunk_size: int = 200000,
+    ) -> pd.DataFrame: ...
+
+    @overload
+    def transform(
+        self,
+        data: str | os.PathLike,
+        return_dict: Literal[False] = False,
+        save_format: Optional[str] = None,
+        output_path: Optional[str] = None,
+        chunk_size: int = 200000,
+    ) -> list[str]: ...
 
     def transform(
         self,

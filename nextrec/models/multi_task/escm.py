@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Wang H, Chang T-W, Liu T, Huang J, Chen Z, Yu C, Li R, Chu W. ESCM²: Entire Space Counterfactual Multi-Task Model for Post-Click Conversion Rate Estimation. Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR ’22), 2022:363–372.
@@ -23,7 +23,7 @@ from nextrec.basic.layers import EmbeddingLayer, MLP
 from nextrec.basic.model import BaseModel
 from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.model import compute_ranking_loss
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput, TaskTypeName
 
 
 class ESCM(BaseModel):
@@ -52,7 +52,7 @@ class ESCM(BaseModel):
         imp_mlp_params: dict | None = None,
         use_dr: bool = False,
         target: list[str] | str | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ) -> None:
         dense_features = dense_features or []

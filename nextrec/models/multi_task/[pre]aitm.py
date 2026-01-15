@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026 - prerelease version: need to overwrite compute_loss later
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Xi D, Chen Z, Yan P, Zhang Y, Zhu Y, Zhuang F, Chen Y. Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising. Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining (KDD ’21), 2021, pp. 3745–3755.
@@ -20,7 +20,7 @@ from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import get_mlp_output_dim
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput
 
 
 class AITMTransfer(nn.Module):
@@ -76,7 +76,7 @@ class AITM(BaseModel):
         tower_mlp_params_list: list[dict] | None = None,
         calibrator_alpha: float = 0.1,
         target: list[str] | str | None = None,
-        task: list[TaskTypeName] | None = None,
+        task: list[TaskTypeInput] | None = None,
         **kwargs,
     ):
         dense_features = dense_features or []

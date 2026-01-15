@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Cheng H T, Koc L, Harmsen J, et al. Wide & Deep learning for recommender systems[C] //Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. 2016: 7-10.
@@ -41,6 +41,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeInput
 
 
 class WideDeep(BaseModel):
@@ -58,7 +59,7 @@ class WideDeep(BaseModel):
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
         target: str | list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
         **kwargs,
     ):

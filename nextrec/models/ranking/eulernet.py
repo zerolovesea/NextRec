@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Zhao Z, Zhang H, Tang H, et al. EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula. (SIGIR 2021)
@@ -40,6 +40,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
+from nextrec.utils.types import TaskTypeInput
 
 
 class EulerInteractionLayer(nn.Module):
@@ -200,7 +201,7 @@ class EulerNet(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: str | list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         num_layers: int = 2,
         num_orders: int = 8,
         use_implicit: bool = True,

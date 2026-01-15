@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Tang H, Liu J, Zhao M, Gong X. Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations. In: Proceedings of the 14th ACM Conference on Recommender Systems (RecSys ’20), 2020, pp. 269–278.
@@ -52,7 +52,7 @@ from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import get_mlp_output_dim
-
+from nextrec.utils.types import TaskTypeInput
 
 class CGCLayer(nn.Module):
     """
@@ -202,7 +202,7 @@ class PLE(BaseModel):
         num_levels: int = 2,
         tower_mlp_params_list: list[dict] | None = None,
         target: list[str] | None = None,
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ):
 

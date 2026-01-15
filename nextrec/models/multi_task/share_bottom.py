@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou,zyaztec@gmail.com
 
 Shared-Bottom is the classic hard-parameter-sharing baseline for multi-task learning.
@@ -43,7 +43,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
-
+from nextrec.utils.types import TaskTypeInput
 
 class ShareBottom(BaseModel):
     @property
@@ -65,7 +65,7 @@ class ShareBottom(BaseModel):
         bottom_mlp_params: dict,
         tower_mlp_params_list: list[dict],
         target: list[str],
-        task: str | list[str] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ):
 

@@ -59,7 +59,7 @@ sequence_features = [
 
 
 mlp_params = {
-    "dims": [256, 128, 64],
+    "hidden_dims": [256, 128, 64],
     "activation": "relu",
     "dropout": 0.3,
 }
@@ -71,8 +71,11 @@ model = DIN(
     behavior_feature_name="sequence_0",
     candidate_feature_name="item_id",
     mlp_params=mlp_params,
-    attention_hidden_units=[80, 40],
-    attention_activation="sigmoid",
+    attention_mlp_params={
+        "hidden_dims": [80, 40],
+        "activation": "dice",
+        "dropout": 0.2,
+    },
     attention_use_softmax=True,
     target=["label"],
     device="cpu",
@@ -103,9 +106,7 @@ print("Training Complete!")
 # Predict
 print("Prediction")
 
-predictions: pd.DataFrame = model.predict(
-    valid_df, batch_size=512, return_dataframe=True
-)
+predictions = model.predict(valid_df, batch_size=512, return_dataframe=True)
 
 print(f"Prediction shape: {predictions.shape}")
 print(f"Prediction sample: {predictions[:10]}")

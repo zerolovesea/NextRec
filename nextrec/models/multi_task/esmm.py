@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Ma X, Zhao L, Huang G, Wang Z, Hu Z, Zhu X, Gai K. Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate. In: Proceedings of the 41st International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR ’18), 2018, pp. 1137–1140.
@@ -46,7 +46,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput
 
 
 class ESMM(BaseModel):
@@ -76,7 +76,7 @@ class ESMM(BaseModel):
         sequence_features: list[SequenceFeature],
         ctr_mlp_params: dict,
         cvr_mlp_params: dict,
-        task: list[TaskTypeName] | None = None,
+        task: list[TaskTypeInput] | None = None,
         target: list[str] | None = None,  # Note: ctcvr = ctr * cvr
         **kwargs,
     ):

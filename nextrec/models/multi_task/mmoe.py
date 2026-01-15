@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 23/12/2025
+Checkpoint: edit on 01/14/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Ma J, Zhao Z, Yi X, Chen J, Hong L, Chi E H. Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts. In: Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’18), 2018, pp. 1930–1939.
@@ -48,7 +48,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
-from nextrec.utils.types import TaskTypeName
+from nextrec.utils.types import TaskTypeInput
 
 
 class MMOE(BaseModel):
@@ -81,7 +81,7 @@ class MMOE(BaseModel):
         num_experts: int = 3,
         tower_mlp_params_list: list[dict] | None = None,
         target: list[str] | str | None = None,
-        task: TaskTypeName | list[TaskTypeName] | None = None,
+        task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ):
 
