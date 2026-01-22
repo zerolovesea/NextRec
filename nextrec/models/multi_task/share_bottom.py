@@ -45,6 +45,7 @@ from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
+
 class ShareBottom(BaseModel):
     @property
     def model_name(self):

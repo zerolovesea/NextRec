@@ -36,7 +36,7 @@ from .data import (
     resolve_file_paths,
 )
 from .embedding import get_auto_embedding_dim
-from .feature import to_list
+from .torch_utils import as_float, to_list
 from .model import (
     compute_pair_scores,
     get_mlp_output_dim,
@@ -90,6 +90,7 @@ __all__ = [
     "normalize_task_loss",
     # Feature utilities
     "to_list",
+    "as_float",
     # Config utilities
     "resolve_path",
     "safe_value",

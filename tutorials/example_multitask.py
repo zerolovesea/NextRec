@@ -71,14 +71,27 @@ model = ESMM(
     session_id="esmm_tutorial",
 )
 
+# binary cross-entropy loss + loss weights
+# model.compile(
+#     optimizer="adam",
+#     optimizer_params={"lr": 5e-4, "weight_decay": 1e-4},
+#     loss=["bce", "bce"],
+#     loss_weights=[0.3, 0.7],
+# )
+
+# Focal loss + GradNorm loss weighting
 model.compile(
     optimizer="adam",
     optimizer_params={"lr": 5e-4, "weight_decay": 1e-4},
-    loss=["bce", "bce"],
-    loss_weights=[0.3, 0.7],
+    loss=["focal", "focal"],
+    loss_params=[
+        {"gamma": 2.0, "alpha": 0.25},
+        {"gamma": 1.0, "alpha": 0.75},
+    ],
+    loss_weights={"method": "grad_norm", "alpha": 1.5, "lr": 0.025},
 )
 
-
+# # binary cross-entropy loss + GradNorm loss weighting
 # model.compile(
 #     optimizer="adam",
 #     optimizer_params={"lr": 5e-4, "weight_decay": 1e-4},

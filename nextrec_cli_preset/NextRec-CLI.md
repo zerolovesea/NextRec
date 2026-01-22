@@ -607,8 +607,6 @@ train:
     method: grad_norm
     alpha: 1.5
     lr: 0.025
-    init_ema_steps: 50
-    init_ema_decay: 0.9
   metrics:
     - auc
     - recall

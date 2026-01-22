@@ -10,7 +10,6 @@ from nextrec.data.preprocessor import DataProcessor
 from nextrec.models.retrieval.dssm import DSSM
 from nextrec.utils import compute_pair_scores
 
-
 df = pd.read_csv("dataset/match_task.csv")
 df["user_sequence_0"] = df["user_sequence_0"].apply(ast.literal_eval)
 

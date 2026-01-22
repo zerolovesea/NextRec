@@ -54,6 +54,7 @@ from nextrec.basic.model import BaseModel
 from nextrec.utils.model import get_mlp_output_dim
 from nextrec.utils.types import TaskTypeInput
 
+
 class CGCLayer(nn.Module):
     """
     CGC (Customized Gate Control) block used by PLE.

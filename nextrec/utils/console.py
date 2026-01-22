@@ -36,7 +36,7 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-from nextrec.utils.feature import as_float, to_list
+from nextrec.utils.torch_utils import as_float, to_list
 
 T = TypeVar("T")
 

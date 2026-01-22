@@ -2,7 +2,7 @@
 Task head implementations for NextRec models.
 
 Date: create on 23/12/2025
-Checkpoint: edit on 27/12/2025
+Checkpoint: edit on 22/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -24,6 +24,12 @@ class TaskHead(nn.Module):
 
     This wraps PredictionLayer so models can depend on a "Head" abstraction
     without changing their existing forward signatures.
+
+    Args:
+        task_type: The type of task(s) this head is responsible for.
+        task_dims: The dimensionality of each task's output.
+        use_bias: Whether to include a bias term in the prediction layer.
+        return_logits: Whether to return raw logits or apply activation.
     """
 
     def __init__(
@@ -56,6 +62,12 @@ class RetrievalHead(nn.Module):
 
     It computes similarity for pointwise training/inference, and returns
     raw embeddings for in-batch negative sampling in pairwise/listwise modes.
+
+    Args:
+        similarity_metric: The metric used to compute similarity between embeddings.
+        temperature: Scaling factor for similarity scores.
+        training_mode: The training mode, which can be pointwise, pairwise, or listwise.
+        apply_sigmoid: Whether to apply sigmoid activation to the similarity scores in pointwise mode.
     """
 
     def __init__(

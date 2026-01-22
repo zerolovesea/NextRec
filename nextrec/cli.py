@@ -48,7 +48,7 @@ from nextrec.utils.data import (
     read_yaml,
     resolve_file_paths,
 )
-from nextrec.utils.feature import to_list
+from nextrec.utils.torch_utils import to_list
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +156,7 @@ def train_model(train_config_path: str) -> None:
         logger.info(
             format_kv(
                 "Validation path",
-                resolve_path(
-                    data_cfg.get("valid_path"), config_dir
-                ),
+                resolve_path(data_cfg.get("valid_path"), config_dir),
             )
         )
 
@@ -247,7 +245,9 @@ def train_model(train_config_path: str) -> None:
 
     if streaming:
         if file_type is None:
-            raise ValueError("[NextRec CLI Error] Streaming mode requires a valid file_type")
+            raise ValueError(
+                "[NextRec CLI Error] Streaming mode requires a valid file_type"
+            )
         processor.fit_from_files(
             file_paths=streaming_train_files or file_paths,
             file_type=file_type,
@@ -613,8 +613,13 @@ def predict_model(predict_config_path: str) -> None:
         "save_data_format", predict_cfg.get("save_format", "csv")
     )
     pred_name = predict_cfg.get("name", "pred")
-
-    save_path = checkpoint_base / "predictions" / f"{pred_name}.{save_format}"
+    pred_name_path = Path(pred_name)
+    if pred_name_path.is_absolute():
+        save_path = pred_name_path
+        if save_path.suffix == "":
+            save_path = save_path.with_suffix(f".{save_format}")
+    else:
+        save_path = checkpoint_base / "predictions" / f"{pred_name}.{save_format}"
 
     start = time.time()
     logger.info("")
@@ -629,11 +634,10 @@ def predict_model(predict_config_path: str) -> None:
     )
     duration = time.time() - start
     # When return_dataframe=False, result is the actual file path
-    output_path = (
-        result
-        if isinstance(result, Path)
-        else checkpoint_base / "predictions" / save_path
-    )
+    if isinstance(result, (str, Path)):
+        output_path = Path(result)
+    else:
+        output_path = save_path
     logger.info(f"Prediction completed, results saved to: {output_path}")
     logger.info(f"Total time: {duration:.2f} seconds")
 

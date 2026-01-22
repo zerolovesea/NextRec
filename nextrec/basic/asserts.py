@@ -8,7 +8,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 from __future__ import annotations
 
-from nextrec.utils.types import TaskTypeName, TrainingModeName
+from nextrec.utils.types import TaskTypeName
 
 
 def assert_task(
@@ -48,25 +48,4 @@ def assert_task(
     if len(task) != nums_task:
         raise ValueError(
             f"{model_name} requires task length {nums_task}, got {len(task)}."
-        )
-
-
-def assert_training_mode(
-    training_mode: TrainingModeName | list[TrainingModeName],
-    nums_task: int,
-    *,
-    model_name: str,
-) -> None:
-    valid_modes = {"pointwise", "pairwise", "listwise"}
-    if not isinstance(training_mode, list):
-        raise TypeError(
-            f"[{model_name}-init Error] training_mode must be a list with length {nums_task}."
-        )
-    if len(training_mode) != nums_task:
-        raise ValueError(
-            f"[{model_name}-init Error] training_mode list length must match number of tasks."
-        )
-    if any(mode not in valid_modes for mode in training_mode):
-        raise ValueError(
-            f"[{model_name}-init Error] training_mode must be one of {'pointwise', 'pairwise', 'listwise'}."
         )

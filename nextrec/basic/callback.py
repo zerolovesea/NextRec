@@ -2,7 +2,7 @@
 Callback System for Training Process
 
 Date: create on 27/10/2025
-Checkpoint: edit on 27/12/2025
+Checkpoint: edit on 21/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -69,7 +69,7 @@ class Callback:
 
 class CallbackList:
     """
-    Generates a list of callbacks
+    Generates a list of callbacks, used to manage and invoke multiple callbacks during training.
     """
 
     def __init__(self, callbacks: Optional[list[Callback]] = None):

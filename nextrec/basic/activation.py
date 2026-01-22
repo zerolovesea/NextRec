@@ -1,8 +1,8 @@
 """
-Activation function definitions for NextRec models.
+Activation function definitions.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 28/12/2025
+Checkpoint: edit on 20/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -22,26 +22,24 @@ class Dice(nn.Module):
     where p(x) = sigmoid((x - E[x]) / sqrt(Var[x] + epsilon))
     """
 
-    def __init__(self, emb_size: int, epsilon: float = 1e-9):
+    def __init__(self, emb_size: int, epsilon: float = 1e-3):
         super(Dice, self).__init__()
-        self.epsilon = epsilon
         self.alpha = nn.Parameter(torch.zeros(emb_size))
-        self.bn = nn.BatchNorm1d(emb_size)
+        self.bn = nn.BatchNorm1d(emb_size, eps=epsilon)
 
     def forward(self, x):
         # x shape: (batch_size, emb_size) or (batch_size, seq_len, emb_size)
-        original_shape = x.shape
+        if x.dim() == 2:  # (B, E)
+            x_norm = self.bn(x)
+            p = torch.sigmoid(x_norm)
+            return x * (self.alpha + (1 - self.alpha) * p)
 
-        if x.dim() == 3:
-            # For 3D input (batch_size, seq_len, emb_size), reshape to 2D
-            batch_size, seq_len, emb_size = x.shape
-            x = x.view(-1, emb_size)
-        x_norm = self.bn(x)
-        p = torch.sigmoid(x_norm)
-        output = p * x + (1 - p) * self.alpha * x
-        if len(original_shape) == 3:
-            output = output.view(original_shape)
-        return output
+        if x.dim() == 3:  # (B, T, E)
+            b, t, e = x.shape
+            x2 = x.reshape(-1, e)  # (B*T, E)
+            x_norm = self.bn(x2)
+            p = torch.sigmoid(x_norm).reshape(b, t, e)
+            return x * (self.alpha + (1 - self.alpha) * p)
 
 
 def activation_layer(

@@ -29,7 +29,7 @@ from nextrec.data.dataloader import RecDataLoader
 from nextrec.data.data_processing import get_column_data
 from nextrec.utils.console import display_metrics_table
 from nextrec.utils.data import FILE_FORMAT_CONFIG, check_streaming_support
-from nextrec.utils.feature import to_list
+from nextrec.utils.torch_utils import to_list
 from nextrec.utils.torch_utils import to_numpy
 
 

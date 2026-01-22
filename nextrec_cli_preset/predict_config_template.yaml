@@ -36,8 +36,9 @@ predict:
                                            # Will be included in prediction output
   
   # ----- Output Settings -----
-  name: pred                               # Output filename (without extension)
-                                           # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
+  name: pred                               # Output filename (without extension) or absolute path
+                                           # Filename -> {checkpoint_path}/predictions/{name}.{save_data_format}
+                                           # Absolute path -> saved directly (extension auto-added if missing)
   save_data_format: csv                    # Output format: csv, parquet, feather
   preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
   

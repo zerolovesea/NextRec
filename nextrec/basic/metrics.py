@@ -23,7 +23,6 @@ from sklearn.metrics import (
 )
 from nextrec.utils.types import TaskTypeName, MetricsName
 
-
 TASK_DEFAULT_METRICS = {
     "binary": ["auc", "gauc", "ks", "logloss", "accuracy", "precision", "recall", "f1"],
     "regression": ["mse", "mae", "rmse", "r2", "mape"],
@@ -334,6 +333,60 @@ def compute_map_at_k(
     return float(np.mean(aps)) if aps else 0.0
 
 
+def compute_topk_counts(
+    y_true: np.ndarray, y_pred: np.ndarray, k_percent: int
+) -> tuple[int, int, int]:
+    """Compute Top-K% sample size, hits, and positives for binary labels."""
+    y_true = (y_true > 0).astype(int)
+    n = y_true.size
+    if n == 0:
+        return 0, 0, 0
+    if k_percent <= 0:
+        return 0, 0, int(y_true.sum())
+    if k_percent >= 100:
+        k_count = n
+    else:
+        k_count = int(np.ceil(n * (k_percent / 100.0)))
+        k_count = max(k_count, 1)
+    order = np.argsort(y_pred)[::-1]
+    topk = order[:k_count]
+    hits = int(y_true[topk].sum())
+    total_pos = int(y_true.sum())
+    return k_count, hits, total_pos
+
+
+def compute_topk_precision(
+    y_true: np.ndarray, y_pred: np.ndarray, k_percent: int
+) -> float:
+    """Compute Top-K% Precision."""
+    k_count, hits, _ = compute_topk_counts(y_true, y_pred, k_percent)
+    if k_count == 0:
+        return 0.0
+    return float(hits / k_count)
+
+
+def compute_topk_recall(
+    y_true: np.ndarray, y_pred: np.ndarray, k_percent: int
+) -> float:
+    """Compute Top-K% Recall."""
+    _, hits, total_pos = compute_topk_counts(y_true, y_pred, k_percent)
+    if total_pos == 0:
+        return 0.0
+    return float(hits / total_pos)
+
+
+def compute_lift_at_k(y_true: np.ndarray, y_pred: np.ndarray, k_percent: int) -> float:
+    """Compute Lift@K from Top-K% precision and overall rate."""
+    k_count, hits, total_pos = compute_topk_counts(y_true, y_pred, k_percent)
+    if k_count == 0:
+        return 0.0
+    base_rate = total_pos / float(y_true.size)
+    if base_rate == 0.0:
+        return 0.0
+    precision = hits / float(k_count)
+    return float(precision / base_rate)
+
+
 def compute_cosine_separation(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Compute Cosine Separation."""
     y_true = (y_true > 0).astype(int)
@@ -399,11 +452,11 @@ def configure_metrics(
         if primary_task not in TASK_DEFAULT_METRICS:
             raise ValueError(f"Unsupported task type: {primary_task}")
         metrics_list = TASK_DEFAULT_METRICS[primary_task]
-    best_metrics_mode = getbest_metric_mode(metrics_list[0], primary_task)
+    best_metrics_mode = get_best_metric_mode(metrics_list[0], primary_task)
     return metrics_list, task_specific_metrics, best_metrics_mode
 
 
-def getbest_metric_mode(first_metric: MetricsName, primary_task: TaskTypeName) -> str:
+def get_best_metric_mode(first_metric: MetricsName, primary_task: TaskTypeName) -> str:
     """Determine if metric should be maximized or minimized."""
     # Metrics that should be maximized
     if first_metric in {
@@ -429,6 +482,9 @@ def getbest_metric_mode(first_metric: MetricsName, primary_task: TaskTypeName) -
         or first_metric.startswith("mrr@")
         or first_metric.startswith("ndcg@")
         or first_metric.startswith("map@")
+        or first_metric.startswith("topk_recall@")
+        or first_metric.startswith("topk_precision@")
+        or first_metric.startswith("lift@")
     ):
         return "max"
     # Cosine separation should be maximized
@@ -457,6 +513,15 @@ def compute_single_metric(
 
     y_p_binary = (y_pred > 0.5).astype(int)
     try:
+        if metric.startswith("topk_recall@"):
+            k_percent = int(metric.split("@")[1])
+            return compute_topk_recall(y_true, y_pred, k_percent)
+        if metric.startswith("topk_precision@"):
+            k_percent = int(metric.split("@")[1])
+            return compute_topk_precision(y_true, y_pred, k_percent)
+        if metric.startswith("lift@"):
+            k_percent = int(metric.split("@")[1])
+            return compute_lift_at_k(y_true, y_pred, k_percent)
         if metric.startswith("recall@"):
             k = int(metric.split("@")[1])
             return compute_recall_at_k(y_true, y_pred, user_ids, k)  # type: ignore
@@ -650,7 +715,23 @@ def evaluate_metrics(
                 allowed_metrics = metric_allowlist.get(task_type)
             for metric in metrics:
                 if allowed_metrics is not None and metric not in allowed_metrics:
-                    continue
+                    if metric.startswith(
+                        (
+                            "recall@",
+                            "precision@",
+                            "hitrate@",
+                            "hr@",
+                            "mrr@",
+                            "ndcg@",
+                            "map@",
+                            "topk_recall@",
+                            "topk_precision@",
+                            "lift@",
+                        )
+                    ):
+                        pass
+                    else:
+                        continue
                 y_true_task = y_true[:, task_idx]
                 y_pred_task = y_pred[:, task_idx]
                 task_user_ids = user_ids

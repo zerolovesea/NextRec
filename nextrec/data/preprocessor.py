@@ -910,7 +910,9 @@ class DataProcessor(FeatureSet):
             frames = [read_table(p, file_type) for p in file_paths]
             df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
             return self.fit(df)
-        return self.fit_from_file_paths(file_paths=file_paths, file_type=file_type, chunk_size=chunk_size)
+        return self.fit_from_file_paths(
+            file_paths=file_paths, file_type=file_type, chunk_size=chunk_size
+        )
 
     def fit_from_path(self, path: str, chunk_size: int) -> "DataProcessor":
         """

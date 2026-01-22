@@ -113,8 +113,6 @@ train:
   #   method: grad_norm
   #   alpha: 1.5
   #   lr: 0.025
-  #   init_ema_steps: 50
-  #   init_ema_decay: 0.9
   # Or use a list/number for fixed weighting:
   # loss_weights: [0.3, 0.7]
   # ignore_label: -1                                  # Label value to ignore when computing loss

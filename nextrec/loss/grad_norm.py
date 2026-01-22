@@ -2,12 +2,40 @@
 GradNorm loss weighting for multi-task learning.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 24/12/2025
+Checkpoint: edit on 22/01/2026
 Author: Yang Zhou,zyaztec@gmail.com
 
 Reference:
 Chen, Zhao, et al. "GradNorm: Gradient Normalization for Adaptive Loss Balancing
 in Deep Multitask Networks." ICML 2018.
+
+pseudocode:
+---
+Initialize w_i = 1
+Record L_i(0)
+
+for each step:
+    1. Forward: compute each task loss L_i
+    2. Compute G_i = ||∇_W (w_i * L_i)||
+    3. Compute r_i = (L_i / L_i(0)) / mean(...)
+    4. Compute target: Ĝ_i = mean(G) * r_i^α
+    5. L_grad = sum |G_i - Ĝ_i|
+    6. Update w_i using ∇ L_grad
+    7. Backprop with sum_i (w_i * L_i) to update model
+
+伪代码：
+---
+初始化 w_i = 1
+记录 L_i(0)
+
+for each step:
+    1. 前向算各 task loss: L_i
+    2. 计算 G_i = ||∇_W (w_i * L_i)||
+    3. 计算 r_i = (L_i / L_i(0)) / mean(...)
+    4. 计算 target: Ĝ_i = mean(G) * r_i^α
+    5. L_grad = sum |G_i - Ĝ_i|
+    6. 对 w_i 用 ∇L_grad 更新
+    7. 用 ∑ w_i * L_i 反传更新模型
 """
 
 from __future__ import annotations
@@ -15,6 +43,7 @@ from __future__ import annotations
 from typing import Iterable
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -23,7 +52,15 @@ def get_grad_norm_shared_params(
     model,
     shared_modules=None,
 ):
+    """
+    Get shared parameters for GradNorm.
+
+    Args:
+        model: A pytorch model instance containing grad_norm_shared_modules attribute.
+        shared_modules: Optional list of module names to consider as shared.
+    """
     if not shared_modules:
+        # If no specific shared modules are provided, consider all parameters as shared
         return [p for p in model.parameters() if p.requires_grad]
     shared_params = []
     seen = set()
@@ -35,26 +72,10 @@ def get_grad_norm_shared_params(
             if param.requires_grad and id(param) not in seen:
                 shared_params.append(param)
                 seen.add(id(param))
-    if not shared_params:
-        return [p for p in model.parameters() if p.requires_grad]
     return shared_params
 
 
 class GradNormLossWeighting:
-    """
-    Adaptive multi-task loss weighting with GradNorm.
-
-    Args:
-        nums_task: Number of tasks.
-        alpha: GradNorm balancing strength.
-        lr: Learning rate for the weight optimizer.
-        init_weights: Optional initial weights per task.
-        device: Torch device for weights.
-        ema_decay: Optional EMA decay for smoothing loss ratios.
-        init_ema_steps: Number of steps to build EMA for initial losses.
-        init_ema_decay: EMA decay for initial losses when init_ema_steps > 0.
-        eps: Small value for numerical stability.
-    """
 
     def __init__(
         self,
@@ -63,57 +84,42 @@ class GradNormLossWeighting:
         lr: float = 0.025,
         init_weights: Iterable[float] | None = None,
         device: torch.device | str | None = None,
-        ema_decay: float | None = None,
-        init_ema_steps: int = 0,
-        init_ema_decay: float = 0.9,
         eps: float = 1e-8,
     ) -> None:
+        """
+        Adaptive multi-task loss weighting with GradNorm.
+
+        Args:
+            nums_task: Number of tasks.
+            alpha: GradNorm balancing strength.
+            lr: Learning rate for the weight optimizer.
+            init_weights: Optional initial weights per task.
+            device: Torch device for weights.
+            eps: Small value for numerical stability.
+
+
+
+        """
+
         if nums_task <= 1:
             raise ValueError("GradNorm requires nums_task > 1.")
+
         self.nums_task = nums_task
         self.alpha = alpha
         self.eps = eps
-        if ema_decay is not None:
-            ema_decay = ema_decay
-            if ema_decay < 0.0 or ema_decay >= 1.0:
-                raise ValueError("ema_decay must be in [0.0, 1.0).")
-        self.ema_decay = ema_decay
-        self.init_ema_steps = init_ema_steps
-        if self.init_ema_steps < 0:
-            raise ValueError("init_ema_steps must be >= 0.")
-        self.init_ema_decay = init_ema_decay
-        if self.init_ema_decay < 0.0 or self.init_ema_decay >= 1.0:
-            raise ValueError("init_ema_decay must be in [0.0, 1.0).")
-        self.init_ema_count = 0
 
         if init_weights is None:
             weights = torch.ones(self.nums_task, dtype=torch.float32)
         else:
             weights = torch.tensor(list(init_weights), dtype=torch.float32)
-            if weights.numel() != self.nums_task:
-                raise ValueError(
-                    "init_weights length must match nums_task for GradNorm."
-                )
+
         if device is not None:
             weights = weights.to(device)
         self.weights = nn.Parameter(weights)
         self.optimizer = torch.optim.Adam([self.weights], lr=float(lr))
 
         self.initial_losses = None
-        self.initial_losses_ema = None
-        self.loss_ema = None
         self.pending_grad = None
-
-    def to(self, device):
-        device = torch.device(device)
-        self.weights.data = self.weights.data.to(device)
-        if self.initial_losses is not None:
-            self.initial_losses = self.initial_losses.to(device)
-        if self.initial_losses_ema is not None:
-            self.initial_losses_ema = self.initial_losses_ema.to(device)
-        if self.loss_ema is not None:
-            self.loss_ema = self.loss_ema.to(device)
-        return self
 
     def compute_weighted_loss(
         self,
@@ -122,6 +128,8 @@ class GradNormLossWeighting:
     ) -> torch.Tensor:
         """
         Return weighted total loss and update task weights with GradNorm.
+
+        BaseModel will use this method to compute the weighted loss when self.grad_norm is enabled.
         """
         if len(task_losses) != self.nums_task:
             raise ValueError(
@@ -136,19 +144,7 @@ class GradNormLossWeighting:
                 [loss.item() for loss in task_losses], device=self.weights.device
             )
             if self.initial_losses is None:
-                if self.init_ema_steps > 0:
-                    if self.initial_losses_ema is None:
-                        self.initial_losses_ema = loss_values
-                    else:
-                        self.initial_losses_ema = (
-                            self.init_ema_decay * self.initial_losses_ema
-                            + (1.0 - self.init_ema_decay) * loss_values
-                        )
-                    self.init_ema_count += 1
-                    if self.init_ema_count >= self.init_ema_steps:
-                        self.initial_losses = self.initial_losses_ema.clone()
-                else:
-                    self.initial_losses = loss_values
+                self.initial_losses = loss_values.clone()
 
         weights_detached = self.weights.detach()
         weighted_losses = [
@@ -157,25 +153,14 @@ class GradNormLossWeighting:
         total_loss = torch.stack(weighted_losses).sum()
 
         grad_norms = self.compute_grad_norms(task_losses, shared_params)
+
+        # compute inverse training rate, inv rate = loss_ratio / mean(loss_ratio)
         with torch.no_grad():
-            if self.ema_decay is not None:
-                if self.loss_ema is None:
-                    self.loss_ema = loss_values
-                else:
-                    self.loss_ema = (
-                        self.ema_decay * self.loss_ema
-                        + (1.0 - self.ema_decay) * loss_values
-                    )
-                ratio_source = self.loss_ema
-            else:
-                ratio_source = loss_values
             if self.initial_losses is not None:
                 base_initial = self.initial_losses
-            elif self.initial_losses_ema is not None:
-                base_initial = self.initial_losses_ema
             else:
                 base_initial = loss_values
-            loss_ratios = ratio_source / (base_initial + self.eps)
+            loss_ratios = loss_values / (base_initial + self.eps)
             inv_rate = loss_ratios / (loss_ratios.mean() + self.eps)
             target = grad_norms.mean() * (inv_rate**self.alpha)
 
@@ -187,6 +172,7 @@ class GradNormLossWeighting:
 
     def compute_grad_norms(self, task_losses, shared_params):
         grad_norms = []
+        # compute gradient norms for each task, gradient norms = sqrt(sum(grad^2))
         for i, task_loss in enumerate(task_losses):
             grads = torch.autograd.grad(
                 self.weights[i] * task_loss,
@@ -230,3 +216,19 @@ class GradNormLossWeighting:
             self.weights.copy_(w)
 
         self.pending_grad = None
+
+    def sync(self) -> None:
+        """
+        Synchronize GradNorm buffers across DDP ranks.
+
+        - pending_grad: averaged so all ranks update weights consistently
+        - initial_losses: averaged so the baseline loss is consistent
+        """
+
+        world_size = dist.get_world_size()
+        if self.pending_grad is not None:
+            dist.all_reduce(self.pending_grad, op=dist.ReduceOp.SUM)
+            self.pending_grad /= world_size
+        if self.initial_losses is not None:
+            dist.all_reduce(self.initial_losses, op=dist.ReduceOp.SUM)
+            self.initial_losses /= world_size

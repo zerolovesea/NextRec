@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 import pandas as pd
 import torch
 
-from nextrec.utils.feature import to_list
+from nextrec.utils.torch_utils import to_list
 
 if TYPE_CHECKING:
     from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
