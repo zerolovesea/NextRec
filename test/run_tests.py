@@ -4,6 +4,7 @@ Test Runner Script for NextRec
 
 This script provides a convenient way to run tests with various options.
 """
+
 import argparse
 import logging
 import subprocess

@@ -28,14 +28,6 @@ nextrec.utils.data module
    :undoc-members:
    :show-inheritance:
 
-nextrec.utils.feature module
-----------------------------
-
-.. automodule:: nextrec.utils.feature
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 nextrec.utils.model module
 --------------------------
 

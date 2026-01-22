@@ -64,6 +64,40 @@ TaskTypeName = Literal["binary", "regression"]
 
 TaskTypeInput = TaskTypeName | str
 
+EmbeddingInitType = Literal[
+    "normal",
+    "uniform",
+    "xavier_uniform",
+    "xavier_normal",
+    "kaiming_uniform",
+    "kaiming_normal",
+    "orthogonal",
+]
+
+SequenceCombinerType = Literal[
+    "mean",
+    "sum",
+    "concat",
+    "dot_attention",
+    "self_attention",
+]
+
+InitializerActivationType = Literal[
+    "linear",
+    "conv1d",
+    "conv2d",
+    "conv3d",
+    "conv_transpose1d",
+    "conv_transpose2d",
+    "conv_transpose3d",
+    "sigmoid",
+    "tanh",
+    "relu",
+    "leaky_relu",
+    "selu",
+    "gelu",
+]
+
 MetricsName = Literal[
     "auc",
     "gauc",
@@ -97,4 +131,13 @@ MetricsName = Literal[
     "mrr@5",
     "mrr@10",
     "mrr@20",
+    "topk_recall@5",
+    "topk_recall@10",
+    "topk_recall@20",
+    "topk_precision@5",
+    "topk_precision@10",
+    "topk_precision@20",
+    "lift@5",
+    "lift@10",
+    "lift@20",
 ]

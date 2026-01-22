@@ -6,7 +6,6 @@ from nextrec.data.preprocessor import DataProcessor
 from nextrec.basic.features import DenseFeature, SparseFeature
 from nextrec.models.ranking.deepfm import DeepFM
 
-
 df = pd.read_csv("dataset/movielens_100k.csv")
 
 processor = DataProcessor()

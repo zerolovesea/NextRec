@@ -5,14 +5,15 @@ This module groups device setup, distributed helpers, optimizers/schedulers,
 initialization, and tensor helpers.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 27/12/2025
+Checkpoint: edit on 22/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, Literal
+import numbers
+from typing import Any, Dict, Iterable
 
 import numpy as np
 import torch
@@ -22,7 +23,55 @@ from torch.utils.data import DataLoader, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 
 from nextrec.basic.loggers import colorize
-from nextrec.utils.types import OptimizerName, SchedulerName
+from nextrec.utils.types import (
+    EmbeddingInitType,
+    InitializerActivationType,
+    OptimizerName,
+    SchedulerName,
+)
+
+
+def to_list(value: str | list[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
+def as_float(value: Any) -> float | None:
+    if isinstance(value, numbers.Number):
+        return float(value)
+    if hasattr(value, "item"):
+        try:
+            return float(value.item())
+        except Exception:
+            return None
+    return None
+
+
+def to_numpy(values: Any) -> np.ndarray:
+    if isinstance(values, torch.Tensor):
+        return values.detach().cpu().numpy()
+    return np.asarray(values)
+
+
+def to_tensor(
+    value: Any, dtype: torch.dtype, device: torch.device | str | None = None
+) -> torch.Tensor:
+    if value is None:
+        raise ValueError("[Tensor Utils Error] Cannot convert None to tensor.")
+    tensor = value if isinstance(value, torch.Tensor) else torch.as_tensor(value)
+    if tensor.dtype != dtype:
+        tensor = tensor.to(dtype=dtype)
+
+    if device is not None:
+        target_device = (
+            device if isinstance(device, torch.device) else torch.device(device)
+        )
+        if tensor.device != target_device:
+            tensor = tensor.to(target_device)
+    return tensor
 
 
 def resolve_nonlinearity(activation: str) -> str:
@@ -56,30 +105,8 @@ def resolve_gain(activation: str, param: Dict[str, Any]) -> float:
 
 
 def get_initializer(
-    init_type: Literal[
-        "xavier_uniform",
-        "xavier_normal",
-        "kaiming_uniform",
-        "kaiming_normal",
-        "orthogonal",
-        "normal",
-        "uniform",
-    ] = "normal",
-    activation: Literal[
-        "linear",
-        "conv1d",
-        "conv2d",
-        "conv3d",
-        "conv_transpose1d",
-        "conv_transpose2d",
-        "conv_transpose3d",
-        "sigmoid",
-        "tanh",
-        "relu",
-        "leaky_relu",
-        "selu",
-        "gelu",
-    ] = "linear",
+    init_type: EmbeddingInitType = "normal",
+    activation: InitializerActivationType = "linear",
     param: Dict[str, Any] | None = None,
 ):
     param = param or {}
@@ -108,7 +135,7 @@ def get_initializer(
         elif init_type == "uniform":
             nn.init.uniform_(tensor, a=param.get("a", -0.05), b=param.get("b", 0.05))
         else:
-            raise ValueError(f"Unknown init_type: {init_type}")
+            raise ValueError(f"[Initializer Error] Unknown init_type: {init_type}")
         return tensor
 
     return initializer_fn
@@ -172,12 +199,14 @@ def get_optimizer(
         elif opt_name == "rmsprop":
             opt_class = torch.optim.RMSprop
         else:
-            raise NotImplementedError(f"Unsupported optimizer: {optimizer}")
+            raise NotImplementedError(
+                f"[Optimizer Error] Unsupported optimizer: {optimizer}"
+            )
         optimizer_fn = opt_class(params=params, **optimizer_params)
     elif isinstance(optimizer, torch.optim.Optimizer):
         optimizer_fn = optimizer
     else:
-        raise TypeError(f"Invalid optimizer type: {type(optimizer)}")
+        raise TypeError(f"[Optimizer Error] Invalid optimizer type: {type(optimizer)}")
     return optimizer_fn
 
 
@@ -203,7 +232,9 @@ def get_scheduler(
                 optimizer, **scheduler_params
             )
         else:
-            raise NotImplementedError(f"Unsupported scheduler: {scheduler}")
+            raise NotImplementedError(
+                f"[Scheduler Error] Unsupported scheduler: {scheduler}"
+            )
     elif isinstance(scheduler, type) and issubclass(
         scheduler,
         (torch.optim.lr_scheduler._LRScheduler, torch.optim.lr_scheduler.LRScheduler),
@@ -215,33 +246,9 @@ def get_scheduler(
     ):
         scheduler_fn = scheduler
     else:
-        raise TypeError(f"Invalid scheduler type: {type(scheduler)}")
+        raise TypeError(f"[Scheduler Error] Invalid scheduler type: {type(scheduler)}")
 
     return scheduler_fn
-
-
-def to_numpy(values: Any) -> np.ndarray:
-    if isinstance(values, torch.Tensor):
-        return values.detach().cpu().numpy()
-    return np.asarray(values)
-
-
-def to_tensor(
-    value: Any, dtype: torch.dtype, device: torch.device | str | None = None
-) -> torch.Tensor:
-    if value is None:
-        raise ValueError("[Tensor Utils Error] Cannot convert None to tensor.")
-    tensor = value if isinstance(value, torch.Tensor) else torch.as_tensor(value)
-    if tensor.dtype != dtype:
-        tensor = tensor.to(dtype=dtype)
-
-    if device is not None:
-        target_device = (
-            device if isinstance(device, torch.device) else torch.device(device)
-        )
-        if tensor.device != target_device:
-            tensor = tensor.to(target_device)
-    return tensor
 
 
 def init_process_group(

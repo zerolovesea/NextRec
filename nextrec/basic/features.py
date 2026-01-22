@@ -8,10 +8,9 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 import torch
 
-from typing import Literal
-
 from nextrec.utils.embedding import get_auto_embedding_dim
-from nextrec.utils.feature import to_list
+from nextrec.utils.torch_utils import to_list
+from nextrec.utils.types import EmbeddingInitType, SequenceCombinerType
 
 
 class BaseFeature:
@@ -29,15 +28,7 @@ class EmbeddingFeature(BaseFeature):
         embedding_name: str = "",
         embedding_dim: int | None = None,
         padding_idx: int = 0,
-        init_type: Literal[
-            "normal",
-            "uniform",
-            "xavier_uniform",
-            "xavier_normal",
-            "kaiming_uniform",
-            "kaiming_normal",
-            "orthogonal",
-        ] = "normal",
+        init_type: EmbeddingInitType = "normal",
         init_params: dict | None = None,
         l1_reg: float = 0.0,
         l2_reg: float = 0.0,
@@ -73,23 +64,9 @@ class SequenceFeature(EmbeddingFeature):
         max_len: int = 50,
         embedding_name: str = "",
         embedding_dim: int | None = None,
-        combiner: Literal[
-            "mean",
-            "sum",
-            "concat",
-            "dot_attention",
-            "self_attention",
-        ] = "mean",
+        combiner: SequenceCombinerType = "mean",
         padding_idx: int = 0,
-        init_type: Literal[
-            "normal",
-            "uniform",
-            "xavier_uniform",
-            "xavier_normal",
-            "kaiming_uniform",
-            "kaiming_normal",
-            "orthogonal",
-        ] = "normal",
+        init_type: EmbeddingInitType = "normal",
         init_params: dict | None = None,
         l1_reg: float = 0.0,
         l2_reg: float = 0.0,
@@ -143,15 +120,7 @@ class SparseFeature(EmbeddingFeature):
         embedding_name: str = "",
         embedding_dim: int | None = None,
         padding_idx: int = 0,
-        init_type: Literal[
-            "normal",
-            "uniform",
-            "xavier_uniform",
-            "xavier_normal",
-            "kaiming_uniform",
-            "kaiming_normal",
-            "orthogonal",
-        ] = "normal",
+        init_type: EmbeddingInitType = "normal",
         init_params: dict | None = None,
         l1_reg: float = 0.0,
         l2_reg: float = 0.0,

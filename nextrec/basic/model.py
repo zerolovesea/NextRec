@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 22/01/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -155,9 +155,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             session_id: Session id for logging. If None, a default id with timestamps will be created. e.g., 'session_tutorial'.
 
             distributed: Enable DistributedDataParallel flow, set True to enable distributed training.
-            rank: Global rank (defaults to env RANK).
-            world_size: Number of processes (defaults to env WORLD_SIZE).
-            local_rank: Local rank for selecting CUDA device (defaults to env LOCAL_RANK).
+            rank: Global rank (defaults to env RANK). e.g., 0 for the main process.
+            world_size: Number of processes (defaults to env WORLD_SIZE). e.g., 4 for a 4-process training.
+            local_rank: Local rank for selecting CUDA device (defaults to env LOCAL_RANK). e.g., 0 for the first GPU.
             ddp_find_unused_parameters: Default False, set it True only when exist unused parameters in ddp model, in most cases should be False.
 
         Note:
@@ -1351,6 +1351,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             nn.utils.clip_grad_norm_(params, self.max_gradient_norm)
             self.optimizer_fn.step()
             if self.grad_norm is not None:
+                # Synchronize GradNorm buffers across DDP ranks before stepping
+                if self.distributed and dist.is_available() and dist.is_initialized():
+                    self.grad_norm.sync()
                 self.grad_norm.step()
             accumulated_loss += loss.item()
 

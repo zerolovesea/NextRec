@@ -2,7 +2,7 @@
 Layer implementations used across NextRec.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 27/12/2025
+Checkpoint: edit on 22/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -20,15 +20,13 @@ import torch.nn.functional as F
 from nextrec.basic.activation import activation_layer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.utils.torch_utils import get_initializer
-from nextrec.utils.types import ActivationName
+from nextrec.utils.types import ActivationName, TaskTypeName
 
 
 class PredictionLayer(nn.Module):
     def __init__(
         self,
-        task_type: (
-            Literal["binary", "regression"] | list[Literal["binary", "regression"]]
-        ) = "binary",
+        task_type: TaskTypeName | list[TaskTypeName] = "binary",
         task_dims: int | list[int] | None = None,
         use_bias: bool = True,
         return_logits: bool = False,
@@ -92,10 +90,9 @@ class PredictionLayer(nn.Module):
             if self.return_logits:
                 outputs.append(task_logits)
                 continue
-            task = task_type.lower()
-            if task == "binary":
+            if task_type == "binary":
                 outputs.append(torch.sigmoid(task_logits))
-            elif task == "regression":
+            elif task_type == "regression":
                 outputs.append(task_logits)
             else:
                 raise ValueError(
@@ -897,30 +894,7 @@ class AttentionPoolingLayer(nn.Module):
         self,
         embedding_dim: int,
         hidden_units: list = [80, 40],
-        activation: Literal[
-            "dice",
-            "relu",
-            "relu6",
-            "elu",
-            "selu",
-            "leaky_relu",
-            "prelu",
-            "gelu",
-            "sigmoid",
-            "tanh",
-            "softplus",
-            "softsign",
-            "hardswish",
-            "mish",
-            "silu",
-            "swish",
-            "hardsigmoid",
-            "tanhshrink",
-            "softshrink",
-            "none",
-            "linear",
-            "identity",
-        ] = "sigmoid",
+        activation: ActivationName = "sigmoid",
         use_softmax: bool = False,
     ):
         super().__init__()
@@ -1029,7 +1003,9 @@ class RMSNorm(torch.nn.Module):
 
 
 class DomainBatchNorm(nn.Module):
-    """Domain-specific BatchNorm (applied per-domain with a shared interface)."""
+    """
+    Domain-specific BatchNorm (applied per-domain with a shared interface).
+    """
 
     def __init__(self, num_features: int, num_domains: int):
         super().__init__()

@@ -8,6 +8,7 @@ Author: Yang Zhou,zyaztec@gmail.com
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Literal
 
@@ -34,6 +35,7 @@ class SummarySet:
     scheduler_name: str | None
     scheduler_params: dict[str, Any]
     loss_config: Any
+    loss_params: Any
     loss_weights: Any
     grad_norm: Any
     embedding_l1_reg: float
@@ -73,7 +75,7 @@ class SummarySet:
     def build_data_summary(
         self, data: Any, data_loader: DataLoader | None, sample_key: str
     ):
-        
+
         dataset = data_loader.dataset if data_loader is not None else None
 
         train_size = get_data_length(dataset)
@@ -325,6 +327,73 @@ class SummarySet:
 
             if hasattr(self, "loss_config"):
                 logger.info(f"Loss Function:           {self.loss_config}")
+
+            loss_params_summary: list[str] = []
+            loss_fn = getattr(self, "loss_fn", None)
+            if loss_fn is not None:
+                loss_modules = (
+                    list(loss_fn) if isinstance(loss_fn, (list, tuple)) else [loss_fn]
+                )
+                loss_config = getattr(self, "loss_config", None)
+                if isinstance(loss_config, list):
+                    loss_names = loss_config
+                elif loss_config is not None:
+                    loss_names = [loss_config] * len(loss_modules)
+                else:
+                    loss_names = [None] * len(loss_modules)
+
+                loss_params = getattr(self, "loss_params", None)
+                if isinstance(loss_params, list):
+                    explicit_params = loss_params
+                elif isinstance(loss_params, dict):
+                    explicit_params = [loss_params] * len(loss_modules)
+                else:
+                    explicit_params = [None] * len(loss_modules)
+
+                for idx, loss_module in enumerate(loss_modules):
+                    params: dict[str, Any] = {}
+                    explicit = (
+                        explicit_params[idx] if idx < len(explicit_params) else None
+                    )
+                    if explicit:
+                        params.update(explicit)
+                    try:
+                        signature = inspect.signature(loss_module.__class__.__init__)
+                    except (TypeError, ValueError):
+                        signature = None
+                    if signature is not None:
+                        for name, param in signature.parameters.items():
+                            if name == "self" or name.startswith("_"):
+                                continue
+                            if hasattr(loss_module, name):
+                                value = getattr(loss_module, name)
+                                if callable(value):
+                                    continue
+                                params.setdefault(name, value)
+                            elif (
+                                param.default is not inspect._empty
+                                and param.default is not None
+                            ):
+                                params.setdefault(name, param.default)
+                    if not params:
+                        continue
+
+                    loss_name = loss_names[idx] if idx < len(loss_names) else None
+                    if len(loss_modules) > 1:
+                        header = f"  [{idx}]"
+                        if loss_name is not None:
+                            header = f"{header} {loss_name}"
+                        loss_params_summary.append(header)
+                        indent = "    "
+                    else:
+                        indent = "  "
+                    for key, value in params.items():
+                        loss_params_summary.append(f"{indent}{key:25s}: {value}")
+
+            if loss_params_summary:
+                logger.info("Loss Params:")
+                for line in loss_params_summary:
+                    logger.info(line)
             if hasattr(self, "loss_weights"):
                 logger.info(f"Loss Weights:            {self.loss_weights}")
             if hasattr(self, "grad_norm"):
@@ -355,53 +424,30 @@ class SummarySet:
             logger.info("")
             logger.info(colorize("Data Summary", color="cyan", bold=True))
             logger.info(colorize("-" * 80, color="cyan"))
-            if self.train_data_summary:
-                train_samples = self.train_data_summary.get("train_samples")
-                if train_samples is not None:
-                    logger.info(format_kv("Train Samples", f"{train_samples:,}"))
-
-                label_distributions = self.train_data_summary.get("label_distributions")
-                if isinstance(label_distributions, dict):
-                    for target_name, details in label_distributions.items():
-                        lines = details.get("lines", [])
-                        logger.info(f"{target_name}:")
-                        for label, value in lines:
-                            logger.info(f"  {format_kv(label, value)}")
-
-                dataloader_info = self.train_data_summary.get("dataloader")
-                if isinstance(dataloader_info, dict):
-                    logger.info("Train DataLoader:")
-                    for key in (
-                        "batch_size",
-                        "num_workers",
-                        "pin_memory",
-                        "persistent_workers",
-                        "sampler",
-                    ):
-                        if key in dataloader_info:
-                            label = key.replace("_", " ").title()
-                            logger.info(
-                                format_kv(label, dataloader_info[key], indent=2)
-                            )
-
-            if self.valid_data_summary:
-                if self.train_data_summary:
+            for label, data_summary in (
+                ("Train", self.train_data_summary),
+                ("Valid", self.valid_data_summary),
+            ):
+                if not data_summary:
+                    continue
+                if label == "Valid" and self.train_data_summary:
                     logger.info("")
-                valid_samples = self.valid_data_summary.get("valid_samples")
-                if valid_samples is not None:
-                    logger.info(format_kv("Valid Samples", f"{valid_samples:,}"))
+                sample_key = "train_samples" if label == "Train" else "valid_samples"
+                samples = data_summary.get(sample_key)
+                if samples is not None:
+                    logger.info(format_kv(f"{label} Samples", f"{samples:,}"))
 
-                label_distributions = self.valid_data_summary.get("label_distributions")
+                label_distributions = data_summary.get("label_distributions")
                 if isinstance(label_distributions, dict):
                     for target_name, details in label_distributions.items():
                         lines = details.get("lines", [])
                         logger.info(f"{target_name}:")
-                        for label, value in lines:
-                            logger.info(f"  {format_kv(label, value)}")
+                        for line_label, value in lines:
+                            logger.info(f"  {format_kv(line_label, value)}")
 
-                dataloader_info = self.valid_data_summary.get("dataloader")
+                dataloader_info = data_summary.get("dataloader")
                 if isinstance(dataloader_info, dict):
-                    logger.info("Valid DataLoader:")
+                    logger.info(f"{label} DataLoader:")
                     for key in (
                         "batch_size",
                         "num_workers",
@@ -410,7 +456,7 @@ class SummarySet:
                         "sampler",
                     ):
                         if key in dataloader_info:
-                            label = key.replace("_", " ").title()
+                            field_label = key.replace("_", " ").title()
                             logger.info(
-                                format_kv(label, dataloader_info[key], indent=2)
+                                format_kv(field_label, dataloader_info[key], indent=2)
                             )

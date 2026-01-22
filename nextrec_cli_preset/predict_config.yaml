@@ -8,12 +8,13 @@ predict:
                                            # Use 'auto' for automatic detection
   id_column: user_id                       # Column name for user/sample IDs
                                            # Will be included in prediction output
-  name: pred                               # Output filename (without extension)
-                                           # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
+  name: pred                               # Output filename (without extension) or absolute path
+                                           # Filename -> {checkpoint_path}/predictions/{name}.{save_data_format}
+                                           # Absolute path -> saved directly (extension auto-added if missing)
   save_data_format: csv                    # Output format: csv, parquet, feather
   preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
 
-  batch_size: 512                          # Batch size for inference
+  batch_size: 1024                          # Batch size for inference
                                            # Larger = faster but more memory
   num_workers: 4                           # Number of parallel data loading workers
                                            # 0 = single process, >0 = multiprocessing

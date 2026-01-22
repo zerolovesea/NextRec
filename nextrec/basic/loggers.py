@@ -2,7 +2,7 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 22/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -99,7 +99,8 @@ def format_kv(label: str, value: Any, width: int = 34, indent: int = 0) -> str:
 
 
 def setup_logger(session_id: str | os.PathLike | None = None):
-    """Set up a logger that logs to both console and a file with ANSI formatting.
+    """
+    Set up a logger that logs to both console and a file with ANSI formatting.
     Only console output has colors; file output is stripped of ANSI codes.
 
     Logs are stored under ``log/<experiment_id>/logs`` by default. A stable
