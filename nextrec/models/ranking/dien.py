@@ -390,13 +390,13 @@ class DIEN(BaseModel):
                 dim=-1,
             )
             score_t = self.attention_layer.attention_net(concat_feat)  # [B, 1]
-            att_scores_list.append(score_t)
+            att_scores_list.append(score_t.unsqueeze(1))
 
         # [B, seq_len, 1]
         att_scores = torch.cat(att_scores_list, dim=1)
 
-        scores_flat = att_scores.squeeze(-1)  # [B, seq_len]
-        mask_flat = mask.squeeze(-1)  # [B, seq_len]
+        scores_flat = att_scores[..., 0]  # [B, seq_len]
+        mask_flat = mask[..., 0]  # [B, seq_len]
 
         scores_flat = scores_flat.masked_fill(mask_flat == 0, -1e9)
         att_weights = torch.softmax(scores_flat, dim=1)  # [B, seq_len]
@@ -437,8 +437,7 @@ class DIEN(BaseModel):
 
         for feat in self.dense_features:
             val = x[feat.name].float()
-            if val.dim() == 1:
-                val = val.unsqueeze(1)
+            val = val.view(val.size(0), -1)
             other_embeddings.append(val)
 
         concat_input = torch.cat(other_embeddings, dim=-1)  # [B, total_dim]
@@ -460,15 +459,15 @@ class DIEN(BaseModel):
         interest_states = interest_states[:, :-1, :]
         pos_seq = behavior_emb[:, 1:, :]
         neg_seq = neg_behavior_emb[:, 1:, :]
-        aux_mask = mask[:, 1:, :].squeeze(-1)
+        aux_mask = mask[:, 1:, 0]
 
         if aux_mask.sum() == 0:
             return torch.tensor(0.0, device=self.device)
 
         pos_input = torch.cat([interest_states, pos_seq], dim=-1)
         neg_input = torch.cat([interest_states, neg_seq], dim=-1)
-        pos_logits = self.auxiliary_net(pos_input).squeeze(-1)
-        neg_logits = self.auxiliary_net(neg_input).squeeze(-1)
+        pos_logits = self.auxiliary_net(pos_input)[..., 0]
+        neg_logits = self.auxiliary_net(neg_input)[..., 0]
 
         pos_loss = F.binary_cross_entropy_with_logits(
             pos_logits, torch.ones_like(pos_logits), reduction="none"

@@ -128,3 +128,6 @@ pypirc.template
 
 # Sphinx build
 docs/rtd/_build/
+
+*.onnx
+artifacts/

@@ -190,7 +190,7 @@ class FFM(BaseModel):
             return emb(x[feature.name].long())
 
         seq_input = x[feature.name].long()
-        if feature.max_len is not None and seq_input.size(1) > feature.max_len:
+        if feature.max_len is not None:
             seq_input = seq_input[:, -feature.max_len :]
         seq_emb = emb(seq_input)  # [B, L, D]
         mask = self.input_mask(x, feature, seq_input)
@@ -224,7 +224,7 @@ class FFM(BaseModel):
                 term = emb(x[feature.name].long())  # [B, 1]
             else:
                 seq_input = x[feature.name].long()
-                if feature.max_len is not None and seq_input.size(1) > feature.max_len:
+                if feature.max_len is not None:
                     seq_input = seq_input[:, -feature.max_len :]
                 mask = self.input_mask(x, feature, seq_input).squeeze(1)  # [B, L]
                 seq_weight = emb(seq_input).squeeze(-1)  # [B, L]

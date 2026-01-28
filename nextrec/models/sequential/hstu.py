@@ -438,8 +438,6 @@ class HSTU(BaseModel):
         return self.causal_mask[:seq_len, :seq_len]
 
     def trim_sequence(self, seq: torch.Tensor) -> torch.Tensor:
-        if seq.size(1) <= self.max_seq_len:
-            return seq
         return seq[:, -self.max_seq_len :]
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:

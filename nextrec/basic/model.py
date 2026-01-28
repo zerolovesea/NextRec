@@ -2,11 +2,12 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 22/01/2026
+Checkpoint: edit on 25/01/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
 import getpass
+import inspect
 import logging
 import os
 import sys
@@ -89,6 +90,15 @@ from nextrec.utils.config import safe_value
 from nextrec.utils.model import (
     compute_ranking_loss,
     get_loss_list,
+)
+from nextrec.utils.onnx_utils import (
+    OnnxModelWrapper,
+    build_onnx_input_feed,
+    create_dummy_inputs,
+    load_onnx_session,
+    merge_onnx_outputs,
+    pad_onnx_inputs,
+    pad_id_batch,
 )
 
 from nextrec.utils.types import (
@@ -312,7 +322,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         """
         Prepare unified input features and labels from the given input data.
 
-
         Args:
             input_data: Input data dictionary containing 'features' and optionally 'labels', e.g., {'features': {'feat1': [...], 'feat2': [...]}, 'labels': {'label': [...]}}.
             require_labels: Whether labels are required in the input data. Default is True: for training and evaluation with labels.
@@ -367,14 +376,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 target_tensor = to_tensor(
                     target_data, dtype=torch.float32, device=self.device
                 )
-                target_tensor = target_tensor.view(
+                target_tensor = target_tensor.reshape(
                     target_tensor.size(0), -1
                 )  # always reshape to (batch_size, num_targets)
                 target_tensors.append(target_tensor)
             if target_tensors:
                 y = torch.cat(target_tensors, dim=1)
                 if y.shape[1] == 1:  # no need to do that again
-                    y = y.view(-1)
+                    y = y.reshape(-1)
             elif require_labels:
                 raise ValueError(
                     "[BaseModel-input Error] Labels are required but none were found in the input batch."
@@ -2046,6 +2055,505 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 else pd.DataFrame(columns=pred_columns or [])
             )
         # Return the actual save path when not returning dataframe
+        return target_path
+
+    def prepare_onnx_dataloader(
+        self,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int,
+        num_workers: int,
+    ) -> DataLoader:
+        """
+        Prepare a DataLoader for ONNX prediction.
+
+        Args:
+            data: Input data (file path, dict, DataFrame, or DataLoader).
+            batch_size: Effective batch size. When `data` is a file path, this is
+                treated as the streaming chunk size.
+            num_workers: Number of DataLoader workers.
+
+        """
+        if isinstance(data, DataLoader):
+            if num_workers != 0:
+                logging.warning(
+                    "[Predict ONNX Warning] num_workers parameter is ignored when data is already a DataLoader. "
+                    "The DataLoader's existing num_workers configuration will be used."
+                )
+            return data
+        # if data is a file path, use streaming DataLoader
+        # will set batch_size=1 cause each batch is a file chunk
+        if isinstance(data, (str, os.PathLike)):
+            rec_loader = RecDataLoader(
+                dense_features=self.dense_features,
+                sparse_features=self.sparse_features,
+                sequence_features=self.sequence_features,
+                target=self.target_columns,
+                id_columns=self.id_columns,
+            )
+            return rec_loader.create_dataloader(
+                data=data,
+                batch_size=1,
+                shuffle=False,
+                streaming=True,
+                chunk_size=batch_size,
+            )
+        return self.prepare_data_loader(
+            data, batch_size=batch_size, shuffle=False, num_workers=num_workers
+        )
+
+    def export_onnx(
+        self,
+        save_path: str | Path | None = None,
+        batch_size: int = 1,
+        opset_version: int = 18,
+    ) -> Path:
+        """
+        Export the model to ONNX.
+
+        Usage:
+            onnx_path = model.export_onnx(
+                save_path="model.onnx",
+                batch_size=1,
+                opset_version=18,
+            )
+
+        Args:
+            save_path: Path to save the ONNX model; if None, uses session root.
+            batch_size: Dummy batch size for tracing.
+            opset_version: ONNX opset version for export.
+        """
+        model_to_export = (
+            self.ddp_model.module
+            if hasattr(self, "ddp_model") and self.ddp_model is not None
+            else self
+        )
+        model_to_export = model_to_export.to(self.device)
+        model_to_export.eval()
+
+        input_names = [feat.name for feat in self.all_features]
+        dummy_inputs = create_dummy_inputs(
+            self.all_features,
+            batch_size=batch_size,
+            device=self.device,
+        )
+        wrapper = OnnxModelWrapper(model_to_export, input_names)
+        with torch.no_grad():
+            output_sample = wrapper(*dummy_inputs)
+        if isinstance(output_sample, (tuple, list)):  # multiple outputs
+            output_names = [f"output_{idx}" for idx in range(len(output_sample))]
+        else:
+            output_names = ["output"]
+        target_path = get_save_path(
+            path=save_path,
+            default_dir=self.session.root,
+            default_name=f"{self.model_name}_onnx",
+            suffix="onnx",
+        )
+        export_kwargs: dict[str, Any] = {}
+        export_sig = inspect.signature(torch.onnx.export)
+        if "dynamo" in export_sig.parameters:
+            export_kwargs["dynamo"] = True
+        if opset_version < 18:
+            logging.warning(
+                "[BaseModel-export-onnx Warning] TorchDynamo exporter requires opset >= 18. "
+                "Overriding opset_version to 18."
+            )
+            opset_version = 18
+
+        torch.onnx.export(
+            wrapper,
+            tuple(dummy_inputs),
+            target_path,
+            input_names=list(input_names),
+            output_names=list(output_names),
+            opset_version=opset_version,
+            do_constant_folding=True,
+            **export_kwargs,
+        )
+
+        logging.info(colorize(f"ONNX model exported to: {target_path}", color="green"))
+        return target_path
+
+    @overload
+    def predict_onnx(
+        self,
+        onnx_path: str | os.PathLike | Path,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int = 32,
+        save_path: str | os.PathLike | None = None,
+        save_format: str = "csv",
+        include_ids: bool | None = None,
+        id_columns: str | list[str] | None = None,
+        return_dataframe: Literal[True] = True,
+        num_workers: int = 0,
+        onnx_session: Any | None = None,
+    ) -> pd.DataFrame: ...
+
+    @overload
+    def predict_onnx(
+        self,
+        onnx_path: str | os.PathLike | Path,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int = 32,
+        save_path: None = None,
+        save_format: str = "csv",
+        include_ids: bool | None = None,
+        id_columns: str | list[str] | None = None,
+        return_dataframe: Literal[False] = False,
+        num_workers: int = 0,
+        onnx_session: Any | None = None,
+    ) -> np.ndarray: ...
+
+    @overload
+    def predict_onnx(
+        self,
+        onnx_path: str | os.PathLike | Path,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int = 32,
+        *,
+        save_path: str | os.PathLike,
+        save_format: str = "csv",
+        include_ids: bool | None = None,
+        id_columns: str | list[str] | None = None,
+        return_dataframe: Literal[False] = False,
+        num_workers: int = 0,
+        onnx_session: Any | None = None,
+    ) -> Path: ...
+
+    def predict_onnx(
+        self,
+        onnx_path: str | os.PathLike | Path,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int = 32,
+        save_path: str | os.PathLike | None = None,
+        save_format: str = "csv",
+        include_ids: bool | None = None,
+        id_columns: str | list[str] | None = None,
+        return_dataframe: bool = True,
+        num_workers: int = 0,
+        onnx_session: Any | None = None,
+    ) -> pd.DataFrame | np.ndarray | Path | None:
+        """
+        Run ONNX inference on the given data.
+
+        Args:
+            onnx_path: Path to the ONNX model file.
+            data: Input data for prediction (file path, dict, DataFrame, or DataLoader).
+            batch_size: Batch size for prediction.
+            save_path: Optional path to save predictions; if None, predictions are not saved to disk.
+            save_format: Format to save predictions ('csv' or 'parquet').
+            include_ids: Whether to include ID columns in the output; if None, includes if id_columns are set.
+            id_columns: Column name(s) to use as IDs; if None, uses model's id_columns.
+            return_dataframe: Whether to return predictions as a pandas DataFrame; if False, returns a NumPy array.
+            num_workers: DataLoader worker count.
+            onnx_session: Optional pre-created ONNX Runtime session.
+        """
+        predict_id_columns = id_columns if id_columns is not None else self.id_columns
+        if isinstance(predict_id_columns, str):
+            predict_id_columns = [predict_id_columns]
+
+        if include_ids is None:
+            include_ids = bool(predict_id_columns)
+        include_ids = include_ids and bool(predict_id_columns)
+
+        if save_path is not None and not return_dataframe:
+            return self.predict_onnx_streaming(
+                onnx_path=onnx_path,
+                data=data,
+                batch_size=batch_size,
+                save_path=save_path,
+                save_format=save_format,
+                include_ids=include_ids,
+                return_dataframe=return_dataframe,
+                id_columns=predict_id_columns,
+                onnx_session=onnx_session,
+                num_workers=num_workers,
+            )
+
+        session = onnx_session or load_onnx_session(onnx_path)
+        session_inputs = session.get_inputs()
+        session_input_names = [inp.name for inp in session_inputs]
+        batch_dim = session_inputs[0].shape[0] if session_inputs else None
+        fixed_batch = (
+            batch_dim if isinstance(batch_dim, int) and batch_dim > 0 else None
+        )
+        data_loader = self.prepare_onnx_dataloader(
+            data=data,
+            batch_size=batch_size,
+            num_workers=num_workers,
+        )
+
+        y_pred_list = []
+        id_buffers = (
+            {name: [] for name in (predict_id_columns or [])} if include_ids else {}
+        )
+
+        for batch_data in progress(data_loader, description="Predicting (ONNX)"):
+            batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
+            X_input, _ = self.get_input(batch_dict, require_labels=False)
+            if X_input is None:
+                raise ValueError(
+                    "[BaseModel-predict-onnx Error] No input features found in the prediction data."
+                )
+            orig_batch = None
+            if fixed_batch is not None:
+                X_input, orig_batch = pad_onnx_inputs(
+                    self.all_features, X_input, target_batch=fixed_batch
+                )
+            feed = build_onnx_input_feed(
+                self.all_features, X_input, input_names=session_input_names
+            )
+            outputs = session.run(None, feed)
+            y_pred_np = merge_onnx_outputs(outputs)
+            if y_pred_np.ndim == 1:
+                y_pred_np = y_pred_np.reshape(-1, 1)
+            if orig_batch is not None and orig_batch > 0:
+                y_pred_np = y_pred_np[:orig_batch]
+            y_pred_list.append(y_pred_np)
+
+            if include_ids and predict_id_columns and batch_dict.get("ids"):
+                ids_dict = batch_dict["ids"]
+                orig_id_batch = None
+                if fixed_batch is not None:
+                    ids_dict, orig_id_batch = pad_id_batch(ids_dict, fixed_batch)
+                for id_name in predict_id_columns:
+                    if id_name not in ids_dict:
+                        continue
+                    id_tensor = ids_dict[id_name]
+                    id_np = (
+                        id_tensor.detach().cpu().numpy()
+                        if isinstance(id_tensor, torch.Tensor)
+                        else np.asarray(id_tensor)
+                    )
+                    if orig_batch is not None and orig_batch > 0:
+                        id_np = id_np[:orig_batch]
+                    elif orig_id_batch is not None and orig_id_batch > 0:
+                        id_np = id_np[:orig_id_batch]
+                    id_buffers[id_name].append(
+                        id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np
+                    )
+
+        y_pred_all = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
+        if y_pred_all is None:
+            return pd.DataFrame() if return_dataframe else np.array([])
+
+        num_outputs = y_pred_all.shape[1] if y_pred_all.ndim > 1 else 1
+        pred_columns = (
+            list(self.target_columns[:num_outputs]) if self.target_columns else []
+        )
+        while len(pred_columns) < num_outputs:
+            pred_columns.append(f"pred_{len(pred_columns)}")
+
+        id_df = None
+        if include_ids and predict_id_columns:
+            id_arrays = {
+                id_name: np.concatenate(id_buffers[id_name], axis=0)
+                for id_name in predict_id_columns
+                if id_buffers.get(id_name)
+            }
+            if id_arrays:
+                id_df = pd.DataFrame(id_arrays)
+                if len(id_df) and len(id_df) != len(y_pred_all):
+                    raise ValueError(
+                        f"[BaseModel-predict-onnx Error] Mismatch between id rows ({len(id_df)}) and prediction rows ({len(y_pred_all)})."
+                    )
+
+        output = y_pred_all
+        if return_dataframe:
+            df_to_return = pd.DataFrame(y_pred_all, columns=pred_columns)
+            if id_df is not None:
+                df_to_return = pd.concat([id_df, df_to_return], axis=1)
+            output = df_to_return
+
+        if save_path is not None:
+            if not check_streaming_support(save_format):
+                logging.warning(
+                    f"[BaseModel-predict-onnx Warning] Format '{save_format}' does not support streaming writes. "
+                    "The entire result will be saved at once. Use csv or parquet for large datasets."
+                )
+
+            suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
+            target_path = get_save_path(
+                path=save_path,
+                default_dir=self.session.predictions_dir,
+                default_name="predictions",
+                suffix=suffix,
+            )
+            if return_dataframe and isinstance(output, pd.DataFrame):
+                df_to_save = output
+            else:
+                df_to_save = pd.DataFrame(y_pred_all, columns=pred_columns)
+                if id_df is not None:
+                    df_to_save = pd.concat([id_df, df_to_save], axis=1)
+
+            if save_format == "csv":
+                df_to_save.to_csv(target_path, index=False)
+            elif save_format == "parquet":
+                df_to_save.to_parquet(target_path, index=False)
+            elif save_format == "feather":
+                df_to_save.to_feather(target_path)
+            elif save_format == "excel":
+                df_to_save.to_excel(target_path, index=False)
+            elif save_format == "hdf5":
+                df_to_save.to_hdf(target_path, key="predictions", mode="w")
+            else:
+                raise ValueError(f"Unsupported save format: {save_format}")
+            logging.info(
+                colorize(f"Predictions saved to: {target_path}", color="green")
+            )
+        return output
+
+    def predict_onnx_streaming(
+        self,
+        onnx_path: str | os.PathLike | Path,
+        data: str | dict | pd.DataFrame | DataLoader,
+        batch_size: int,
+        save_path: str | os.PathLike,
+        save_format: str,
+        include_ids: bool,
+        return_dataframe: bool,
+        id_columns: list[str] | None = None,
+        onnx_session: Any | None = None,
+        num_workers: int = 0,
+    ):
+        """
+        Run ONNX inference using streaming mode for large datasets.
+        """
+        session = onnx_session or load_onnx_session(onnx_path)
+        session_inputs = session.get_inputs()
+        session_input_names = [inp.name for inp in session_inputs]
+        batch_dim = session_inputs[0].shape[0] if session_inputs else None
+        fixed_batch = (
+            batch_dim if isinstance(batch_dim, int) and batch_dim > 0 else None
+        )
+        data_loader = self.prepare_onnx_dataloader(
+            data=data,
+            batch_size=batch_size,
+            num_workers=num_workers,
+        )
+
+        if not check_streaming_support(save_format):
+            logging.warning(
+                f"[Predict ONNX Streaming Warning] Format '{save_format}' does not support streaming writes. "
+                "Results will be collected in memory and saved at the end. Use csv or parquet for true streaming."
+            )
+
+        suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
+        target_path = get_save_path(
+            path=save_path,
+            default_dir=self.session.predictions_dir,
+            default_name="predictions",
+            suffix=suffix,
+            add_timestamp=False,
+        )
+        header_written = target_path.exists() and target_path.stat().st_size > 0
+        parquet_writer = None
+        pred_columns = None
+        collected_frames = []
+
+        for batch_data in progress(data_loader, description="Predicting (ONNX)"):
+            batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
+            X_input, _ = self.get_input(batch_dict, require_labels=False)
+            if X_input is None:
+                continue
+            orig_batch = None
+            if fixed_batch is not None:
+                X_input, orig_batch = pad_onnx_inputs(
+                    self.all_features, X_input, target_batch=fixed_batch
+                )
+            feed = build_onnx_input_feed(
+                self.all_features, X_input, input_names=session_input_names
+            )
+            outputs = session.run(None, feed)
+            y_pred_np = merge_onnx_outputs(outputs)
+            if y_pred_np.ndim == 1:
+                y_pred_np = y_pred_np.reshape(-1, 1)
+            if orig_batch is not None and orig_batch > 0:
+                y_pred_np = y_pred_np[:orig_batch]
+            if pred_columns is None:
+                num_outputs = y_pred_np.shape[1]
+                pred_columns = (
+                    list(self.target_columns[:num_outputs])
+                    if self.target_columns
+                    else []
+                )
+                while len(pred_columns) < num_outputs:
+                    pred_columns.append(f"pred_{len(pred_columns)}")
+
+            ids = batch_dict.get("ids") if include_ids and id_columns else None
+            if ids and fixed_batch is not None:
+                ids, orig_id_batch = pad_id_batch(ids, fixed_batch)
+            else:
+                orig_id_batch = None
+            id_arrays_batch = {
+                id_name: (
+                    ids[id_name].detach().cpu().numpy()
+                    if isinstance(ids[id_name], torch.Tensor)
+                    else np.asarray(ids[id_name])
+                ).reshape(-1)
+                for id_name in (id_columns or [])
+                if ids and id_name in ids
+            }
+            if orig_batch is not None and orig_batch > 0:
+                id_arrays_batch = {
+                    k: v[:orig_batch] for k, v in id_arrays_batch.items()
+                }
+            elif orig_id_batch is not None and orig_id_batch > 0:
+                id_arrays_batch = {
+                    k: v[:orig_id_batch] for k, v in id_arrays_batch.items()
+                }
+
+            df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
+            if id_arrays_batch:
+                id_df = pd.DataFrame(id_arrays_batch)
+                if len(id_df) and len(df_batch) and len(id_df) != len(df_batch):
+                    raise ValueError(
+                        f"Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_batch)})."
+                    )
+                df_batch = pd.concat([id_df, df_batch], axis=1)
+
+            should_collect = return_dataframe or save_format not in {"csv", "parquet"}
+            if should_collect:
+                collected_frames.append(df_batch)
+
+            if save_format == "csv":
+                df_batch.to_csv(
+                    target_path, mode="a", header=not header_written, index=False
+                )
+                header_written = True
+            elif save_format == "parquet":
+                try:
+                    import pyarrow as pa
+                    import pyarrow.parquet as pq
+                except ImportError as exc:  # pragma: no cover
+                    raise ImportError(
+                        "[BaseModel-predict-onnx-streaming Error] Parquet streaming save requires pyarrow."
+                    ) from exc
+                table = pa.Table.from_pandas(df_batch, preserve_index=False)
+                if parquet_writer is None:
+                    parquet_writer = pq.ParquetWriter(target_path, table.schema)
+                parquet_writer.write_table(table)
+            # Non-streaming formats are saved after collecting all batches.
+
+        if parquet_writer is not None:
+            parquet_writer.close()
+
+        if save_format in ["feather", "excel", "hdf5"] and collected_frames:
+            combined_df = pd.concat(collected_frames, ignore_index=True)
+            if save_format == "feather":
+                combined_df.to_feather(target_path)
+            elif save_format == "excel":
+                combined_df.to_excel(target_path, index=False)
+            elif save_format == "hdf5":
+                combined_df.to_hdf(target_path, key="predictions", mode="w")
+
+        logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
+        if return_dataframe:
+            return (
+                pd.concat(collected_frames, ignore_index=True)
+                if collected_frames
+                else pd.DataFrame(columns=pred_columns or [])
+            )
         return target_path
 
     def save_model(

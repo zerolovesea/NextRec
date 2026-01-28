@@ -44,12 +44,14 @@ def test_fit_transform_in_memory_sets_encoders_and_shapes():
     assert np.isclose(output["age"].max(), 1.0)
 
     # sparse and sequence encodings should be integer arrays
-    assert output["user_id"].dtype == np.int64
+    assert np.issubdtype(output["user_id"].dtype, np.integer)
     assert output["hist"].shape == (len(df), 3)
-    assert output["hist"].dtype == np.int64
+    assert np.issubdtype(output["hist"].dtype, np.integer)
 
     # target binary floats
-    assert set(np.unique(output["label"]).tolist()) <= {0.0, 1.0}
+    label_values = pd.to_numeric(output["label"], errors="coerce")
+    assert not np.isnan(label_values).any()
+    assert set(np.unique(label_values).tolist()) <= {0.0, 1.0}
 
 
 def test_transform_path_writes_files(tmp_path: Path):
@@ -96,7 +98,7 @@ def test_fit_from_path_streams_and_transforms(tmp_path: Path):
     df.to_csv(input_path, index=False)
 
     processor = _build_processor()
-    processor.fit(str(input_path), chunk_size=2)
+    processor.fit(str(input_path))
 
     assert processor.is_fitted
     assert "age" in processor.scalers
@@ -133,5 +135,5 @@ def test_fit_from_path_non_streaming_raises(tmp_path: Path, fmt: str, suffix: st
     input_path = tmp_path / f"non_stream{suffix}"
     _write_non_streaming(df, input_path, fmt)
 
-    with pytest.raises(ValueError, match="does not support streaming"):
-        processor.fit(str(input_path), chunk_size=2)
+    with pytest.raises(ValueError, match="Polars backend only supports csv/parquet"):
+        processor.fit(str(input_path))

@@ -171,3 +171,9 @@ train:
                                                        # - 'cuda': NVIDIA GPU (auto-select first available)
                                                        # - 'cuda:0', 'cuda:1': specific GPU by index
                                                        # - 'mps': Apple Silicon GPU (M1/M2/M3/M4 chips)
+
+# ===== Optional: ONNX Export =====
+# export_onnx:
+#   enable: false                                      # Set true to export ONNX after training
+#   batch_size: 512                                    # Dummy batch size for export
+#   opset_version: 18                                  # ONNX opset version

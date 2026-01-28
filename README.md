@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.4.34-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.5.0-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -41,6 +41,7 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 - **高效训练与评估**：内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理，开箱即用。
 
 ## NextRec近期进展
+- **28/01/2026** 在v0.4.39中加入了对onnx导出和加载的支持，并大大加速了数据预处理速度（最高9x加速）
 - **01/01/2026** 新年好，在v0.4.27中加入了多个多目标模型的支持：[APG](nextrec/models/multi_task/apg.py), [ESCM](nextrec/models/multi_task/escm.py), [HMoE](nextrec/models/multi_task/hmoe.py), [Cross Stitch](nextrec/models/multi_task/cross_stitch.py)
 - **28/12/2025** 在v0.4.21中加入了对SwanLab和Wandb的支持，通过model的`fit`方法进行配置：`use_swanlab=True, swanlab_kwargs={"project": "NextRec","name":"tutorial_movielens_deepfm"},`
 - **21/12/2025** 在v0.4.16中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
@@ -75,6 +76,7 @@ pip install nextrec # or pip install -e .
 - [example_multitask.py](/tutorials/example_multitask.py) - 电商数据集上的ESMM多任务学习训练示例
 - [movielen_match_dssm.py](/tutorials/movielen_match_dssm.py) - 基于movielen 100k数据集训练的 DSSM 召回模型示例
 
+- [example_onnx.py](/tutorials/example_onnx.py) - 使用NextRec训练和导出onnx模型
 - [example_distributed_training.py](/tutorials/distributed/example_distributed_training.py) - 使用NextRec进行单机多卡训练的代码示例
 
 - [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) - 快速校验所有排序模型的可用性
@@ -193,11 +195,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.4.34，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.5.0，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.4.34，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.5.0，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|

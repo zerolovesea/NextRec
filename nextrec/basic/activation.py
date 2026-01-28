@@ -25,21 +25,15 @@ class Dice(nn.Module):
     def __init__(self, emb_size: int, epsilon: float = 1e-3):
         super(Dice, self).__init__()
         self.alpha = nn.Parameter(torch.zeros(emb_size))
-        self.bn = nn.BatchNorm1d(emb_size, eps=epsilon)
+        self.bn = nn.BatchNorm1d(emb_size, eps=epsilon, affine=False)
 
     def forward(self, x):
-        # x shape: (batch_size, emb_size) or (batch_size, seq_len, emb_size)
-        if x.dim() == 2:  # (B, E)
-            x_norm = self.bn(x)
-            p = torch.sigmoid(x_norm)
-            return x * (self.alpha + (1 - self.alpha) * p)
-
-        if x.dim() == 3:  # (B, T, E)
-            b, t, e = x.shape
-            x2 = x.reshape(-1, e)  # (B*T, E)
-            x_norm = self.bn(x2)
-            p = torch.sigmoid(x_norm).reshape(b, t, e)
-            return x * (self.alpha + (1 - self.alpha) * p)
+        # keep original shape for reshaping back after batch norm
+        orig_shape = x.shape  # x: [N, L, emb_size] or [N, emb_size]
+        x2 = x.reshape(-1, orig_shape[-1])  # x2:[N*L, emb_size] or [N, emb_size]
+        x_norm = self.bn(x2)
+        p = torch.sigmoid(x_norm).reshape(orig_shape)
+        return x * (self.alpha + (1 - self.alpha) * p)
 
 
 def activation_layer(
