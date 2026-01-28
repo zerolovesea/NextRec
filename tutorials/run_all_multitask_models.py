@@ -54,7 +54,6 @@ from nextrec.models.multi_task.mmoe import MMOE
 from nextrec.models.multi_task.pepnet import PEPNet
 from nextrec.models.multi_task.ple import PLE
 from nextrec.models.multi_task.poso import POSO
-from nextrec.models.multi_task.poso_iflytek import POSO_IFLYTEK
 from nextrec.models.multi_task.share_bottom import ShareBottom
 
 from nextrec.utils import generate_multitask_data

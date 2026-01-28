@@ -61,7 +61,12 @@ def to_tensor(
 ) -> torch.Tensor:
     if value is None:
         raise ValueError("[Tensor Utils Error] Cannot convert None to tensor.")
-    tensor = value if isinstance(value, torch.Tensor) else torch.as_tensor(value)
+    if isinstance(value, torch.Tensor):
+        tensor = value
+    else:
+        if isinstance(value, np.ndarray):
+            value = value.copy()
+        tensor = torch.as_tensor(value)
     if tensor.dtype != dtype:
         tensor = tensor.to(dtype=dtype)
 
