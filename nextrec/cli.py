@@ -14,7 +14,7 @@ Examples:
     nextrec --mode=predict --predict_config=nextrec_cli_preset/predict_config.yaml
 
 Date: create on 06/12/2025
-Checkpoint: edit on 18/12/2025
+Checkpoint: edit on 29/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -251,7 +251,6 @@ def train_model(train_config_path: str) -> None:
         processor.fit_from_files(
             file_paths=streaming_train_files or file_paths,
             file_type=file_type,
-            chunk_size=dataloader_chunk_size,
         )
         processed = None
         df = None  # type: ignore[assignment]
