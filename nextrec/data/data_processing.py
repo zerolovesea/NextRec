@@ -12,18 +12,21 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import torch
+import polars as pl
+
 
 from nextrec.utils.torch_utils import to_numpy
 
 
-def get_column_data(data: dict | pd.DataFrame, name: str):
+def get_column_data(data: dict | pd.DataFrame | pl.DataFrame, name: str):
 
     if isinstance(data, dict):
         return data[name] if name in data else None
     elif isinstance(data, pd.DataFrame):
-        if name not in data.columns:
-            return None
         return data[name].values
+    elif isinstance(data, pl.DataFrame):
+        series = data.get_column(name)
+        return series.to_numpy()
     else:
         raise KeyError(f"Only dict or DataFrame supported, got {type(data)}")
 
@@ -33,6 +36,8 @@ def get_data_length(data: Any) -> int | None:
         return None
     if isinstance(data, pd.DataFrame):
         return len(data)
+    if isinstance(data, pl.DataFrame):
+        return data.height
     if isinstance(data, dict):
         if not data:
             return None
@@ -90,16 +95,6 @@ def split_dict_random(data_dict, test_size=0.2, random_state=None):
     train_dict = {k: take(v, train_idx) for k, v in data_dict.items()}
     test_dict = {k: take(v, test_idx) for k, v in data_dict.items()}
     return train_dict, test_dict
-
-
-def split_data(
-    df: pd.DataFrame, test_size: float = 0.2
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-
-    split_idx = int(len(df) * (1 - test_size))
-    train_df = df.iloc[:split_idx].reset_index(drop=True)
-    valid_df = df.iloc[split_idx:].reset_index(drop=True)
-    return train_df, valid_df
 
 
 def build_eval_candidates(

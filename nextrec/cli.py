@@ -422,6 +422,49 @@ def train_model(train_config_path: str) -> None:
         note=train_cfg.get("note"),
     )
 
+    export_cfg = train_cfg.get("export_onnx")
+    if export_cfg is None:
+        export_cfg = cfg.get("export_onnx")
+    export_enabled = False
+    export_options: dict[str, Any] = {}
+    if isinstance(export_cfg, bool):
+        export_enabled = export_cfg
+    elif isinstance(export_cfg, dict):
+        export_options = export_cfg
+        export_enabled = bool(export_cfg.get("enable", False))
+
+    if export_enabled:
+        log_cli_section("ONNX Export")
+        onnx_path = None
+        if export_options.get("path") or export_options.get("save_path"):
+            logger.warning(
+                "[NextRec CLI Warning] export_onnx.path/save_path is deprecated; "
+                "ONNX will be saved to best/checkpoint paths."
+            )
+        onnx_best_path = Path(model.best_path).with_suffix(".onnx")
+        onnx_ckpt_path = Path(model.checkpoint_path).with_suffix(".onnx")
+        onnx_batch_size = export_options.get("batch_size", 1)
+        onnx_opset = export_options.get("opset_version", 18)
+        log_kv_lines(
+            [
+                ("ONNX best path", onnx_best_path),
+                ("ONNX checkpoint path", onnx_ckpt_path),
+                ("Batch size", onnx_batch_size),
+                ("Opset", onnx_opset),
+                ("Dynamic batch", False),
+            ]
+        )
+        model.export_onnx(
+            save_path=onnx_best_path,
+            batch_size=onnx_batch_size,
+            opset_version=onnx_opset,
+        )
+        model.export_onnx(
+            save_path=onnx_ckpt_path,
+            batch_size=onnx_batch_size,
+            opset_version=onnx_opset,
+        )
+
 
 def predict_model(predict_config_path: str) -> None:
     """
@@ -492,12 +535,16 @@ def predict_model(predict_config_path: str) -> None:
     # Load checkpoint and ensure required parameters are passed
     checkpoint_base = Path(session_dir)
     if checkpoint_base.is_dir():
+        best_candidates = sorted(checkpoint_base.glob("*_best.pt"))
         candidates = sorted(checkpoint_base.glob("*.pt"))
-        if not candidates:
+        if best_candidates:
+            model_file = best_candidates[-1]
+        elif candidates:
+            model_file = candidates[-1]
+        else:
             raise FileNotFoundError(
                 f"[NextRec CLI Error]: Unable to find model checkpoint: {checkpoint_base}"
             )
-        model_file = candidates[-1]
         config_dir_for_features = checkpoint_base
     else:
         model_file = (
@@ -564,11 +611,32 @@ def predict_model(predict_config_path: str) -> None:
     )
 
     log_cli_section("Model")
+    use_onnx = bool(predict_cfg.get("use_onnx")) or bool(predict_cfg.get("onnx_path"))
+    onnx_path = predict_cfg.get("onnx_path") or cfg.get("onnx_path")
+    if onnx_path:
+        onnx_path = resolve_path(onnx_path, config_dir)
+    if use_onnx and onnx_path is None:
+        search_dir = (
+            checkpoint_base if checkpoint_base.is_dir() else checkpoint_base.parent
+        )
+        best_candidates = sorted(search_dir.glob("*_best.onnx"))
+        if best_candidates:
+            onnx_path = best_candidates[-1]
+        else:
+            candidates = sorted(search_dir.glob("*.onnx"))
+            if not candidates:
+                raise FileNotFoundError(
+                    f"[NextRec CLI Error]: Unable to find ONNX model in {search_dir}"
+                )
+            onnx_path = candidates[-1]
+
     log_kv_lines(
         [
             ("Model", model.__class__.__name__),
             ("Checkpoint", model_file),
             ("Device", predict_cfg.get("device", "cpu")),
+            ("Use ONNX", use_onnx),
+            ("ONNX path", onnx_path if use_onnx else "(disabled)"),
         ]
     )
 
@@ -582,7 +650,10 @@ def predict_model(predict_config_path: str) -> None:
     )
 
     data_path = resolve_path(predict_cfg["data_path"], config_dir)
-    batch_size = predict_cfg.get("batch_size", 512)
+    streaming = bool(predict_cfg.get("streaming", True))
+    chunk_size = int(predict_cfg.get("chunk_size", 20000))
+    batch_size = int(predict_cfg.get("batch_size", 512))
+    effective_batch_size = chunk_size if streaming else batch_size
 
     log_cli_section("Data")
     log_kv_lines(
@@ -594,18 +665,18 @@ def predict_model(predict_config_path: str) -> None:
                     "source_data_format", predict_cfg.get("data_format", "auto")
                 ),
             ),
-            ("Batch size", batch_size),
-            ("Chunk size", predict_cfg.get("chunk_size", 20000)),
-            ("Streaming", predict_cfg.get("streaming", True)),
+            ("Batch size", effective_batch_size),
+            ("Chunk size", chunk_size),
+            ("Streaming", streaming),
         ]
     )
     logger.info("")
     pred_loader = rec_dataloader.create_dataloader(
         data=str(data_path),
-        batch_size=batch_size,
+        batch_size=1 if streaming else batch_size,
         shuffle=False,
-        streaming=predict_cfg.get("streaming", True),
-        chunk_size=predict_cfg.get("chunk_size", 20000),
+        streaming=streaming,
+        chunk_size=chunk_size,
         prefetch_factor=predict_cfg.get("prefetch_factor"),
     )
 
@@ -623,15 +694,27 @@ def predict_model(predict_config_path: str) -> None:
 
     start = time.time()
     logger.info("")
-    result = model.predict(
-        data=pred_loader,
-        batch_size=batch_size,
-        include_ids=bool(id_columns),
-        return_dataframe=False,
-        save_path=str(save_path),
-        save_format=save_format,
-        num_workers=predict_cfg.get("num_workers", 0),
-    )
+    if use_onnx:
+        result = model.predict_onnx(
+            onnx_path=onnx_path,
+            data=pred_loader,
+            batch_size=effective_batch_size,
+            include_ids=bool(id_columns),
+            return_dataframe=False,
+            save_path=str(save_path),
+            save_format=save_format,
+            num_workers=predict_cfg.get("num_workers", 0),
+        )
+    else:
+        result = model.predict(
+            data=pred_loader,
+            batch_size=effective_batch_size,
+            include_ids=bool(id_columns),
+            return_dataframe=False,
+            save_path=str(save_path),
+            save_format=save_format,
+            num_workers=predict_cfg.get("num_workers", 0),
+        )
     duration = time.time() - start
     # When return_dataframe=False, result is the actual file path
     if isinstance(result, (str, Path)):

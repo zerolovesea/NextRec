@@ -52,6 +52,9 @@ predict:
                                            # - 'cuda': NVIDIA GPU
                                            # - 'cuda:0', 'cuda:1': specific GPU
                                            # - 'mps': Apple Silicon GPU (M1/M2)
+
+  # ----- ONNX Inference Settings -----
+  use_onnx: false                          # Enable ONNX inference
   
   # ----- Memory Management Settings -----
   streaming: true                          # Enable streaming for large datasets

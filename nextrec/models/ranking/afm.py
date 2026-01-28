@@ -156,7 +156,7 @@ class AFM(BaseModel):
         # First-order dense part
         if self.linear_dense is not None:
             dense_inputs = [
-                x[f.name].float().view(batch_size, -1) for f in self.dense_features
+                x[f.name].float().reshape(batch_size, -1) for f in self.dense_features
             ]
             dense_stack = torch.cat(dense_inputs, dim=1) if dense_inputs else None
             if dense_stack is not None:
@@ -170,7 +170,7 @@ class AFM(BaseModel):
                 term = emb(x[feature.name].long())  # [B, 1]
             else:  # SequenceFeature
                 seq_input = x[feature.name].long()  # [B, 1]
-                if feature.max_len is not None and seq_input.size(1) > feature.max_len:
+                if feature.max_len is not None:
                     seq_input = seq_input[:, -feature.max_len :]
                 mask = self.input_mask(x, feature, seq_input).squeeze(1)  # [B, 1]
                 seq_weight = emb(seq_input).squeeze(-1)  # [B, L]
@@ -186,16 +186,11 @@ class AFM(BaseModel):
         for feature in self.fm_features:
             value = x.get(f"{feature.name}_value")
             if value is not None:
-                value = value.float()
-                if value.dim() == 1:
-                    value = value.unsqueeze(-1)
+                value = value.float().reshape(batch_size, -1)
             else:
                 if isinstance(feature, SequenceFeature):
                     seq_input = x[feature.name].long()
-                    if (
-                        feature.max_len is not None
-                        and seq_input.size(1) > feature.max_len
-                    ):
+                    if feature.max_len is not None:
                         seq_input = seq_input[:, -feature.max_len :]
                     value = self.input_mask(x, feature, seq_input).sum(dim=2)  # [B, 1]
                 else:

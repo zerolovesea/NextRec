@@ -2,7 +2,7 @@
 DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
 
 Date: create on 13/11/2025
-Checkpoint: edit on 29/12/2025
+Checkpoint: edit on 28/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -13,14 +13,12 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Union, overload
+from typing import Any, Dict, Iterable, Literal, Optional, Union, overload
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
+import polars as pl
 from sklearn.preprocessing import (
-    LabelEncoder,
     MaxAbsScaler,
     MinMaxScaler,
     RobustScaler,
@@ -37,9 +35,6 @@ from nextrec.utils.data import (
     FILE_FORMAT_CONFIG,
     check_streaming_support,
     default_output_dir,
-    iter_file_chunks,
-    load_dataframes,
-    read_table,
     resolve_file_paths,
 )
 
@@ -63,7 +58,7 @@ class DataProcessor(FeatureSet):
         self.is_fitted = False
 
         self.scalers: Dict[str, Any] = {}
-        self.label_encoders: Dict[str, LabelEncoder] = {}
+        self.label_encoders: Dict[str, Any] = {}
         self.target_encoders: Dict[str, Dict[str, int]] = {}
         self.set_target_id(target=[], id_columns=[])
 
@@ -186,318 +181,228 @@ class DataProcessor(FeatureSet):
     def hash_string(self, s: str, hash_size: int) -> int:
         return self.hash_fn(str(s), int(hash_size))
 
-    def process_numeric_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
-        name = str(data.name)
-        scaler_type = config["scaler"]
-        fill_na = config["fill_na"]
-        if data.isna().any():
-            if fill_na is None:
-                # Default use mean value to fill missing values for numeric features
-                fill_na = data.mean()
-            config["fill_na_value"] = fill_na
-        scaler_map = {
-            "standard": StandardScaler,
-            "minmax": MinMaxScaler,
-            "robust": RobustScaler,
-            "maxabs": MaxAbsScaler,
-        }
-        if scaler_type in ("log", "none"):
-            scaler = None
-        else:
-            scaler_cls = scaler_map.get(scaler_type)
-            if scaler_cls is None:
-                raise ValueError(
-                    f"[Data Processor Error] Unknown scaler type: {scaler_type}"
-                )
-            scaler = scaler_cls()
-        if scaler is not None:
-            filled_data = data.fillna(config.get("fill_na_value", 0))
-            values = np.array(filled_data.values, dtype=np.float64).reshape(-1, 1)
-            scaler.fit(values)
-            self.scalers[name] = scaler
-
-    def process_numeric_feature_transform(
-        self, data: pd.Series, config: Dict[str, Any]
-    ) -> np.ndarray:
-        logger = logging.getLogger()
-        name = str(data.name)
-        scaler_type = config["scaler"]
-        fill_na_value = config.get("fill_na_value", 0)
-        filled_data = data.fillna(fill_na_value)
-        values = np.array(filled_data.values, dtype=np.float64)
-        if scaler_type == "log":
-            result = np.log1p(np.maximum(values, 0))
-        elif scaler_type == "none":
-            result = values
-        else:
-            scaler = self.scalers.get(name)
-            if scaler is None:
-                logger.warning(
-                    f"Scaler for {name} not fitted, returning original values"
-                )
-                result = values
-            else:
-                result = scaler.transform(values.reshape(-1, 1)).ravel()
-        return result
-
-    def process_sparse_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
-        logger = logging.getLogger()
-
-        encode_method = config["encode_method"]
-        fill_na = config["fill_na"]  # <UNK>
-        filled_data = data.fillna(fill_na).astype(str)
-        if encode_method == "label":
-            min_freq = config.get("min_freq")
-            if min_freq is not None:
-                counts = filled_data.value_counts()
-                config["_token_counts"] = counts.to_dict()
-                vocab = sorted(counts[counts >= min_freq].index.tolist())
-                low_freq_types = int((counts < min_freq).sum())
-                total_types = int(counts.size)
-                kept_types = total_types - low_freq_types
-                if not config.get("_min_freq_logged"):
-                    logger.info(
-                        f"Sparse feature {data.name} min_freq={min_freq}: "
-                        f"{total_types} token types total, "
-                        f"{low_freq_types} low-frequency, "
-                        f"{kept_types} kept."
-                    )
-                    config["_min_freq_logged"] = True
-            else:
-                vocab = sorted(set(filled_data.tolist()))
-            if "<UNK>" not in vocab:
-                vocab.append("<UNK>")
-            token_to_idx = {token: idx for idx, token in enumerate(vocab)}
-            config["_token_to_idx"] = token_to_idx
-            config["_unk_index"] = token_to_idx["<UNK>"]
-            config["vocab_size"] = len(vocab)
-        elif encode_method == "hash":
-            min_freq = config.get("min_freq")
-            if min_freq is not None:
-                counts = filled_data.value_counts()
-                config["_token_counts"] = counts.to_dict()
-                config["_unk_hash"] = self.hash_string(
-                    "<UNK>", int(config["hash_size"])
-                )
-                low_freq_types = int((counts < min_freq).sum())
-                total_types = int(counts.size)
-                kept_types = total_types - low_freq_types
-                if not config.get("_min_freq_logged"):
-                    logger.info(
-                        f"Sparse feature {data.name} min_freq={min_freq}: "
-                        f"{total_types} token types total, "
-                        f"{low_freq_types} low-frequency, "
-                        f"{kept_types} kept."
-                    )
-                    config["_min_freq_logged"] = True
-            config["vocab_size"] = config["hash_size"]
-
-    def process_sparse_feature_transform(
-        self, data: pd.Series, config: Dict[str, Any]
-    ) -> np.ndarray:
-        name = str(data.name)
-        encode_method = config["encode_method"]
-        fill_na = config["fill_na"]
-
-        sparse_series = (
-            data if isinstance(data, pd.Series) else pd.Series(data, name=name)
+    def polars_scan(self, file_paths: list[str], file_type: str):
+        file_type = file_type.lower()
+        if file_type == "csv":
+            return pl.scan_csv(file_paths, ignore_errors=True)
+        if file_type == "parquet":
+            return pl.scan_parquet(file_paths)
+        raise ValueError(
+            f"[Data Processor Error] Polars backend only supports csv/parquet, got: {file_type}"
         )
-        sparse_series = sparse_series.fillna(fill_na).astype(str)
-        if encode_method == "label":
-            token_to_idx = config.get("_token_to_idx")
-            if isinstance(token_to_idx, dict):
-                unk_index = int(config.get("_unk_index", 0))
-                return np.fromiter(
-                    (token_to_idx.get(v, unk_index) for v in sparse_series.to_numpy()),
-                    dtype=np.int64,
-                    count=sparse_series.size,
-                )
-            raise ValueError(
-                f"[Data Processor Error] Token index for {name} not fitted"
-            )
 
-        if encode_method == "hash":
-            hash_size = config["hash_size"]
-            hash_fn = self.hash_string
-            min_freq = config.get("min_freq")
-            token_counts = config.get("_token_counts")
-            if min_freq is not None and isinstance(token_counts, dict):
-                unk_hash = config.get("_unk_hash")
-                if unk_hash is None:
-                    unk_hash = hash_fn("<UNK>", hash_size)
-            return np.fromiter(
-                (
-                    (
-                        unk_hash
-                        if min_freq is not None
-                        and isinstance(token_counts, dict)
-                        and token_counts.get(v, 0) < min_freq
-                        else hash_fn(v, hash_size)
-                    )
-                    for v in sparse_series.to_numpy()
-                ),
-                dtype=np.int64,
-                count=sparse_series.size,
-            )
-        return np.array([], dtype=np.int64)
+    def sequence_expr(
+        self, pl, name: str, config: Dict[str, Any], schema: Dict[str, Any]
+    ):
+        """
+        generate polars expression for sequence feature processing
 
-    def process_sequence_feature_fit(self, data: pd.Series, config: Dict[str, Any]):
-        logger = logging.getLogger()
-        _ = str(data.name)
-        encode_method = config["encode_method"]
+        Example Input:
+            sequence_str: "1,2,3"
+            sequence_str: " 4, ,5 "
+            sequence_list: ["7", "8", "9"]
+            sequence_list: ["", "10", " 11 "]
+
+        Example Output:
+            sequence_str  -> ["1","2","3"]
+            sequence_str  -> ["4","5"]
+            sequence_list -> ["7","8","9"]
+            sequence_list -> ["10","11"]
+        """
         separator = config["separator"]
-        if encode_method == "label":
-            min_freq = config.get("min_freq")
-            token_counts: Dict[str, int] = {}
-            for seq in data:
-                tokens = self.extract_sequence_tokens(seq, separator)
-                for token in tokens:
-                    if str(token).strip():
-                        key = str(token)
-                        token_counts[key] = token_counts.get(key, 0) + 1
-            if min_freq is not None:
-                config["_token_counts"] = token_counts
-                vocab = sorted([k for k, v in token_counts.items() if v >= min_freq])
-                low_freq_types = sum(
-                    1 for count in token_counts.values() if count < min_freq
-                )
-                total_types = len(token_counts)
-                kept_types = total_types - low_freq_types
-                if not config.get("_min_freq_logged"):
-                    logger.info(
-                        f"Sequence feature {data.name} min_freq={min_freq}: "
-                        f"{total_types} token types total, "
-                        f"{low_freq_types} low-frequency, "
-                        f"{kept_types} kept."
-                    )
-                    config["_min_freq_logged"] = True
-            else:
-                vocab = sorted(token_counts.keys())
-            if not vocab:
-                vocab = ["<PAD>"]
-            if "<UNK>" not in vocab:
-                vocab.append("<UNK>")
-            token_to_idx = {token: idx for idx, token in enumerate(vocab)}
-            config["_token_to_idx"] = token_to_idx
-            config["_unk_index"] = token_to_idx["<UNK>"]
-            config["vocab_size"] = len(vocab)
-        elif encode_method == "hash":
-            min_freq = config.get("min_freq")
-            if min_freq is not None:
-                token_counts: Dict[str, int] = {}
-                for seq in data:
-                    tokens = self.extract_sequence_tokens(seq, separator)
-                    for token in tokens:
-                        if str(token).strip():
-                            token_counts[str(token)] = (
-                                token_counts.get(str(token), 0) + 1
-                            )
-                config["_token_counts"] = token_counts
-                config["_unk_hash"] = self.hash_string(
-                    "<UNK>", int(config["hash_size"])
-                )
-                low_freq_types = sum(
-                    1 for count in token_counts.values() if count < min_freq
-                )
-                total_types = len(token_counts)
-                kept_types = total_types - low_freq_types
-                if not config.get("_min_freq_logged"):
-                    logger.info(
-                        f"Sequence feature {data.name} min_freq={min_freq}: "
-                        f"{total_types} token types total, "
-                        f"{low_freq_types} low-frequency, "
-                        f"{kept_types} kept."
-                    )
-                    config["_min_freq_logged"] = True
-            config["vocab_size"] = config["hash_size"]
-
-    def process_sequence_feature_transform(
-        self, data: pd.Series, config: Dict[str, Any]
-    ) -> np.ndarray:
-        """Optimized sequence transform with preallocation and cached vocab map."""
-        name = str(data.name)
-        encode_method = config["encode_method"]
-        max_len = config["max_len"]
-        pad_value = config["pad_value"]
-        truncate = config["truncate"]
-        separator = config["separator"]
-        arr = np.asarray(data, dtype=object)
-        n = arr.shape[0]
-        output = np.full((n, max_len), pad_value, dtype=np.int64)
-        # Shared helpers cached locally for speed and cross-platform consistency
-        split_fn = str.split
-        is_nan = np.isnan
-        if encode_method == "label":
-            class_to_idx = config.get("_token_to_idx")
-            if class_to_idx is None:
-                raise ValueError(
-                    f"[Data Processor Error] Token index for {name} not fitted"
-                )
-            unk_index = int(config.get("_unk_index", class_to_idx.get("<UNK>", 0)))
+        dtype = schema.get(name)
+        col = pl.col(name)
+        if dtype is not None and isinstance(dtype, pl.List):
+            seq_col = col
         else:
-            class_to_idx = None  # type: ignore
-            unk_index = 0
-        hash_fn = self.hash_string
-        hash_size = config.get("hash_size")
-        min_freq = config.get("min_freq")
-        token_counts = config.get("_token_counts")
-        if min_freq is not None and isinstance(token_counts, dict):
-            unk_hash = config.get("_unk_hash")
-            if unk_hash is None and hash_size is not None:
-                unk_hash = hash_fn("<UNK>", hash_size)
-        for i, seq in enumerate(arr):
-            # normalize sequence to a list of strings
-            tokens = []
-            if seq is None:
-                tokens = []
-            elif isinstance(seq, (float, np.floating)):
-                tokens = [] if is_nan(seq) else [str(seq)]
-            elif isinstance(seq, str):
-                seq_str = seq.strip()
-                tokens = [] if not seq_str else split_fn(seq_str, separator)
-            elif isinstance(seq, (list, tuple, np.ndarray)):
-                tokens = [str(t) for t in seq]
+            seq_col = col.cast(pl.Utf8).fill_null("").str.split(separator)
+        elem = pl.element().cast(pl.Utf8).str.strip_chars()
+        seq_col = seq_col.list.eval(
+            pl.when(elem == "").then(None).otherwise(elem)
+        ).list.drop_nulls()
+        return seq_col
+
+    def apply_transforms(self, lf, schema: Dict[str, Any], warn_missing: bool):
+        """
+        Apply all transformations to a Polars LazyFrame.
+
+        """
+        logger = logging.getLogger()
+        expressions = []
+
+        def map_with_default(expr, mapping: Dict[str, int], default: int, dtype):
+            # Compatible with older polars versions without Expr.map_dict
+            return expr.map_elements(
+                lambda x: mapping.get(x, default),
+                return_dtype=dtype,
+            )
+
+        def ensure_present(feature_name: str, label: str) -> bool:
+            if feature_name not in schema:
+                if warn_missing:
+                    logger.warning(f"{label} feature {feature_name} not found in data")
+                return False
+            return True
+
+        # Numeric features
+        for name, config in self.numeric_features.items():
+            if not ensure_present(name, "Numeric"):
+                continue
+            scaler_type = config["scaler"]
+            fill_na_value = config.get("fill_na_value", 0)
+            col = pl.col(name).cast(pl.Float64).fill_null(fill_na_value)
+            if scaler_type == "log":
+                col = col.clip(lower_bound=0).log1p()
+            elif scaler_type == "none":
+                pass
             else:
-                tokens = []
+                scaler = self.scalers.get(name)
+                if scaler is None:
+                    logger.warning(
+                        f"Scaler for {name} not fitted, returning original values"
+                    )
+                else:
+                    if scaler_type == "standard":
+                        mean = float(scaler.mean_[0])
+                        scale = (
+                            float(scaler.scale_[0]) if scaler.scale_[0] != 0 else 1.0
+                        )
+                        col = (col - mean) / scale
+                    elif scaler_type == "minmax":
+                        scale = float(scaler.scale_[0])
+                        min_val = float(scaler.min_[0])
+                        col = col * scale + min_val
+                    elif scaler_type == "maxabs":
+                        max_abs = float(scaler.max_abs_[0]) or 1.0
+                        col = col / max_abs
+                    elif scaler_type == "robust":
+                        center = float(scaler.center_[0])
+                        scale = (
+                            float(scaler.scale_[0]) if scaler.scale_[0] != 0 else 1.0
+                        )
+                        col = (col - center) / scale
+            expressions.append(col.alias(name))
+
+        # Sparse features
+        for name, config in self.sparse_features.items():
+            if not ensure_present(name, "Sparse"):
+                continue
+            encode_method = config["encode_method"]
+            fill_na = config["fill_na"]
+            col = pl.col(name).cast(pl.Utf8).fill_null(fill_na)
             if encode_method == "label":
-                encoded = [
-                    class_to_idx.get(token.strip(), unk_index)  # type: ignore[union-attr]
-                    for token in tokens
-                    if token is not None and token != ""
-                ]
+                token_to_idx = config.get("_token_to_idx")
+                if not isinstance(token_to_idx, dict):
+                    raise ValueError(
+                        f"[Data Processor Error] Token index for {name} not fitted"
+                    )
+                unk_index = int(config.get("_unk_index", 0))
+                col = map_with_default(col, token_to_idx, unk_index, pl.Int64)
             elif encode_method == "hash":
+                hash_size = config["hash_size"]
+                hash_expr = col.hash().cast(pl.UInt64) % int(hash_size)
+                min_freq = config.get("min_freq")
+                token_counts = config.get("_token_counts")
+                if min_freq is not None and isinstance(token_counts, dict):
+                    low_freq = [k for k, v in token_counts.items() if v < min_freq]
+                    unk_hash = config.get("_unk_hash")
+                    if unk_hash is None:
+                        unk_hash = self.hash_string("<UNK>", int(hash_size))
+                    hash_expr = (
+                        pl.when(col.is_in(low_freq))
+                        .then(int(unk_hash))
+                        .otherwise(hash_expr)
+                    )
+                col = hash_expr.cast(pl.Int64)
+            expressions.append(col.alias(name))
+
+        # Sequence features
+        for name, config in self.sequence_features.items():
+            if not ensure_present(name, "Sequence"):
+                continue
+            encode_method = config["encode_method"]
+            max_len = int(config["max_len"])
+            pad_value = int(config["pad_value"])
+            truncate = config["truncate"]
+            seq_col = self.sequence_expr(pl, name, config, schema)
+
+            if encode_method == "label":
+                token_to_idx = config.get("_token_to_idx")
+                if not isinstance(token_to_idx, dict):
+                    raise ValueError(
+                        f"[Data Processor Error] Token index for {name} not fitted"
+                    )
+                unk_index = int(config.get("_unk_index", 0))
+                seq_col = seq_col.list.eval(
+                    map_with_default(pl.element(), token_to_idx, unk_index, pl.Int64)
+                )
+            elif encode_method == "hash":
+                hash_size = config.get("hash_size")
                 if hash_size is None:
                     raise ValueError(
                         "[Data Processor Error] hash_size must be set for hash encoding"
                     )
-                encoded = [
-                    (
-                        unk_hash
-                        if min_freq is not None
-                        and isinstance(token_counts, dict)
-                        and token_counts.get(str(token), 0) < min_freq
-                        else hash_fn(str(token), hash_size)
+                elem = pl.element().cast(pl.Utf8)
+                hash_expr = elem.hash().cast(pl.UInt64) % int(hash_size)
+                min_freq = config.get("min_freq")
+                token_counts = config.get("_token_counts")
+                if min_freq is not None and isinstance(token_counts, dict):
+                    low_freq = [k for k, v in token_counts.items() if v < min_freq]
+                    unk_hash = config.get("_unk_hash")
+                    if unk_hash is None:
+                        unk_hash = self.hash_string("<UNK>", int(hash_size))
+                    hash_expr = (
+                        pl.when(elem.is_in(low_freq))
+                        .then(int(unk_hash))
+                        .otherwise(hash_expr)
                     )
-                    for token in tokens
-                    if str(token).strip()
-                ]
-            else:
-                encoded = []
-            if not encoded:
-                continue
-            if len(encoded) > max_len:
-                encoded = encoded[-max_len:] if truncate == "pre" else encoded[:max_len]
-            output[i, : len(encoded)] = encoded
-        return output
+                seq_col = seq_col.list.eval(hash_expr)
 
-    def process_target_fit(self, data: pd.Series, config: Dict[str, Any]):
-        name = str(data.name)
+            if truncate == "pre":
+                seq_col = seq_col.list.tail(max_len)
+            else:
+                seq_col = seq_col.list.head(max_len)
+            pad_list = [pad_value] * max_len
+            seq_col = pl.concat_list([seq_col, pl.lit(pad_list)]).list.head(max_len)
+            expressions.append(seq_col.alias(name))
+
+        # Target features
+        for name, config in self.target_features.items():
+            if not ensure_present(name, "Target"):
+                continue
+            target_type = config.get("target_type")
+            col = pl.col(name)
+            if target_type == "regression":
+                col = col.cast(pl.Float32)
+            elif target_type == "binary":
+                label_map = self.target_encoders.get(name)
+                if label_map is None:
+                    raise ValueError(
+                        f"[Data Processor Error] Target encoder for {name} not fitted"
+                    )
+                col = map_with_default(col.cast(pl.Utf8), label_map, 0, pl.Int64).cast(
+                    pl.Float32
+                )
+            else:
+                raise ValueError(
+                    f"[Data Processor Error] Unsupported target type: {target_type}"
+                )
+            expressions.append(col.alias(name))
+
+        if not expressions:
+            return lf
+        return lf.with_columns(expressions)
+
+    def process_target_fit(
+        self, data: Iterable[Any], config: Dict[str, Any], name: str
+    ) -> None:
         target_type = config["target_type"]
         label_map = config.get("label_map")
         if target_type == "binary":
             if label_map is None:
-                unique_values = data.dropna().unique()
-                sorted_values = sorted(unique_values)
+                unique_values = {v for v in data if v is not None}
+                # Filter out None values before sorting to avoid comparison errors
+                sorted_values = sorted(v for v in unique_values if v is not None)
                 try:
                     int_values = [int(v) for v in sorted_values]
                     if int_values == list(range(len(int_values))):
@@ -511,254 +416,149 @@ class DataProcessor(FeatureSet):
                 config["label_map"] = label_map
             self.target_encoders[name] = label_map
 
-    def process_target_transform(
-        self, data: pd.Series, config: Dict[str, Any]
-    ) -> np.ndarray:
+    def polars_fit_from_lazy(self, lf, schema: Dict[str, Any]) -> "DataProcessor":
         logger = logging.getLogger()
-        name = str(data.name)
-        target_type = config.get("target_type")
-        if target_type == "regression":
-            values = np.array(data.values, dtype=np.float32)
-            return values
-        if target_type == "binary":
-            label_map = self.target_encoders.get(name)
-            if label_map is None:
-                raise ValueError(
-                    f"[Data Processor Error] Target encoder for {name} not fitted"
-                )
-            result = []
-            for val in data:
-                str_val = str(val)
-                if str_val in label_map:
-                    result.append(label_map[str_val])
-                else:
-                    logger.warning(f"Unknown target value: {val}, mapping to 0")
-                    result.append(0)
-            return np.array(result, dtype=np.float32)
-        raise ValueError(
-            f"[Data Processor Error] Unsupported target type: {target_type}"
-        )
-
-    def load_dataframe_from_path(self, path: str) -> pd.DataFrame:
-        """
-        Load all data from a file or directory path into a single DataFrame.
-
-        Args:
-            path (str): File or directory path.
-
-        Returns:
-            pd.DataFrame: Loaded DataFrame.
-        """
-        file_paths, file_type = resolve_file_paths(path)
-        frames = load_dataframes(file_paths, file_type)
-        return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
-
-    def extract_sequence_tokens(self, value: Any, separator: str) -> list[str]:
-        """Extract sequence tokens from a single value."""
-        if value is None:
-            return []
-        if isinstance(value, (float, np.floating)) and np.isnan(value):
-            return []
-        if isinstance(value, str):
-            stripped = value.strip()
-            return [] if not stripped else stripped.split(separator)
-        if isinstance(value, (list, tuple, np.ndarray)):
-            return [str(v) for v in value]
-        return [str(value)]
-
-    def fit_from_file_paths(
-        self, file_paths: list[str], file_type: str, chunk_size: int
-    ) -> "DataProcessor":
-        logger = logging.getLogger()
-        if not file_paths:
-            raise ValueError("[DataProcessor Error] Empty file list for streaming fit")
-        if not check_streaming_support(file_type):
-            raise ValueError(
-                f"[DataProcessor Error] Format '{file_type}' does not support streaming. "
-                "Streaming fit only supports csv, parquet to avoid high memory usage."
-            )
-
-        numeric_acc = {}
-        for name in self.numeric_features.keys():
-            numeric_acc[name] = {
-                "sum": 0.0,
-                "sumsq": 0.0,
-                "count": 0.0,
-                "min": np.inf,
-                "max": -np.inf,
-                "max_abs": 0.0,
-            }
-        sparse_vocab: Dict[str, set[str]] = {
-            name: set() for name in self.sparse_features.keys()
-        }
-        seq_vocab: Dict[str, set[str]] = {
-            name: set() for name in self.sequence_features.keys()
-        }
-        sparse_label_counts: Dict[str, Dict[str, int]] = {
-            name: {}
-            for name, config in self.sparse_features.items()
-            if config.get("encode_method") == "label" and config.get("min_freq")
-        }
-        seq_label_counts: Dict[str, Dict[str, int]] = {
-            name: {}
-            for name, config in self.sequence_features.items()
-            if config.get("encode_method") == "label" and config.get("min_freq")
-        }
-        sparse_hash_counts: Dict[str, Dict[str, int]] = {
-            name: {}
-            for name, config in self.sparse_features.items()
-            if config.get("encode_method") == "hash" and config.get("min_freq")
-        }
-        seq_hash_counts: Dict[str, Dict[str, int]] = {
-            name: {}
-            for name, config in self.sequence_features.items()
-            if config.get("encode_method") == "hash" and config.get("min_freq")
-        }
-        target_values: Dict[str, set[Any]] = {
-            name: set() for name in self.target_features.keys()
-        }
 
         missing_features = set()
-        for file_path in file_paths:
-            for chunk in iter_file_chunks(file_path, file_type, chunk_size):
-                columns = set(chunk.columns)
-                feature_groups = [
-                    ("numeric", self.numeric_features),
-                    ("sparse", self.sparse_features),
-                    ("sequence", self.sequence_features),
-                ]
-                for group, features in feature_groups:
-                    missing_features.update(features.keys() - columns)
-                    for name in features.keys() & columns:
-                        config = features[name]
-                        series = chunk[name]
-                        if group == "numeric":
-                            values = pd.to_numeric(series, errors="coerce").dropna()
-                            if values.empty:
-                                continue
-                            acc = numeric_acc[name]
-                            arr = values.to_numpy(dtype=np.float64, copy=False)
-                            acc["count"] += arr.size
-                            acc["sum"] += float(arr.sum())
-                            acc["sumsq"] += float(np.square(arr).sum())
-                            acc["min"] = min(acc["min"], float(arr.min()))
-                            acc["max"] = max(acc["max"], float(arr.max()))
-                            acc["max_abs"] = max(
-                                acc["max_abs"], float(np.abs(arr).max())
-                            )
-                        elif group == "sparse":
-                            fill_na = config["fill_na"]
-                            series = series.fillna(fill_na).astype(str)
-                            sparse_vocab[name].update(series.tolist())
-                            if name in sparse_label_counts:
-                                counts = sparse_label_counts[name]
-                                for token in series.tolist():
-                                    counts[token] = counts.get(token, 0) + 1
-                            if name in sparse_hash_counts:
-                                counts = sparse_hash_counts[name]
-                                for token in series.tolist():
-                                    counts[token] = counts.get(token, 0) + 1
-                        else:
-                            separator = config["separator"]
-                            tokens = []
-                            for val in series:
-                                tokens.extend(
-                                    self.extract_sequence_tokens(val, separator)
-                                )
-                            seq_vocab[name].update(tokens)
-                            if name in seq_label_counts:
-                                counts = seq_label_counts[name]
-                                for token in tokens:
-                                    if str(token).strip():
-                                        key = str(token)
-                                        counts[key] = counts.get(key, 0) + 1
-                            if name in seq_hash_counts:
-                                counts = seq_hash_counts[name]
-                                for token in tokens:
-                                    if str(token).strip():
-                                        key = str(token)
-                                        counts[key] = counts.get(key, 0) + 1
-
-                # target features
-                missing_features.update(self.target_features.keys() - columns)
-                for name in self.target_features.keys() & columns:
-                    vals = chunk[name].dropna().tolist()
-                    target_values[name].update(vals)
-
+        for name in self.numeric_features.keys():
+            if name not in schema:
+                missing_features.add(name)
+        for name in self.sparse_features.keys():
+            if name not in schema:
+                missing_features.add(name)
+        for name in self.sequence_features.keys():
+            if name not in schema:
+                missing_features.add(name)
+        for name in self.target_features.keys():
+            if name not in schema:
+                missing_features.add(name)
         if missing_features:
             logger.warning(
-                f"The following configured features were not found in provided files: {sorted(missing_features)}"
+                f"The following configured features were not found in provided data: {sorted(missing_features)}"
             )
 
-        # finalize numeric scalers
+        # numeric aggregates in a single pass
+        if self.numeric_features:
+            agg_exprs = []
+            for name in self.numeric_features.keys():
+                if name not in schema:
+                    continue
+                col = pl.col(name).cast(pl.Float64)
+                agg_exprs.extend(
+                    [
+                        col.sum().alias(f"{name}__sum"),
+                        (col * col).sum().alias(f"{name}__sumsq"),
+                        col.count().alias(f"{name}__count"),
+                        col.min().alias(f"{name}__min"),
+                        col.max().alias(f"{name}__max"),
+                        col.abs().max().alias(f"{name}__max_abs"),
+                    ]
+                )
+                if self.numeric_features[name].get("scaler") == "robust":
+                    agg_exprs.extend(
+                        [
+                            col.quantile(0.25).alias(f"{name}__q1"),
+                            col.quantile(0.75).alias(f"{name}__q3"),
+                            col.median().alias(f"{name}__median"),
+                        ]
+                    )
+            stats = lf.select(agg_exprs).collect().to_dicts()[0] if agg_exprs else {}
+        else:
+            stats = {}
+
         for name, config in self.numeric_features.items():
-            acc = numeric_acc[name]
-            if acc["count"] == 0:
+            if name not in schema:
+                continue
+            count = float(stats.get(f"{name}__count", 0) or 0)
+            if count == 0:
                 logger.warning(
-                    f"Numeric feature {name} has no valid values in provided files"
+                    f"Numeric feature {name} has no valid values in provided data"
                 )
                 continue
-            mean_val = acc["sum"] / acc["count"]
+            sum_val = float(stats.get(f"{name}__sum", 0) or 0)
+            sumsq = float(stats.get(f"{name}__sumsq", 0) or 0)
+            mean_val = sum_val / count
             if config["fill_na"] is not None:
                 config["fill_na_value"] = config["fill_na"]
             else:
                 config["fill_na_value"] = mean_val
             scaler_type = config["scaler"]
             if scaler_type == "standard":
-                var = max(acc["sumsq"] / acc["count"] - mean_val * mean_val, 0.0)
+                var = max(sumsq / count - mean_val * mean_val, 0.0)
                 scaler = StandardScaler()
                 scaler.mean_ = np.array([mean_val], dtype=np.float64)
                 scaler.var_ = np.array([var], dtype=np.float64)
                 scaler.scale_ = np.array(
                     [np.sqrt(var) if var > 0 else 1.0], dtype=np.float64
                 )
-                scaler.n_samples_seen_ = np.array([int(acc["count"])], dtype=np.int64)
+                scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
                 self.scalers[name] = scaler
-
             elif scaler_type == "minmax":
-                data_min = acc["min"] if np.isfinite(acc["min"]) else 0.0
-                data_max = acc["max"] if np.isfinite(acc["max"]) else data_min
+                data_min = float(stats.get(f"{name}__min", 0) or 0)
+                data_max = float(stats.get(f"{name}__max", data_min) or data_min)
                 scaler = MinMaxScaler()
                 scaler.data_min_ = np.array([data_min], dtype=np.float64)
                 scaler.data_max_ = np.array([data_max], dtype=np.float64)
                 scaler.data_range_ = scaler.data_max_ - scaler.data_min_
                 scaler.data_range_[scaler.data_range_ == 0] = 1.0
-                # Manually set scale_/min_ for streaming fit to mirror sklearn's internal fit logic
                 feature_min, feature_max = scaler.feature_range
                 scale = (feature_max - feature_min) / scaler.data_range_
                 scaler.scale_ = scale
                 scaler.min_ = feature_min - scaler.data_min_ * scale
-                scaler.n_samples_seen_ = np.array([int(acc["count"])], dtype=np.int64)
+                scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
                 self.scalers[name] = scaler
-
             elif scaler_type == "maxabs":
+                max_abs = float(stats.get(f"{name}__max_abs", 1.0) or 1.0)
                 scaler = MaxAbsScaler()
-                scaler.max_abs_ = np.array([acc["max_abs"]], dtype=np.float64)
-                scaler.n_samples_seen_ = np.array([int(acc["count"])], dtype=np.int64)
+                scaler.max_abs_ = np.array([max_abs], dtype=np.float64)
+                scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
                 self.scalers[name] = scaler
-
-            elif scaler_type in ("log", "none", "robust"):
-                # log and none do not require fitting; robust requires full data and is handled earlier
+            elif scaler_type == "robust":
+                q1 = float(stats.get(f"{name}__q1", 0) or 0)
+                q3 = float(stats.get(f"{name}__q3", q1) or q1)
+                median = float(stats.get(f"{name}__median", 0) or 0)
+                scale = q3 - q1
+                if scale == 0:
+                    scale = 1.0
+                scaler = RobustScaler()
+                scaler.center_ = np.array([median], dtype=np.float64)
+                scaler.scale_ = np.array([scale], dtype=np.float64)
+                scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
+                self.scalers[name] = scaler
+            elif scaler_type in ("log", "none"):
                 continue
             else:
                 raise ValueError(f"Unknown scaler type: {scaler_type}")
 
-        # finalize sparse label encoders
+        # sparse features
         for name, config in self.sparse_features.items():
-            if config["encode_method"] == "label":
+            if name not in schema:
+                continue
+            encode_method = config["encode_method"]
+            fill_na = config["fill_na"]
+            col = pl.col(name).cast(pl.Utf8).fill_null(fill_na)
+            counts_df = (
+                lf.select(col.alias(name))
+                .group_by(name)
+                .agg(pl.len().alias("count"))
+                .collect()
+            )
+            counts = (
+                dict(zip(counts_df[name].to_list(), counts_df["count"].to_list()))
+                if counts_df.height > 0
+                else {}
+            )
+            if encode_method == "label":
                 min_freq = config.get("min_freq")
                 if min_freq is not None:
-                    token_counts = sparse_label_counts.get(name, {})
-                    config["_token_counts"] = token_counts
+                    config["_token_counts"] = counts
                     vocab = {
-                        token
-                        for token, count in token_counts.items()
-                        if count >= min_freq
+                        token for token, count in counts.items() if count >= min_freq
                     }
                     low_freq_types = sum(
-                        1 for count in token_counts.values() if count < min_freq
+                        1 for count in counts.values() if count < min_freq
                     )
-                    total_types = len(token_counts)
+                    total_types = len(counts)
                     kept_types = total_types - low_freq_types
                     if not config.get("_min_freq_logged"):
                         logger.info(
@@ -769,29 +569,29 @@ class DataProcessor(FeatureSet):
                         )
                         config["_min_freq_logged"] = True
                 else:
-                    vocab = sparse_vocab[name]
+                    vocab = set(counts.keys())
                 if not vocab:
                     logger.warning(f"Sparse feature {name} has empty vocabulary")
                     continue
-                vocab_list = sorted(vocab)
+                # Filter out None values before sorting to avoid comparison errors
+                vocab_list = sorted(v for v in vocab if v is not None)
                 if "<UNK>" not in vocab_list:
                     vocab_list.append("<UNK>")
                 token_to_idx = {token: idx for idx, token in enumerate(vocab_list)}
                 config["_token_to_idx"] = token_to_idx
                 config["_unk_index"] = token_to_idx["<UNK>"]
                 config["vocab_size"] = len(vocab_list)
-            elif config["encode_method"] == "hash":
+            elif encode_method == "hash":
                 min_freq = config.get("min_freq")
                 if min_freq is not None:
-                    token_counts = sparse_hash_counts.get(name, {})
-                    config["_token_counts"] = token_counts
+                    config["_token_counts"] = counts
                     config["_unk_hash"] = self.hash_string(
                         "<UNK>", int(config["hash_size"])
                     )
                     low_freq_types = sum(
-                        1 for count in token_counts.values() if count < min_freq
+                        1 for count in counts.values() if count < min_freq
                     )
-                    total_types = len(token_counts)
+                    total_types = len(counts)
                     kept_types = total_types - low_freq_types
                     if not config.get("_min_freq_logged"):
                         logger.info(
@@ -803,22 +603,37 @@ class DataProcessor(FeatureSet):
                         config["_min_freq_logged"] = True
                 config["vocab_size"] = config["hash_size"]
 
-        # finalize sequence vocabularies
+        # sequence features
         for name, config in self.sequence_features.items():
-            if config["encode_method"] == "label":
+            if name not in schema:
+                continue
+            encode_method = config["encode_method"]
+            seq_col = self.sequence_expr(pl, name, config, schema)
+            tokens_df = (
+                lf.select(seq_col.alias("seq"))
+                .explode("seq")
+                .select(pl.col("seq").cast(pl.Utf8).alias("seq"))
+                .drop_nulls("seq")
+                .group_by("seq")
+                .agg(pl.len().alias("count"))
+                .collect()
+            )
+            counts = (
+                dict(zip(tokens_df["seq"].to_list(), tokens_df["count"].to_list()))
+                if tokens_df.height > 0
+                else {}
+            )
+            if encode_method == "label":
                 min_freq = config.get("min_freq")
                 if min_freq is not None:
-                    token_counts = seq_label_counts.get(name, {})
-                    config["_token_counts"] = token_counts
+                    config["_token_counts"] = counts
                     vocab_set = {
-                        token
-                        for token, count in token_counts.items()
-                        if count >= min_freq
+                        token for token, count in counts.items() if count >= min_freq
                     }
                     low_freq_types = sum(
-                        1 for count in token_counts.values() if count < min_freq
+                        1 for count in counts.values() if count < min_freq
                     )
-                    total_types = len(token_counts)
+                    total_types = len(counts)
                     kept_types = total_types - low_freq_types
                     if not config.get("_min_freq_logged"):
                         logger.info(
@@ -829,26 +644,30 @@ class DataProcessor(FeatureSet):
                         )
                         config["_min_freq_logged"] = True
                 else:
-                    vocab_set = seq_vocab[name]
-                vocab_list = sorted(vocab_set) if vocab_set else ["<PAD>"]
+                    vocab_set = set(counts.keys())
+                # Filter out None values before sorting to avoid comparison errors
+                vocab_list = (
+                    sorted(v for v in vocab_set if v is not None)
+                    if vocab_set
+                    else ["<PAD>"]
+                )
                 if "<UNK>" not in vocab_list:
                     vocab_list.append("<UNK>")
                 token_to_idx = {token: idx for idx, token in enumerate(vocab_list)}
                 config["_token_to_idx"] = token_to_idx
                 config["_unk_index"] = token_to_idx["<UNK>"]
                 config["vocab_size"] = len(vocab_list)
-            elif config["encode_method"] == "hash":
+            elif encode_method == "hash":
                 min_freq = config.get("min_freq")
                 if min_freq is not None:
-                    token_counts = seq_hash_counts.get(name, {})
-                    config["_token_counts"] = token_counts
+                    config["_token_counts"] = counts
                     config["_unk_hash"] = self.hash_string(
                         "<UNK>", int(config["hash_size"])
                     )
                     low_freq_types = sum(
-                        1 for count in token_counts.values() if count < min_freq
+                        1 for count in counts.values() if count < min_freq
                     )
-                    total_types = len(token_counts)
+                    total_types = len(counts)
                     kept_types = total_types - low_freq_types
                     if not config.get("_min_freq_logged"):
                         logger.info(
@@ -860,14 +679,18 @@ class DataProcessor(FeatureSet):
                         config["_min_freq_logged"] = True
                 config["vocab_size"] = config["hash_size"]
 
-        # finalize targets
+        # targets
         for name, config in self.target_features.items():
-            if not target_values[name]:
-                logger.warning(f"Target {name} has no valid values in provided files")
+            if name not in schema:
                 continue
-            self.process_target_fit(
-                pd.Series(list(target_values[name]), name=name), config
-            )
+            if config.get("target_type") == "binary":
+                unique_vals = (
+                    lf.select(pl.col(name).drop_nulls().unique())
+                    .collect()
+                    .to_series()
+                    .to_list()
+                )
+                self.process_target_fit(unique_vals, config, name)
 
         self.is_fitted = True
         logger.info(
@@ -879,18 +702,11 @@ class DataProcessor(FeatureSet):
         )
         return self
 
-    def fit_from_files(
-        self, file_paths: list[str], file_type: str, chunk_size: int
-    ) -> "DataProcessor":
-        """Fit processor statistics by streaming an explicit list of files.
-
-        This is useful when you want to fit statistics on training files only (exclude
-        validation files) in streaming mode.
-        """
+    def fit_from_files(self, file_paths: list[str], file_type: str) -> "DataProcessor":
         logger = logging.getLogger()
         logger.info(
             colorize(
-                "Fitting DataProcessor (streaming files mode)...",
+                "Fitting DataProcessor...",
                 color="cyan",
                 bold=True,
             )
@@ -899,36 +715,15 @@ class DataProcessor(FeatureSet):
             config.pop("_min_freq_logged", None)
         for config in self.sequence_features.values():
             config.pop("_min_freq_logged", None)
-        uses_robust = any(
-            cfg.get("scaler") == "robust" for cfg in self.numeric_features.values()
-        )
-        if uses_robust:
-            logger.warning(
-                "Robust scaler requires full data; loading provided files into memory. "
-                "Consider smaller chunk_size or different scaler if memory is limited."
-            )
-            frames = [read_table(p, file_type) for p in file_paths]
-            df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
-            return self.fit(df)
-        return self.fit_from_file_paths(
-            file_paths=file_paths, file_type=file_type, chunk_size=chunk_size
-        )
+        lf = self.polars_scan(file_paths, file_type)
+        schema = lf.collect_schema()
+        return self.polars_fit_from_lazy(lf, schema)
 
-    def fit_from_path(self, path: str, chunk_size: int) -> "DataProcessor":
-        """
-        Fit processor statistics by streaming files to reduce memory usage.
-
-        Args:
-            path (str): File or directory path.
-            chunk_size (int): Number of rows per chunk.
-
-        Returns:
-            DataProcessor: Fitted DataProcessor instance.
-        """
+    def fit_from_path(self, path: str) -> "DataProcessor":
         logger = logging.getLogger()
         logger.info(
             colorize(
-                "Fitting DataProcessor (streaming path mode)...",
+                "Fitting DataProcessor...",
                 color="cyan",
                 bold=True,
             )
@@ -938,118 +733,35 @@ class DataProcessor(FeatureSet):
         for config in self.sequence_features.values():
             config.pop("_min_freq_logged", None)
         file_paths, file_type = resolve_file_paths(path)
-        return self.fit_from_file_paths(
-            file_paths=file_paths,
-            file_type=file_type,
-            chunk_size=chunk_size,
-        )
-
-    @overload
-    def transform_in_memory(
-        self,
-        data: Union[pd.DataFrame, Dict[str, Any]],
-        return_dict: Literal[True],
-        persist: bool,
-        save_format: Optional[str],
-        output_path: Optional[str],
-        warn_missing: bool = True,
-    ) -> Dict[str, np.ndarray]: ...
-
-    @overload
-    def transform_in_memory(
-        self,
-        data: Union[pd.DataFrame, Dict[str, Any]],
-        return_dict: Literal[False],
-        persist: bool,
-        save_format: Optional[str],
-        output_path: Optional[str],
-        warn_missing: bool = True,
-    ) -> pd.DataFrame: ...
+        return self.fit_from_files(file_paths=file_paths, file_type=file_type)
 
     def transform_in_memory(
         self,
-        data: Union[pd.DataFrame, Dict[str, Any]],
+        data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any]],
         return_dict: bool,
         persist: bool,
         save_format: Optional[str],
         output_path: Optional[str],
         warn_missing: bool = True,
     ):
-        """
-        Transform in-memory data and optionally persist the transformed data.
-
-        Args:
-            data (Union[pd.DataFrame, Dict[str, Any]]): Input data.
-            return_dict (bool): Whether to return a dictionary of numpy arrays.
-            persist (bool): Whether to persist the transformed data to disk.
-            save_format (Optional[str]): Format to save the data if persisting.
-            output_path (Optional[str]): Output path to save the data if persisting.
-            warn_missing (bool): Whether to warn about missing features in the data.
-
-        Returns:
-            Union[pd.DataFrame, Dict[str, np.ndarray]]: Transformed data.
-        """
-
         logger = logging.getLogger()
-        data_dict = data if isinstance(data, dict) else None
 
-        result_dict = {}
-        if isinstance(data, pd.DataFrame):
-            df = data  # type: ignore[assignment]
-            for col in df.columns:
-                result_dict[col] = df[col].to_numpy(copy=False)
+        if isinstance(data, dict):
+            df = pl.DataFrame(data)
+        elif isinstance(data, pd.DataFrame):
+            df = pl.from_pandas(data)
         else:
-            if data_dict is None:
-                raise ValueError(
-                    f"[Data Processor Error] Unsupported data type: {type(data)}"
-                )
-            for key, value in data_dict.items():
-                if isinstance(value, pd.Series):
-                    result_dict[key] = value.to_numpy(copy=False)
-                else:
-                    result_dict[key] = np.asarray(value)
+            df = data
 
-        data_columns = data.columns if isinstance(data, pd.DataFrame) else data_dict
-        feature_groups = [
-            ("Numeric", self.numeric_features, self.process_numeric_feature_transform),
-            ("Sparse", self.sparse_features, self.process_sparse_feature_transform),
-            (
-                "Sequence",
-                self.sequence_features,
-                self.process_sequence_feature_transform,
-            ),
-            ("Target", self.target_features, self.process_target_transform),
-        ]
-        for label, features, transform_fn in feature_groups:
-            for name, config in features.items():
-                present = name in data_columns  # type: ignore[operator]
-                if not present:
-                    if warn_missing:
-                        logger.warning(f"{label} feature {name} not found in data")
-                    continue
-                series_data = (
-                    data[name]
-                    if isinstance(data, pd.DataFrame)
-                    else pd.Series(result_dict[name], name=name)
-                )
-                result_dict[name] = transform_fn(series_data, config)
-
-        def dict_to_dataframe(result: Dict[str, np.ndarray]) -> pd.DataFrame:
-            # Convert all arrays to Series/lists at once to avoid fragmentation
-            columns_dict = {}
-            for key, value in result.items():
-                if key in self.sequence_features:
-                    columns_dict[key] = np.asarray(value).tolist()
-                else:
-                    columns_dict[key] = value
-            return pd.DataFrame(columns_dict)
+        schema = df.schema
+        lf = df.lazy()
+        lf = self.apply_transforms(lf, schema, warn_missing=warn_missing)
+        out_df = lf.collect()
 
         effective_format = save_format
         if persist:
             effective_format = save_format or "parquet"
-        result_df = None
-        if (not return_dict) or persist:
-            result_df = dict_to_dataframe(result_dict)
+
         if persist:
             if effective_format not in FILE_FORMAT_CONFIG:
                 raise ValueError(f"Unsupported save format: {effective_format}")
@@ -1061,68 +773,63 @@ class DataProcessor(FeatureSet):
             if output_dir.suffix:
                 output_dir = output_dir.parent
             output_dir.mkdir(parents=True, exist_ok=True)
-
             suffix = FILE_FORMAT_CONFIG[effective_format]["extension"][0]
             save_path = output_dir / f"transformed_data{suffix}"
-            assert result_df is not None, "DataFrame conversion failed"
-
-            # Save based on format
             if effective_format == "csv":
-                result_df.to_csv(save_path, index=False)
+                out_df.write_csv(save_path)
             elif effective_format == "parquet":
-                result_df.to_parquet(save_path, index=False)
+                out_df.write_parquet(save_path)
             elif effective_format == "feather":
-                result_df.to_feather(save_path)
-            elif effective_format == "excel":
-                result_df.to_excel(save_path, index=False)
-            elif effective_format == "hdf5":
-                result_df.to_hdf(save_path, key="data", mode="w")
+                out_df.write_ipc(save_path)
             else:
-                raise ValueError(f"Unsupported save format: {effective_format}")
-
+                raise ValueError(
+                    f"Format '{effective_format}' is not supported by the polars-only pipeline."
+                )
             logger.info(
                 colorize(
-                    f"Transformed data saved to: {save_path.resolve()}", color="green"
+                    f"Transformed data saved to: {save_path.resolve()}",
+                    color="green",
                 )
             )
+
         if return_dict:
+            result_dict = {}
+            for col in out_df.columns:
+                series = out_df.get_column(col)
+                if col in self.sequence_features:
+                    result_dict[col] = np.asarray(series.to_list(), dtype=np.int64)
+                else:
+                    result_dict[col] = series.to_numpy()
             return result_dict
-        assert result_df is not None, "DataFrame is None after transform"
-        return result_df
+
+        return out_df
 
     def transform_path(
         self,
         input_path: str,
         output_path: Optional[str],
         save_format: Optional[str],
-        chunk_size: int = 200000,
     ):
-        """Transform data from files under a path and save them to a new location.
-
-        Uses chunked reading/writing to keep peak memory bounded for large files.
-
-        Args:
-            input_path (str): Input file or directory path.
-            output_path (Optional[str]): Output directory path. If None, defaults to input_path/transformed_data.
-            save_format (Optional[str]): Format to save transformed files. If None, uses input file format.
-            chunk_size (int): Number of rows per chunk.
-        """
+        """Transform data from files under a path and save them using polars lazy pipeline."""
         logger = logging.getLogger()
         file_paths, file_type = resolve_file_paths(input_path)
         target_format = save_format or file_type
         if target_format not in FILE_FORMAT_CONFIG:
             raise ValueError(f"Unsupported format: {target_format}")
-        if chunk_size > 0 and not check_streaming_support(file_type):
+        if target_format not in {"csv", "parquet", "feather"}:
+            raise ValueError(
+                f"Format '{target_format}' is not supported by the polars-only pipeline."
+            )
+        if not check_streaming_support(file_type):
             raise ValueError(
                 f"Input format '{file_type}' does not support streaming reads. "
-                "Set chunk_size<=0 to use full-load transform."
+                "Polars backend supports csv/parquet only."
             )
 
-        # Warn about streaming support
         if not check_streaming_support(target_format):
             logger.warning(
                 f"[Data Processor Warning] Format '{target_format}' does not support streaming writes. "
-                "Large files may require more memory. Use csv or parquet for better streaming support."
+                "Data will be collected in memory before saving."
             )
 
         base_output_dir = (
@@ -1133,122 +840,48 @@ class DataProcessor(FeatureSet):
         output_root = base_output_dir / "transformed_data"
         output_root.mkdir(parents=True, exist_ok=True)
         saved_paths = []
+
         for file_path in progress(file_paths, description="Transforming files"):
             source_path = Path(file_path)
             suffix = FILE_FORMAT_CONFIG[target_format]["extension"][0]
             target_file = output_root / f"{source_path.stem}{suffix}"
 
-            # Stream transform for large files
-            if chunk_size <= 0:
-                # fallback to full load behavior
-                df = read_table(file_path, file_type)
-                transformed_df = self.transform_in_memory(
-                    df,
-                    return_dict=False,
-                    persist=False,
-                    save_format=None,
-                    output_path=None,
-                    warn_missing=True,
-                )
-                assert isinstance(
-                    transformed_df, pd.DataFrame
-                ), "[Data Processor Error] Expected DataFrame when return_dict=False"
+            lf = self.polars_scan([file_path], file_type)
+            schema = lf.collect_schema()
+            lf = self.apply_transforms(lf, schema, warn_missing=True)
 
-                # Save based on format
-                if target_format == "csv":
-                    transformed_df.to_csv(target_file, index=False)
-                elif target_format == "parquet":
-                    transformed_df.to_parquet(target_file, index=False)
-                elif target_format == "feather":
-                    transformed_df.to_feather(target_file)
-                elif target_format == "excel":
-                    transformed_df.to_excel(target_file, index=False)
-                elif target_format == "hdf5":
-                    transformed_df.to_hdf(target_file, key="data", mode="w")
-                else:
-                    raise ValueError(f"Unsupported format: {target_format}")
-
-                saved_paths.append(str(target_file.resolve()))
-                continue
-
-            first_chunk = True
-            # Streaming write for supported formats
             if target_format == "parquet":
-                parquet_writer = None
-                try:
-                    for chunk in iter_file_chunks(file_path, file_type, chunk_size):
-                        transformed_df = self.transform_in_memory(
-                            chunk,
-                            return_dict=False,
-                            persist=False,
-                            save_format=None,
-                            output_path=None,
-                            warn_missing=first_chunk,
-                        )
-                        assert isinstance(
-                            transformed_df, pd.DataFrame
-                        ), "[Data Processor Error] Expected DataFrame when return_dict=False"
-                        table = pa.Table.from_pandas(
-                            transformed_df, preserve_index=False
-                        )
-                        if parquet_writer is None:
-                            parquet_writer = pq.ParquetWriter(target_file, table.schema)
-                        parquet_writer.write_table(table)
-                        first_chunk = False
-                finally:
-                    if parquet_writer is not None:
-                        parquet_writer.close()
+                lf.sink_parquet(target_file)
             elif target_format == "csv":
-                # CSV: append chunks; header only once
-                target_file.parent.mkdir(parents=True, exist_ok=True)
-                with open(target_file, "w", encoding="utf-8", newline="") as f:
-                    f.write("")
-                for chunk in iter_file_chunks(file_path, file_type, chunk_size):
-                    transformed_df = self.transform_in_memory(
-                        chunk,
-                        return_dict=False,
-                        persist=False,
-                        save_format=None,
-                        output_path=None,
-                        warn_missing=first_chunk,
-                    )
-                    assert isinstance(
-                        transformed_df, pd.DataFrame
-                    ), "[Data Processor Error] Expected DataFrame when return_dict=False"
-                    transformed_df.to_csv(
-                        target_file, index=False, mode="a", header=first_chunk
-                    )
-                    first_chunk = False
+                # CSV doesn't support nested data (lists), so convert list columns to string
+                transformed_schema = lf.collect_schema()
+                list_cols = [
+                    name
+                    for name, dtype in transformed_schema.items()
+                    if isinstance(dtype, pl.List)
+                ]
+                if list_cols:
+                    # Convert list columns to string representation for CSV
+                    # Format as [1, 2, 3] by casting elements to string, joining with ", ", and adding brackets
+                    list_exprs = []
+                    for name in list_cols:
+                        # Convert list to string representation
+                        list_exprs.append(
+                            (
+                                pl.lit("[")
+                                + pl.col(name)
+                                .list.eval(pl.element().cast(pl.String))
+                                .list.join(", ")
+                                + pl.lit("]")
+                            ).alias(name)
+                        )
+                    lf = lf.with_columns(list_exprs)
+                lf.sink_csv(target_file)
             else:
-                # Non-streaming formats: collect all chunks and save once
-                logger.warning(
-                    f"Format '{target_format}' doesn't support streaming writes. "
-                    f"Collecting all chunks in memory before saving."
-                )
-                all_chunks = []
-                for chunk in iter_file_chunks(file_path, file_type, chunk_size):
-                    transformed_df = self.transform_in_memory(
-                        chunk,
-                        return_dict=False,
-                        persist=False,
-                        save_format=None,
-                        output_path=None,
-                        warn_missing=first_chunk,
-                    )
-                    assert isinstance(transformed_df, pd.DataFrame)
-                    all_chunks.append(transformed_df)
-                    first_chunk = False
-
-                if all_chunks:
-                    combined_df = pd.concat(all_chunks, ignore_index=True)
-                    if target_format == "feather":
-                        combined_df.to_feather(target_file)
-                    elif target_format == "excel":
-                        combined_df.to_excel(target_file, index=False)
-                    elif target_format == "hdf5":
-                        combined_df.to_hdf(target_file, key="data", mode="w")
-
+                df = lf.collect()
+                df.write_ipc(target_file)
             saved_paths.append(str(target_file.resolve()))
+
         logger.info(
             colorize(
                 f"Transformed {len(saved_paths)} file(s) saved to: {output_root.resolve()}",
@@ -1260,74 +893,51 @@ class DataProcessor(FeatureSet):
     # fit is nothing but registering the statistics from data so that we can transform the data later
     def fit(
         self,
-        data: Union[pd.DataFrame, Dict[str, Any], str, os.PathLike],
-        chunk_size: int = 200000,
+        data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any], str, os.PathLike],
     ):
         """
         Fit the DataProcessor to the provided data.
 
         Args:
-            data (Union[pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data for fitting.
-            chunk_size (int): Number of rows per chunk when streaming from path.
+            data (Union[pl.DataFrame, pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data for fitting.
 
         Returns:
             DataProcessor: Fitted DataProcessor instance.
         """
 
-        logger = logging.getLogger()
         for config in self.sparse_features.values():
             config.pop("_min_freq_logged", None)
         for config in self.sequence_features.values():
             config.pop("_min_freq_logged", None)
         if isinstance(data, (str, os.PathLike)):
-            path_str = str(data)
-            uses_robust = any(
-                cfg.get("scaler") == "robust" for cfg in self.numeric_features.values()
-            )
-            if uses_robust:
-                logger.warning(
-                    "Robust scaler requires full data; loading all files into memory. Consider smaller chunk_size or different scaler if memory is limited."
-                )
-                data = self.load_dataframe_from_path(path_str)
-            else:
-                return self.fit_from_path(path_str, chunk_size)
+            return self.fit_from_path(str(data))
         if isinstance(data, dict):
-            data = pd.DataFrame(data)
-        logger.info(colorize("Fitting DataProcessor...", color="cyan", bold=True))
-        feature_groups = [
-            ("Numeric", self.numeric_features, self.process_numeric_feature_fit),
-            ("Sparse", self.sparse_features, self.process_sparse_feature_fit),
-            ("Sequence", self.sequence_features, self.process_sequence_feature_fit),
-            ("Target", self.target_features, self.process_target_fit),
-        ]
-        for label, features, fit_fn in feature_groups:
-            for name, config in features.items():
-                if name not in data.columns:
-                    logger.warning(f"{label} feature {name} not found in data")
-                    continue
-                fit_fn(data[name], config)
-        self.is_fitted = True
-        return self
+            df = pl.DataFrame(data)
+        elif isinstance(data, pd.DataFrame):
+            df = pl.from_pandas(data)
+        else:
+            df = data
+        lf = df.lazy()
+        schema = df.schema
+        return self.polars_fit_from_lazy(lf, schema)
 
     @overload
     def transform(
         self,
-        data: Union[pd.DataFrame, Dict[str, Any]],
+        data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any]],
         return_dict: Literal[True] = True,
         save_format: Optional[str] = None,
         output_path: Optional[str] = None,
-        chunk_size: int = 200000,
     ) -> Dict[str, np.ndarray]: ...
 
     @overload
     def transform(
         self,
-        data: Union[pd.DataFrame, Dict[str, Any]],
+        data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any]],
         return_dict: Literal[False] = False,
         save_format: Optional[str] = None,
         output_path: Optional[str] = None,
-        chunk_size: int = 200000,
-    ) -> pd.DataFrame: ...
+    ) -> pl.DataFrame: ...
 
     @overload
     def transform(
@@ -1336,28 +946,25 @@ class DataProcessor(FeatureSet):
         return_dict: Literal[False] = False,
         save_format: Optional[str] = None,
         output_path: Optional[str] = None,
-        chunk_size: int = 200000,
     ) -> list[str]: ...
 
     def transform(
         self,
-        data: Union[pd.DataFrame, Dict[str, Any], str, os.PathLike],
+        data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any], str, os.PathLike],
         return_dict: bool = True,
         save_format: Optional[str] = None,
         output_path: Optional[str] = None,
-        chunk_size: int = 200000,
     ):
         """
         Transform the provided data using the fitted DataProcessor.
 
         Args:
-            data (Union[pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data to transform.
+            data (Union[pl.DataFrame, pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data to transform.
             return_dict (bool): Whether to return a dictionary of numpy arrays.
             save_format (Optional[str]): Format to save the data if output_path is provided.
             output_path (Optional[str]): Output path to save the transformed data.
-            chunk_size (int): Number of rows per chunk when streaming from path.
         Returns:
-            Union[pd.DataFrame, Dict[str, np.ndarray], List[str]]: Transformed data or list of saved file paths.
+            Union[pl.DataFrame, Dict[str, np.ndarray], List[str]]: Transformed data or list of saved file paths.
         """
 
         if not self.is_fitted:
@@ -1369,9 +976,7 @@ class DataProcessor(FeatureSet):
                 raise ValueError(
                     "[Data Processor Error] Path transform writes files only; set return_dict=False when passing a path."
                 )
-            return self.transform_path(
-                str(data), output_path, save_format, chunk_size=chunk_size
-            )
+            return self.transform_path(str(data), output_path, save_format)
         return self.transform_in_memory(
             data=data,
             return_dict=return_dict,
@@ -1382,26 +987,24 @@ class DataProcessor(FeatureSet):
 
     def fit_transform(
         self,
-        data: Union[pd.DataFrame, Dict[str, Any], str, os.PathLike],
+        data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any], str, os.PathLike],
         return_dict: bool = True,
         save_format: Optional[str] = None,
         output_path: Optional[str] = None,
-        chunk_size: int = 200000,
     ):
         """
         Fit the DataProcessor to the provided data and then transform it.
 
         Args:
-            data (Union[pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data for fitting and transforming.
+            data (Union[pl.DataFrame, pd.DataFrame, Dict[str, Any], str, os.PathLike]): Input data for fitting and transforming.
             return_dict (bool): Whether to return a dictionary of numpy arrays.
             save_format (Optional[str]): Format to save the data if output_path is provided.
-            output_path (Optional[str]): Output path to save the transformed data.
-            chunk_size (int): Number of rows per chunk when streaming from path.
+            output_path (Optional[str]): Output path to save the data.
         Returns:
-            Union[pd.DataFrame, Dict[str, np.ndarray], List[str]]: Transformed data or list of saved file paths.
+            Union[pl.DataFrame, Dict[str, np.ndarray], List[str]]: Transformed data or list of saved file paths.
         """
 
-        self.fit(data, chunk_size=chunk_size)
+        self.fit(data)
         return self.transform(
             data,
             return_dict=return_dict,

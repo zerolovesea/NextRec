@@ -223,8 +223,7 @@ class SDM(BaseMatchModel):
             for feat in self.user_dense_features:
                 if feat.name in user_input:
                     val = user_input[feat.name].float()
-                    if val.dim() == 1:
-                        val = val.unsqueeze(1)
+                    val = val.reshape(val.size(0), -1)
                     dense_features.append(val)
             if dense_features:
                 features_list.append(torch.cat(dense_features, dim=1))

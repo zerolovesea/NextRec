@@ -9,6 +9,7 @@ import argparse
 import logging
 import subprocess
 import sys
+import os
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -61,7 +62,9 @@ def run_tests(test_type="all", verbose=True, coverage=False, markers=None):
 
     # Run tests
     try:
-        result = subprocess.run(cmd, check=False)
+        env = os.environ.copy()
+        env.setdefault("NEXTREC_TEST_MODE", "1")
+        result = subprocess.run(cmd, check=False, env=env)
         return result.returncode
     except KeyboardInterrupt:
         logger.warning("Tests interrupted by user")

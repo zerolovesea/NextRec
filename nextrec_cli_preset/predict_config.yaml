@@ -14,7 +14,7 @@ predict:
   save_data_format: csv                    # Output format: csv, parquet, feather
   preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
 
-  batch_size: 1024                          # Batch size for inference
+  batch_size: 512                           # Batch size for inference
                                            # Larger = faster but more memory
   num_workers: 4                           # Number of parallel data loading workers
                                            # 0 = single process, >0 = multiprocessing
@@ -28,6 +28,8 @@ predict:
                                            # false: load entire dataset into memory
   chunk_size: 20000                        # Chunk size for streaming mode (when streaming=true)
                                            # Adjust based on available memory
+
+  # use_onnx: false
 
 # cd nextrec_cli_preset                                           
 # nextrec --mode predict --predict_config predict_config.yaml

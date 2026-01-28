@@ -2,7 +2,7 @@
 Layer implementations used across NextRec.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 22/01/2026
+Checkpoint: edit on 25/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -79,10 +79,12 @@ class PredictionLayer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() == 1:
             x = x.unsqueeze(0)  # (1 * total_dim)
-        if x.shape[-1] != self.total_dim:
-            raise ValueError(
-                f"[PredictionLayer Error]: Input last dimension ({x.shape[-1]}) does not match expected total dimension ({self.total_dim})."
-            )
+        if not torch.onnx.is_in_onnx_export():
+            if x.shape[-1] != self.total_dim:
+                raise ValueError(
+                    f"[PredictionLayer Error]: Input last dimension ({x.shape[-1]}) does not match expected total dimension ({self.total_dim})."
+                )
+
         logits = x if self.bias is None else x + self.bias
         outputs = []
         for task_type, (start, end) in zip(self.task_types, self.task_slices):
@@ -216,7 +218,7 @@ class EmbeddingLayer(nn.Module):
 
             elif isinstance(feature, SequenceFeature):
                 seq_input = x[feature.name].long()
-                if feature.max_len is not None and seq_input.size(1) > feature.max_len:
+                if feature.max_len is not None:
                     seq_input = seq_input[:, -feature.max_len :]
 
                 embed = self.embed_dict[feature.embedding_name]
@@ -279,10 +281,11 @@ class EmbeddingLayer(nn.Module):
             value = value.view(value.size(0), -1)  # [B, input_dim]
         input_dim = feature.input_dim
         assert_input_dim = self.dense_input_dims.get(feature.name, input_dim)
-        if value.shape[1] != assert_input_dim:
-            raise ValueError(
-                f"[EmbeddingLayer Error]:Dense feature '{feature.name}' expects {assert_input_dim} inputs but got {value.shape[1]}."
-            )
+        if not torch.onnx.is_in_onnx_export():
+            if value.shape[1] != assert_input_dim:
+                raise ValueError(
+                    f"[EmbeddingLayer Error]:Dense feature '{feature.name}' expects {assert_input_dim} inputs but got {value.shape[1]}."
+                )
         if not feature.use_projection:
             return value
         dense_layer = self.dense_transforms[feature.name]
@@ -328,29 +331,10 @@ class InputMask(nn.Module):
         feature: SequenceFeature,
         seq_tensor: torch.Tensor | None = None,
     ):
-        if seq_tensor is not None:
-            values = seq_tensor
-        else:
-            values = x[feature.name]
-        values = values.long()
+        values = seq_tensor if seq_tensor is not None else x[feature.name]
+        values = values.long().view(values.size(0), -1)
         padding_idx = feature.padding_idx if feature.padding_idx is not None else 0
-        mask = values != padding_idx
-
-        if mask.dim() == 1:
-            # [B] -> [B, 1, 1]
-            mask = mask.unsqueeze(1).unsqueeze(2)
-        elif mask.dim() == 2:
-            # [B, L] -> [B, 1, L]
-            mask = mask.unsqueeze(1)
-        elif mask.dim() == 3:
-            # [B, 1, L]
-            # [B, L, 1]  -> [B, L] -> [B, 1, L]
-            if mask.size(1) != 1 and mask.size(2) == 1:
-                mask = mask.squeeze(-1).unsqueeze(1)
-        else:
-            raise ValueError(
-                f"InputMask only supports 1D/2D/3D tensors, got shape {values.shape}"
-            )
+        mask = (values != padding_idx).unsqueeze(1)
         return mask.float()
 
 
@@ -928,39 +912,22 @@ class AttentionPoolingLayer(nn.Module):
             output: [batch_size, embedding_dim] - attention pooled representation
         """
         batch_size, sequence_length, embedding_dim = keys.shape
-        assert query.shape == (
-            batch_size,
-            embedding_dim,
-        ), f"query shape {query.shape} != ({batch_size}, {embedding_dim})"
-        if mask is None and keys_length is not None:
-            # keys_length: (batch_size,)
-            device = keys.device
-            seq_range = torch.arange(sequence_length, device=device).unsqueeze(
-                0
-            )  # (1, sequence_length)
-            mask = (seq_range < keys_length.unsqueeze(1)).unsqueeze(-1).float()
-        if mask is not None:
-            if mask.dim() == 2:
-                # (B, L)
-                mask = mask.unsqueeze(-1)
-            elif (
-                mask.dim() == 3
-                and mask.shape[1] == 1
-                and mask.shape[2] == sequence_length
-            ):
-                # (B, 1, L) -> (B, L, 1)
-                mask = mask.transpose(1, 2)
-            elif (
-                mask.dim() == 3
-                and mask.shape[1] == sequence_length
-                and mask.shape[2] == 1
-            ):
-                pass
+        if mask is None:
+            if keys_length is None:
+                mask = torch.ones(
+                    (batch_size, sequence_length), device=keys.device, dtype=keys.dtype
+                )
             else:
+                device = keys.device
+                seq_range = torch.arange(sequence_length, device=device).unsqueeze(0)
+                mask = (seq_range < keys_length.unsqueeze(1)).to(keys.dtype)
+        else:
+            mask = mask.to(keys.dtype).reshape(batch_size, -1)
+            if mask.shape[1] != sequence_length:
                 raise ValueError(
                     f"[AttentionPoolingLayer Error]: Unsupported mask shape: {mask.shape}"
                 )
-            mask = mask.to(keys.dtype)
+        mask = mask.unsqueeze(-1)
         # Expand query to (B, L, D)
         query_expanded = query.unsqueeze(1).expand(-1, sequence_length, -1)
         # [query, key, query-key, query*key] -> (B, L, 4D)
@@ -1000,36 +967,3 @@ class RMSNorm(torch.nn.Module):
         variance = torch.mean(x**2, dim=-1, keepdim=True)
         x_normalized = x * torch.rsqrt(variance + self.eps)
         return self.weight * x_normalized
-
-
-class DomainBatchNorm(nn.Module):
-    """
-    Domain-specific BatchNorm (applied per-domain with a shared interface).
-    """
-
-    def __init__(self, num_features: int, num_domains: int):
-        super().__init__()
-        if num_domains < 1:
-            raise ValueError("num_domains must be >= 1")
-        self.bns = nn.ModuleList(
-            [nn.BatchNorm1d(num_features) for _ in range(num_domains)]
-        )
-
-    def forward(self, x: torch.Tensor, domain_mask: torch.Tensor) -> torch.Tensor:
-        if x.dim() != 2:
-            raise ValueError("DomainBatchNorm expects 2D inputs [B, D].")
-        output = x.clone()
-        if domain_mask.dim() == 1:
-            domain_ids = domain_mask.long()
-            for idx, bn in enumerate(self.bns):
-                mask = domain_ids == idx
-                if mask.any():
-                    output[mask] = bn(x[mask])
-            return output
-        if domain_mask.dim() != 2:
-            raise ValueError("domain_mask must be 1D indices or 2D one-hot mask.")
-        for idx, bn in enumerate(self.bns):
-            mask = domain_mask[:, idx] > 0
-            if mask.any():
-                output[mask] = bn(x[mask])
-        return output
