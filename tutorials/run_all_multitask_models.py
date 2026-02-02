@@ -56,7 +56,7 @@ from nextrec.models.multi_task.ple import PLE
 from nextrec.models.multi_task.poso import POSO
 from nextrec.models.multi_task.share_bottom import ShareBottom
 
-from nextrec.utils import generate_multitask_data
+from nextrec.utils.data import generate_multitask_data
 
 
 def train_model(

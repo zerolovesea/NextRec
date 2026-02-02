@@ -28,7 +28,7 @@ predict:
   data_path: /path/to/prediction/data
   
   # ----- Data Format Settings -----
-  source_data_format: parquet              # Input data format: csv, parquet, feather, etc.
+  source_data_format: parquet              # Input data format: csv, parquet, etc.
                                            # Use 'auto' for automatic detection
   
   # ----- Identification Settings -----
@@ -39,7 +39,7 @@ predict:
   name: pred                               # Output filename (without extension) or absolute path
                                            # Filename -> {checkpoint_path}/predictions/{name}.{save_data_format}
                                            # Absolute path -> saved directly (extension auto-added if missing)
-  save_data_format: csv                    # Output format: csv, parquet, feather
+  save_data_format: csv                    # Output format: csv, parquet
   preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
   
   # ----- Performance Settings -----
@@ -47,6 +47,9 @@ predict:
                                            # Larger = faster but more memory
   num_workers: 4                           # Number of parallel data loading workers
                                            # 0 = single process, >0 = multiprocessing
+  num_processes: 1                         # Number of inference processes for streaming
+                                           # >1 requires streaming=true and disables ONNX
+                                           # Each process loads its own model/data; memory usage increases linearly
   device: cpu                              # Computation device:
                                            # - 'cpu': CPU computation
                                            # - 'cuda': NVIDIA GPU

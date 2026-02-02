@@ -48,11 +48,11 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.data import build_eval_candidates
+from nextrec.data.data_processing import build_eval_candidates
 from nextrec.data.dataloader import RecDataLoader
 from nextrec.data.preprocessor import DataProcessor
 from nextrec.models.retrieval.dssm import DSSM
-from nextrec.utils import compute_pair_scores
+from nextrec.utils.model import compute_pair_scores
 
 # ==============================================================================
 # 1. 数据加载和特征定义

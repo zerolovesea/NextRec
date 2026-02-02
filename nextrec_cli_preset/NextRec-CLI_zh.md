@@ -60,7 +60,7 @@ session:
 
 data:
   path: /path/to/training/data         # 训练数据路径（文件或目录）
-  format: parquet                      # 数据格式：csv, parquet, feather
+  format: parquet                      # 数据格式：csv, parquet
                                        # 使用 auto 自动识别
   target: label                        # 目标列
                                        # 单任务: 'label' (字符串)
@@ -138,7 +138,7 @@ train:
 - `path`: 训练数据路径，支持：
   - 单个文件：`/path/to/data.csv` 或 `/path/to/data.parquet`
   - 目录：`/path/to/data_dir/`（自动读取目录下所有相同格式的文件）
-- `format`: 数据格式，支持 `csv`, `parquet`, `feather`, 或 `auto`
+- `format`: 数据格式，支持 `csv`, `parquet`, 或 `auto`
 - `target`: 目标列名，可以是字符串或列表
   - 单目标：`target: label`
   - 多目标：`target: [label_apply, label_credit]`
@@ -215,15 +215,16 @@ checkpoint_path: /path/to/checkpoint/directory  # 必填 checkpoint 目录
 
 predict:
   data_path: /path/to/prediction/data   # 预测数据路径
-  source_data_format: parquet           # 输入数据格式：csv, parquet, feather
+  source_data_format: parquet           # 输入数据格式：csv, parquet
                                         # 使用 auto 自动识别
   id_column: user_id                    # ID列名（可选，用于关联预测结果）
   name: pred                            # 输出文件名（不含扩展名）
                                         # 最终路径: {checkpoint_path}/predictions/{name}.{save_data_format}
-  save_data_format: csv                 # 输出格式：csv, parquet, feather
+  save_data_format: csv                 # 输出格式：csv, parquet
   preview_rows: 5                       # 预览行数（输出到日志）
   batch_size: 512                       # 预测批次大小
   num_workers: 4                        # 数据加载线程数
+  num_processes: 1                      # 流式推理的进程数
   device: cpu                           # 运行设备
   streaming: true                       # 是否启用流式加载
   chunk_size: 20000                     # 流式处理时的分块大小
@@ -243,9 +244,11 @@ predict:
 - `predict.save_data_format`: 输出格式
   - `csv`: CSV 文件
   - `parquet`: Parquet 文件
-  - `feather`: Feather 文件
 - `predict.batch_size`: 预测时的批次大小
 - `predict.num_workers`: 数据加载进程数
+- `predict.num_processes`: 流式推理的进程数
+  - `>1` 需要 `streaming=true`，且不支持 ONNX 推理
+  - 每个进程会各自加载模型/数据，内存占用近似线性增长
 - `predict.streaming`: 是否启用流式加载
   - `true`: 流式处理，适用于大数据集
   - `false`: 一次性加载到内存（小数据集）

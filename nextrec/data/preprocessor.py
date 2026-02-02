@@ -2,7 +2,7 @@
 DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
 
 Date: create on 13/11/2025
-Checkpoint: edit on 28/01/2026
+Checkpoint: edit on 29/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -29,12 +29,8 @@ from nextrec.__version__ import __version__
 from nextrec.basic.features import FeatureSet
 from nextrec.basic.loggers import colorize
 from nextrec.basic.session import get_save_path
-from nextrec.data.data_processing import hash_md5_mod
 from nextrec.utils.console import progress
 from nextrec.utils.data import (
-    FILE_FORMAT_CONFIG,
-    check_streaming_support,
-    default_output_dir,
     resolve_file_paths,
 )
 
@@ -44,32 +40,53 @@ class DataProcessor(FeatureSet):
         self,
         hash_cache_size: int = 200_000,
     ):
+        """
+        DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
+
+        Args:
+            hash_cache_size (int, optional): Cache size for string hashing. Defaults to 200,000.
+        """
         if not logging.getLogger().hasHandlers():
             logging.basicConfig(
                 level=logging.INFO,
                 format="%(message)s",
             )
-        self.numeric_features: Dict[str, Dict[str, Any]] = {}
-        self.sparse_features: Dict[str, Dict[str, Any]] = {}
-        self.sequence_features: Dict[str, Dict[str, Any]] = {}
-        self.target_features: Dict[str, Dict[str, Any]] = {}
+        self.numeric_features = {}
+        self.sparse_features = {}
+        self.sequence_features = {}
+        self.target_features = {}
         self.version = __version__
 
         self.is_fitted = False
 
-        self.scalers: Dict[str, Any] = {}
-        self.label_encoders: Dict[str, Any] = {}
-        self.target_encoders: Dict[str, Dict[str, int]] = {}
+        self.scalers = {}
+        self.label_encoders = {}
+        self.target_encoders = {}
         self.set_target_id(target=[], id_columns=[])
 
         # cache hash function
         self.hash_cache_size = int(hash_cache_size)
         if self.hash_cache_size > 0:
             self.hash_fn = functools.lru_cache(maxsize=self.hash_cache_size)(
-                hash_md5_mod
+                self.hash_string
             )
         else:
-            self.hash_fn = hash_md5_mod
+            self.hash_fn = self.hash_string
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # lru_cache wrappers on instance fields are not picklable under spawn
+        state.pop("hash_fn", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if self.hash_cache_size > 0:
+            self.hash_fn = functools.lru_cache(maxsize=self.hash_cache_size)(
+                self.hash_string
+            )
+        else:
+            self.hash_fn = self.hash_string
 
     def add_numeric_feature(
         self,
@@ -178,8 +195,10 @@ class DataProcessor(FeatureSet):
         }
         self.set_target_id(list(self.target_features.keys()), [])
 
-    def hash_string(self, s: str, hash_size: int) -> int:
-        return self.hash_fn(str(s), int(hash_size))
+    @staticmethod
+    def hash_string(value: str, hash_size: int) -> int:
+        hashed = pl.Series([value], dtype=pl.Utf8).hash().cast(pl.UInt64)
+        return int(hashed[0]) % int(hash_size)
 
     def polars_scan(self, file_paths: list[str], file_type: str):
         file_type = file_type.lower()
@@ -191,9 +210,7 @@ class DataProcessor(FeatureSet):
             f"[Data Processor Error] Polars backend only supports csv/parquet, got: {file_type}"
         )
 
-    def sequence_expr(
-        self, pl, name: str, config: Dict[str, Any], schema: Dict[str, Any]
-    ):
+    def sequence_expr(self, name: str, config: Dict[str, Any], schema: Dict[str, Any]):
         """
         generate polars expression for sequence feature processing
 
@@ -222,7 +239,7 @@ class DataProcessor(FeatureSet):
         ).list.drop_nulls()
         return seq_col
 
-    def apply_transforms(self, lf, schema: Dict[str, Any], warn_missing: bool):
+    def apply_transforms(self, lazy_frame, schema: Dict[str, Any]):
         """
         Apply all transformations to a Polars LazyFrame.
 
@@ -237,20 +254,16 @@ class DataProcessor(FeatureSet):
                 return_dtype=dtype,
             )
 
-        def ensure_present(feature_name: str, label: str) -> bool:
-            if feature_name not in schema:
-                if warn_missing:
-                    logger.warning(f"{label} feature {feature_name} not found in data")
-                return False
-            return True
-
         # Numeric features
         for name, config in self.numeric_features.items():
-            if not ensure_present(name, "Numeric"):
+            if name not in schema:
+                logger.warning(f"Numeric feature {name} not found in data")
                 continue
             scaler_type = config["scaler"]
             fill_na_value = config.get("fill_na_value", 0)
             col = pl.col(name).cast(pl.Float64).fill_null(fill_na_value)
+
+            # Apply scaling
             if scaler_type == "log":
                 col = col.clip(lower_bound=0).log1p()
             elif scaler_type == "none":
@@ -285,7 +298,8 @@ class DataProcessor(FeatureSet):
 
         # Sparse features
         for name, config in self.sparse_features.items():
-            if not ensure_present(name, "Sparse"):
+            if name not in schema:
+                logger.warning(f"Sparse feature {name} not found in data")
                 continue
             encode_method = config["encode_method"]
             fill_na = config["fill_na"]
@@ -307,7 +321,7 @@ class DataProcessor(FeatureSet):
                     low_freq = [k for k, v in token_counts.items() if v < min_freq]
                     unk_hash = config.get("_unk_hash")
                     if unk_hash is None:
-                        unk_hash = self.hash_string("<UNK>", int(hash_size))
+                        unk_hash = self.hash_fn("<UNK>", int(hash_size))
                     hash_expr = (
                         pl.when(col.is_in(low_freq))
                         .then(int(unk_hash))
@@ -318,13 +332,14 @@ class DataProcessor(FeatureSet):
 
         # Sequence features
         for name, config in self.sequence_features.items():
-            if not ensure_present(name, "Sequence"):
+            if name not in schema:
+                logger.warning(f"Sequence feature {name} not found in data")
                 continue
             encode_method = config["encode_method"]
             max_len = int(config["max_len"])
             pad_value = int(config["pad_value"])
             truncate = config["truncate"]
-            seq_col = self.sequence_expr(pl, name, config, schema)
+            seq_col = self.sequence_expr(name, config, schema)
 
             if encode_method == "label":
                 token_to_idx = config.get("_token_to_idx")
@@ -350,7 +365,7 @@ class DataProcessor(FeatureSet):
                     low_freq = [k for k, v in token_counts.items() if v < min_freq]
                     unk_hash = config.get("_unk_hash")
                     if unk_hash is None:
-                        unk_hash = self.hash_string("<UNK>", int(hash_size))
+                        unk_hash = self.hash_fn("<UNK>", int(hash_size))
                     hash_expr = (
                         pl.when(elem.is_in(low_freq))
                         .then(int(unk_hash))
@@ -368,7 +383,8 @@ class DataProcessor(FeatureSet):
 
         # Target features
         for name, config in self.target_features.items():
-            if not ensure_present(name, "Target"):
+            if name not in schema:
+                logger.warning(f"Target feature {name} not found in data")
                 continue
             target_type = config.get("target_type")
             col = pl.col(name)
@@ -390,8 +406,8 @@ class DataProcessor(FeatureSet):
             expressions.append(col.alias(name))
 
         if not expressions:
-            return lf
-        return lf.with_columns(expressions)
+            return lazy_frame
+        return lazy_frame.with_columns(expressions)
 
     def process_target_fit(
         self, data: Iterable[Any], config: Dict[str, Any], name: str
@@ -401,22 +417,18 @@ class DataProcessor(FeatureSet):
         if target_type == "binary":
             if label_map is None:
                 unique_values = {v for v in data if v is not None}
-                # Filter out None values before sorting to avoid comparison errors
                 sorted_values = sorted(v for v in unique_values if v is not None)
-                try:
-                    int_values = [int(v) for v in sorted_values]
-                    if int_values == list(range(len(int_values))):
-                        label_map = {str(val): int(val) for val in sorted_values}
-                    else:
-                        label_map = {
-                            str(val): idx for idx, val in enumerate(sorted_values)
-                        }
-                except (ValueError, TypeError):
+
+                int_values = [int(v) for v in sorted_values]
+                if int_values == list(range(len(int_values))):
+                    label_map = {str(val): int(val) for val in sorted_values}
+                else:
                     label_map = {str(val): idx for idx, val in enumerate(sorted_values)}
+
                 config["label_map"] = label_map
             self.target_encoders[name] = label_map
 
-    def polars_fit_from_lazy(self, lf, schema: Dict[str, Any]) -> "DataProcessor":
+    def fit_from_lazy(self, lazy_frame, schema: Dict[str, Any]) -> "DataProcessor":
         logger = logging.getLogger()
 
         missing_features = set()
@@ -462,7 +474,11 @@ class DataProcessor(FeatureSet):
                             col.median().alias(f"{name}__median"),
                         ]
                     )
-            stats = lf.select(agg_exprs).collect().to_dicts()[0] if agg_exprs else {}
+            stats = (
+                lazy_frame.select(agg_exprs).collect().to_dicts()[0]
+                if agg_exprs
+                else {}
+            )
         else:
             stats = {}
 
@@ -538,7 +554,7 @@ class DataProcessor(FeatureSet):
             fill_na = config["fill_na"]
             col = pl.col(name).cast(pl.Utf8).fill_null(fill_na)
             counts_df = (
-                lf.select(col.alias(name))
+                lazy_frame.select(col.alias(name))
                 .group_by(name)
                 .agg(pl.len().alias("count"))
                 .collect()
@@ -585,7 +601,7 @@ class DataProcessor(FeatureSet):
                 min_freq = config.get("min_freq")
                 if min_freq is not None:
                     config["_token_counts"] = counts
-                    config["_unk_hash"] = self.hash_string(
+                    config["_unk_hash"] = self.hash_fn(
                         "<UNK>", int(config["hash_size"])
                     )
                     low_freq_types = sum(
@@ -608,9 +624,9 @@ class DataProcessor(FeatureSet):
             if name not in schema:
                 continue
             encode_method = config["encode_method"]
-            seq_col = self.sequence_expr(pl, name, config, schema)
+            seq_col = self.sequence_expr(name, config, schema)
             tokens_df = (
-                lf.select(seq_col.alias("seq"))
+                lazy_frame.select(seq_col.alias("seq"))
                 .explode("seq")
                 .select(pl.col("seq").cast(pl.Utf8).alias("seq"))
                 .drop_nulls("seq")
@@ -661,7 +677,7 @@ class DataProcessor(FeatureSet):
                 min_freq = config.get("min_freq")
                 if min_freq is not None:
                     config["_token_counts"] = counts
-                    config["_unk_hash"] = self.hash_string(
+                    config["_unk_hash"] = self.hash_fn(
                         "<UNK>", int(config["hash_size"])
                     )
                     low_freq_types = sum(
@@ -685,7 +701,7 @@ class DataProcessor(FeatureSet):
                 continue
             if config.get("target_type") == "binary":
                 unique_vals = (
-                    lf.select(pl.col(name).drop_nulls().unique())
+                    lazy_frame.select(pl.col(name).drop_nulls().unique())
                     .collect()
                     .to_series()
                     .to_list()
@@ -715,9 +731,9 @@ class DataProcessor(FeatureSet):
             config.pop("_min_freq_logged", None)
         for config in self.sequence_features.values():
             config.pop("_min_freq_logged", None)
-        lf = self.polars_scan(file_paths, file_type)
-        schema = lf.collect_schema()
-        return self.polars_fit_from_lazy(lf, schema)
+        lazy_frame = self.polars_scan(file_paths, file_type)
+        schema = lazy_frame.collect_schema()
+        return self.fit_from_lazy(lazy_frame, schema)
 
     def fit_from_path(self, path: str) -> "DataProcessor":
         logger = logging.getLogger()
@@ -742,7 +758,6 @@ class DataProcessor(FeatureSet):
         persist: bool,
         save_format: Optional[str],
         output_path: Optional[str],
-        warn_missing: bool = True,
     ):
         logger = logging.getLogger()
 
@@ -754,16 +769,16 @@ class DataProcessor(FeatureSet):
             df = data
 
         schema = df.schema
-        lf = df.lazy()
-        lf = self.apply_transforms(lf, schema, warn_missing=warn_missing)
-        out_df = lf.collect()
+        lazy_frame = df.lazy()
+        lazy_frame = self.apply_transforms(lazy_frame, schema)
+        out_df = lazy_frame.collect()
 
         effective_format = save_format
         if persist:
             effective_format = save_format or "parquet"
 
         if persist:
-            if effective_format not in FILE_FORMAT_CONFIG:
+            if effective_format not in {"csv", "parquet"}:
                 raise ValueError(f"Unsupported save format: {effective_format}")
             if output_path is None:
                 raise ValueError(
@@ -773,14 +788,12 @@ class DataProcessor(FeatureSet):
             if output_dir.suffix:
                 output_dir = output_dir.parent
             output_dir.mkdir(parents=True, exist_ok=True)
-            suffix = FILE_FORMAT_CONFIG[effective_format]["extension"][0]
+            suffix = ".csv" if effective_format == "csv" else ".parquet"
             save_path = output_dir / f"transformed_data{suffix}"
             if effective_format == "csv":
                 out_df.write_csv(save_path)
             elif effective_format == "parquet":
                 out_df.write_parquet(save_path)
-            elif effective_format == "feather":
-                out_df.write_ipc(save_path)
             else:
                 raise ValueError(
                     f"Format '{effective_format}' is not supported by the polars-only pipeline."
@@ -814,27 +827,28 @@ class DataProcessor(FeatureSet):
         logger = logging.getLogger()
         file_paths, file_type = resolve_file_paths(input_path)
         target_format = save_format or file_type
-        if target_format not in FILE_FORMAT_CONFIG:
-            raise ValueError(f"Unsupported format: {target_format}")
-        if target_format not in {"csv", "parquet", "feather"}:
+        if target_format not in {"csv", "parquet"}:
             raise ValueError(
                 f"Format '{target_format}' is not supported by the polars-only pipeline."
             )
-        if not check_streaming_support(file_type):
+        if file_type not in {"csv", "parquet"}:
             raise ValueError(
                 f"Input format '{file_type}' does not support streaming reads. "
                 "Polars backend supports csv/parquet only."
             )
 
-        if not check_streaming_support(target_format):
-            logger.warning(
-                f"[Data Processor Warning] Format '{target_format}' does not support streaming writes. "
-                "Data will be collected in memory before saving."
-            )
-
-        base_output_dir = (
-            Path(output_path) if output_path else default_output_dir(input_path)
-        )
+        if output_path:
+            base_output_dir = Path(output_path)
+        else:
+            input_path_obj = Path(input_path)
+            if input_path_obj.is_file():
+                base_output_dir = (
+                    input_path_obj.parent / f"{input_path_obj.stem}_preprocessed"
+                )
+            else:
+                base_output_dir = input_path_obj.with_name(
+                    f"{input_path_obj.name}_preprocessed"
+                )
         if base_output_dir.suffix:
             base_output_dir = base_output_dir.parent
         output_root = base_output_dir / "transformed_data"
@@ -843,18 +857,18 @@ class DataProcessor(FeatureSet):
 
         for file_path in progress(file_paths, description="Transforming files"):
             source_path = Path(file_path)
-            suffix = FILE_FORMAT_CONFIG[target_format]["extension"][0]
+            suffix = ".csv" if target_format == "csv" else ".parquet"
             target_file = output_root / f"{source_path.stem}{suffix}"
 
-            lf = self.polars_scan([file_path], file_type)
-            schema = lf.collect_schema()
-            lf = self.apply_transforms(lf, schema, warn_missing=True)
+            lazy_frame = self.polars_scan([file_path], file_type)
+            schema = lazy_frame.collect_schema()
+            lazy_frame = self.apply_transforms(lazy_frame, schema)
 
             if target_format == "parquet":
-                lf.sink_parquet(target_file)
+                lazy_frame.sink_parquet(target_file)
             elif target_format == "csv":
                 # CSV doesn't support nested data (lists), so convert list columns to string
-                transformed_schema = lf.collect_schema()
+                transformed_schema = lazy_frame.collect_schema()
                 list_cols = [
                     name
                     for name, dtype in transformed_schema.items()
@@ -875,11 +889,12 @@ class DataProcessor(FeatureSet):
                                 + pl.lit("]")
                             ).alias(name)
                         )
-                    lf = lf.with_columns(list_exprs)
-                lf.sink_csv(target_file)
+                    lazy_frame = lazy_frame.with_columns(list_exprs)
+                lazy_frame.sink_csv(target_file)
             else:
-                df = lf.collect()
-                df.write_ipc(target_file)
+                raise ValueError(
+                    f"Format '{target_format}' is not supported by the polars-only pipeline."
+                )
             saved_paths.append(str(target_file.resolve()))
 
         logger.info(
@@ -917,9 +932,9 @@ class DataProcessor(FeatureSet):
             df = pl.from_pandas(data)
         else:
             df = data
-        lf = df.lazy()
+        lazy_frame = df.lazy()
         schema = df.schema
-        return self.polars_fit_from_lazy(lf, schema)
+        return self.fit_from_lazy(lazy_frame, schema)
 
     @overload
     def transform(
@@ -985,6 +1000,33 @@ class DataProcessor(FeatureSet):
             output_path=output_path,
         )
 
+    @overload
+    def fit_transform(
+        self,
+        data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any]],
+        return_dict: Literal[True] = True,
+        save_format: Optional[str] = None,
+        output_path: Optional[str] = None,
+    ) -> Dict[str, np.ndarray]: ...
+
+    @overload
+    def fit_transform(
+        self,
+        data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any]],
+        return_dict: Literal[False] = False,
+        save_format: Optional[str] = None,
+        output_path: Optional[str] = None,
+    ) -> pl.DataFrame: ...
+
+    @overload
+    def fit_transform(
+        self,
+        data: str | os.PathLike,
+        return_dict: Literal[False] = False,
+        save_format: Optional[str] = None,
+        output_path: Optional[str] = None,
+    ) -> list[str]: ...
+
     def fit_transform(
         self,
         data: Union[pl.DataFrame, pd.DataFrame, Dict[str, Any], str, os.PathLike],
@@ -1005,9 +1047,16 @@ class DataProcessor(FeatureSet):
         """
 
         self.fit(data)
-        return self.transform(
-            data,
+        if isinstance(data, (str, os.PathLike)):
+            if return_dict:
+                raise ValueError(
+                    "[Data Processor Error] Path transform writes files only; set return_dict=False when passing a path."
+                )
+            return self.transform_path(str(data), output_path, save_format)
+        return self.transform_in_memory(
+            data=data,
             return_dict=return_dict,
+            persist=output_path is not None,
             save_format=save_format,
             output_path=output_path,
         )

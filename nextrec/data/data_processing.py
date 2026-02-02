@@ -6,16 +6,12 @@ Checkpoint: edit on 25/12/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-import hashlib
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import torch
 import polars as pl
-
-
-from nextrec.utils.torch_utils import to_numpy
 
 
 def get_column_data(data: dict | pd.DataFrame | pl.DataFrame, name: str):
@@ -32,8 +28,7 @@ def get_column_data(data: dict | pd.DataFrame | pl.DataFrame, name: str):
 
 
 def get_data_length(data: Any) -> int | None:
-    if data is None:
-        return None
+
     if isinstance(data, pd.DataFrame):
         return len(data)
     if isinstance(data, pl.DataFrame):
@@ -43,32 +38,8 @@ def get_data_length(data: Any) -> int | None:
             return None
         sample_key = next(iter(data))
         return len(data[sample_key])
-    try:
-        return len(data)
-    except TypeError:
-        return None
-
-
-def extract_label_arrays(
-    data: Any, target_columns: list[str]
-) -> dict[str, np.ndarray] | None:
-    if not target_columns or data is None:
-        return None
-
-    if isinstance(data, (dict, pd.DataFrame)):
-        label_source = data
-    elif hasattr(data, "labels"):
-        label_source = data.labels
     else:
         return None
-
-    labels: dict[str, np.ndarray] = {}
-    for name in target_columns:
-        column = get_column_data(label_source, name)
-        if column is None:
-            continue
-        labels[name] = to_numpy(column)
-    return labels or None
 
 
 def split_dict_random(data_dict, test_size=0.2, random_state=None):
@@ -202,8 +173,3 @@ def get_user_ids(
             return arr.reshape(arr.shape[0])
 
     return None
-
-
-def hash_md5_mod(value: str, hash_size: int) -> int:
-    digest = hashlib.md5(value.encode("utf-8")).digest()
-    return int.from_bytes(digest, byteorder="big", signed=False) % hash_size

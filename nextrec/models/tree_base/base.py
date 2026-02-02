@@ -28,7 +28,6 @@ from nextrec.basic.session import create_session, get_save_path
 from nextrec.data.dataloader import RecDataLoader
 from nextrec.data.data_processing import get_column_data
 from nextrec.utils.console import display_metrics_table
-from nextrec.utils.data import FILE_FORMAT_CONFIG, check_streaming_support
 from nextrec.utils.torch_utils import to_list
 from nextrec.utils.torch_utils import to_numpy
 
@@ -454,7 +453,7 @@ class TreeBaseModel(FeatureSet):
         stream_chunk_size: int = 10000,
         num_workers: int = 0,
     ) -> pd.DataFrame | np.ndarray | Path | None:
-        del batch_size, num_workers  # not used for tree models
+        del batch_size  # not used for tree models
 
         if self.model is None:
             raise ValueError(f"[{self.model_name}-predict Error] Model is not loaded.")
@@ -472,6 +471,7 @@ class TreeBaseModel(FeatureSet):
                 include_ids=include_ids,
                 stream_chunk_size=stream_chunk_size,
                 id_columns=predict_id_columns,
+                num_workers=num_workers,
             )
 
         if isinstance(data, (str, os.PathLike)):
@@ -508,12 +508,13 @@ class TreeBaseModel(FeatureSet):
             output = pred_df if return_dataframe else y_pred
 
         if save_path is not None:
-            suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
+            if save_format not in {"csv", "parquet"}:
+                raise ValueError(f"Unsupported save format: {save_format}")
             target_path = get_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
                 default_name="predictions",
-                suffix=suffix,
+                suffix=f".{save_format}",
                 add_timestamp=True if save_path is None else False,
             )
             if isinstance(output, pd.DataFrame):
@@ -527,12 +528,6 @@ class TreeBaseModel(FeatureSet):
                 df_to_save.to_csv(target_path, index=False)
             elif save_format == "parquet":
                 df_to_save.to_parquet(target_path, index=False)
-            elif save_format == "feather":
-                df_to_save.to_feather(target_path)
-            elif save_format == "excel":
-                df_to_save.to_excel(target_path, index=False)
-            elif save_format == "hdf5":
-                df_to_save.to_hdf(target_path, key="predictions", mode="w")
             else:
                 raise ValueError(f"Unsupported save format: {save_format}")
             logging.info(f"Predictions saved to: {target_path}")
@@ -546,6 +541,7 @@ class TreeBaseModel(FeatureSet):
         include_ids: bool,
         stream_chunk_size: int,
         id_columns: list[str] | None,
+        num_workers: int = 0,
     ) -> Path:
         if isinstance(data, (str, os.PathLike)):
             rec_loader = RecDataLoader(
@@ -561,25 +557,27 @@ class TreeBaseModel(FeatureSet):
                 shuffle=False,
                 streaming=True,
                 chunk_size=stream_chunk_size,
+                num_workers=num_workers,
             )
         else:
             data_loader = data
 
-        if not check_streaming_support(save_format):
+        if save_format.lower() not in {"csv", "parquet"}:
             logging.warning(
                 f"[{self.model_name}-predict Warning] Format '{save_format}' does not support streaming writes."
             )
 
-        suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
+        if save_format not in {"csv", "parquet"}:
+            raise ValueError(f"Unsupported save format: {save_format}")
         target_path = get_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
             default_name="predictions",
-            suffix=suffix,
+            suffix=f".{save_format}",
             add_timestamp=True if save_path is None else False,
         )
 
-        header_written = False
+        header_written = target_path.exists()
         parquet_writer = None
         collected_frames: list[pd.DataFrame] = []
         id_column = id_columns[0] if id_columns else None
@@ -595,6 +593,7 @@ class TreeBaseModel(FeatureSet):
                 pred_df.to_csv(
                     target_path, mode="a", header=not header_written, index=False
                 )
+                header_written = True
             elif save_format == "parquet":
                 try:
                     import pyarrow as pa
@@ -609,19 +608,11 @@ class TreeBaseModel(FeatureSet):
                 parquet_writer.write_table(table)
             else:
                 collected_frames.append(pred_df)
-            header_written = True
         if parquet_writer is not None:
             parquet_writer.close()
         if collected_frames:
             combined_df = pd.concat(collected_frames, ignore_index=True)
-            if save_format == "feather":
-                combined_df.to_feather(target_path)
-            elif save_format == "excel":
-                combined_df.to_excel(target_path, index=False)
-            elif save_format == "hdf5":
-                combined_df.to_hdf(target_path, key="predictions", mode="w")
-            else:
-                raise ValueError(f"Unsupported save format: {save_format}")
+            raise ValueError(f"Unsupported save format: {save_format}")
         return target_path
 
     def save_model(self, save_path: str | os.PathLike | None = None) -> Path:

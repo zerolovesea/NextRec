@@ -2,36 +2,25 @@
 Model-related utilities for NextRec
 
 Date: create on 03/12/2025
-Checkpoint: edit on 31/12/2025
+Checkpoint: edit on 31/01/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
-
-from collections import OrderedDict
 
 import torch
 import torch.nn as nn
 
-from nextrec.loss import (
+from nextrec.loss.listwise import (
     ApproxNDCGLoss,
-    BPRLoss,
-    HingeLoss,
     ListMLELoss,
     ListNetLoss,
     SampledSoftmaxLoss,
-    TripletLoss,
 )
+from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 
 from nextrec.utils.types import (
     LossName,
     TrainingModeName,
 )
-
-
-def merge_features(primary, secondary) -> list:
-    merged: OrderedDict[str, object] = OrderedDict()
-    for feat in list(primary or []) + list(secondary or []):
-        merged.setdefault(feat.name, feat)
-    return list(merged.values())
 
 
 def get_mlp_output_dim(params: dict, fallback: int) -> int:
@@ -46,6 +35,8 @@ def select_features(
     names: list[str],
     param_name: str,
 ) -> list:
+    """select features by names from available features."""
+
     if not names:
         return []
 

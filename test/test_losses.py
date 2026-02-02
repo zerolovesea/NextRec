@@ -3,14 +3,11 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.model import BaseModel
-from nextrec.loss import (
-    BPRLoss,
+from nextrec.loss.listwise import ListNetLoss, SampledSoftmaxLoss
+from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
+from nextrec.loss.pointwise import (
     ClassBalancedFocalLoss,
     FocalLoss,
-    HingeLoss,
-    ListNetLoss,
-    SampledSoftmaxLoss,
-    TripletLoss,
     WeightedBCELoss,
 )
 from nextrec.utils.loss import get_loss_fn

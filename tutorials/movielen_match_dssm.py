@@ -51,9 +51,8 @@ import pandas as pd
 from nextrec.data.preprocessor import DataProcessor
 from nextrec.basic.features import DenseFeature, SparseFeature
 from nextrec.models.retrieval.dssm import DSSM
-from nextrec.utils import compute_pair_scores
-
-from nextrec.data import build_eval_candidates
+from nextrec.utils.model import compute_pair_scores
+from nextrec.data.data_processing import build_eval_candidates
 
 # ==============================================================================
 # 1. 数据加载

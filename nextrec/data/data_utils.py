@@ -15,9 +15,7 @@ from nextrec.data.data_processing import (
     split_dict_random,
 )
 from nextrec.utils.data import (
-    default_output_dir,
     iter_file_chunks,
-    load_dataframes,
     read_table,
     resolve_file_paths,
 )
@@ -36,6 +34,4 @@ __all__ = [
     "resolve_file_paths",
     "iter_file_chunks",
     "read_table",
-    "load_dataframes",
-    "default_output_dir",
 ]
