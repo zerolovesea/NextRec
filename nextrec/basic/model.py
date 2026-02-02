@@ -1707,7 +1707,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if (
             save_path is not None
             and not return_dataframe
-            and isinstance(data, (str, os.PathLike))
+            and isinstance(data, (str, os.PathLike, DataLoader))
         ):
             if num_processes > 1 and not isinstance(data, (str, os.PathLike)):
                 raise ValueError(
