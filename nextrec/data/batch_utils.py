@@ -64,7 +64,7 @@ def collate_fn(batch):
     first = batch[0]
     if isinstance(first, dict) and "features" in first:
         # Streaming dataset yields already-batched chunks; avoid adding an extra dim.
-        if first.get("_already_batched") and len(batch) == 1:
+        if first.get("stream_mode") and len(batch) == 1:
             return {
                 "features": first.get("features", {}),
                 "labels": first.get("labels"),

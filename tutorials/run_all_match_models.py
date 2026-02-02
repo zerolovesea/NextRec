@@ -41,7 +41,8 @@ from nextrec.models.retrieval.dssm import DSSM
 from nextrec.models.retrieval.youtube_dnn import YoutubeDNN
 from nextrec.models.retrieval.mind import MIND
 
-from nextrec.utils import compute_pair_scores, generate_match_data
+from nextrec.utils.model import compute_pair_scores
+from nextrec.utils.data import generate_match_data
 
 
 def train_model(

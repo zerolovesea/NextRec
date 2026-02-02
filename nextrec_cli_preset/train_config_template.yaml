@@ -15,7 +15,7 @@ data:
   path: /path/to/training/data                         # Training data path (file or directory)
   
   # ----- Data Format Settings -----
-  format: parquet                                      # Data format: csv, parquet, feather
+  format: parquet                                      # Data format: csv, parquet
                                                        # Use 'auto' for automatic detection
   
   # ----- Target Configuration -----

@@ -13,10 +13,13 @@ import logging
 from typing import Any, Literal
 
 import numpy as np
+import pandas as pd
+import polars as pl
 from torch.utils.data import DataLoader
 
 from nextrec.basic.loggers import colorize, format_kv
-from nextrec.data.data_processing import extract_label_arrays, get_data_length
+from nextrec.data.data_processing import get_column_data, get_data_length
+from nextrec.utils.torch_utils import to_numpy
 from nextrec.utils.types import TaskTypeName
 
 
@@ -82,9 +85,23 @@ class SummarySet:
         if train_size is None:
             train_size = get_data_length(data)
 
-        labels = extract_label_arrays(dataset, self.target_columns)
-        if labels is None:
-            labels = extract_label_arrays(data, self.target_columns)
+        labels = None
+        if self.target_columns:
+            for source in (dataset, data):
+                if source is None:
+                    continue
+                label_source = source.labels if hasattr(source, "labels") else source  # type: ignore
+                if not isinstance(label_source, (dict, pd.DataFrame, pl.DataFrame)):
+                    continue
+                label_map = {}
+                for name in self.target_columns:
+                    column = get_column_data(label_source, name)  # type: ignore
+                    if column is None:
+                        continue
+                    label_map[name] = to_numpy(column)
+                labels = label_map or None
+                if labels:
+                    break
 
         summary = {}
         if train_size is not None:

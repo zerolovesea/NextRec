@@ -181,7 +181,7 @@ model.fit(
     train_data=train_df,
     # valid_data=valid_df,  # 可选:传入验证集进行验证
     metrics=["auc", "gauc", "logloss"],  # 评估指标: AUC、GAUC(分组AUC)、对数损失
-    epochs=5,  # 训练轮数
+    epochs=2,  # 训练轮数
     batch_size=512,  # 批次大小
     shuffle=True,  # 是否打乱训练数据
     user_id_column="user_id",  # 指定用户ID列,用于计算 GAUC

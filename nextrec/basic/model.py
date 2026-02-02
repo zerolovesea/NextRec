@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 25/01/2026
+Checkpoint: edit on 01/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -13,20 +13,18 @@ import os
 import sys
 import pickle
 import socket
+import multiprocessing as mp
 from pathlib import Path
 from typing import Any, Literal, cast, overload
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import polars as pl
+import swanlab
+import wandb
 
-try:
-    import swanlab  # type: ignore
-except ModuleNotFoundError:
-    swanlab = None
-try:
-    import wandb  # type: ignore
-except ModuleNotFoundError:
-    wandb = None
 
 import torch
 import torch.distributed as dist
@@ -65,15 +63,9 @@ from nextrec.data.dataloader import (
     TensorDictDataset,
     build_tensors_from_data,
 )
-from nextrec.utils.data import check_streaming_support
-from nextrec.loss import (
-    BPRLoss,
-    GradNormLossWeighting,
-    HingeLoss,
-    InfoNCELoss,
-    SampledSoftmaxLoss,
-    TripletLoss,
-)
+from nextrec.loss.grad_norm import GradNormLossWeighting
+from nextrec.loss.listwise import InfoNCELoss, SampledSoftmaxLoss
+from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.utils.loss import get_loss_fn
 from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.console import display_metrics_table, progress
@@ -110,8 +102,6 @@ from nextrec.utils.types import (
     TaskTypeInput,
     MetricsName,
 )
-
-from nextrec.utils.data import FILE_FORMAT_CONFIG
 
 
 class BaseModel(SummarySet, FeatureSet, nn.Module):
@@ -1619,14 +1609,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     )
                 )
             return {}
-        # if self.is_main_process:
-        #     logging.info(
-        #         colorize(
-        #             format_kv(
-        #                 "Evaluation samples", y_true_all.shape[0]
-        #             ),
-        #         )
-        #     )
+
         logging.info("")
         metrics_dict = evaluate_metrics(
             y_true=y_true_all,
@@ -1643,106 +1626,141 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
     @overload
     def predict(
         self,
-        data: str | dict | pd.DataFrame | DataLoader,
+        data: str | os.PathLike | DataLoader,
         batch_size: int = 32,
         save_path: str | os.PathLike | None = None,
         save_format: str = "csv",
-        include_ids: bool | None = None,
-        id_columns: str | list[str] | None = None,
         return_dataframe: Literal[True] = True,
         stream_chunk_size: int = 10000,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
     ) -> pd.DataFrame: ...
 
     @overload
     def predict(
         self,
-        data: str | dict | pd.DataFrame | DataLoader,
+        data: str | os.PathLike | DataLoader,
         batch_size: int = 32,
         save_path: None = None,
         save_format: str = "csv",
-        include_ids: bool | None = None,
-        id_columns: str | list[str] | None = None,
         return_dataframe: Literal[False] = False,
         stream_chunk_size: int = 10000,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
     ) -> np.ndarray: ...
 
     @overload
     def predict(
         self,
-        data: str | dict | pd.DataFrame | DataLoader,
+        data: str | os.PathLike | dict | pd.DataFrame | DataLoader,
         batch_size: int = 32,
         *,
         save_path: str | os.PathLike,
         save_format: str = "csv",
-        include_ids: bool | None = None,
-        id_columns: str | list[str] | None = None,
         return_dataframe: Literal[False] = False,
         stream_chunk_size: int = 10000,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
     ) -> Path: ...
 
     def predict(
         self,
-        data: str | dict | pd.DataFrame | DataLoader,
+        data: str | os.PathLike | dict | pd.DataFrame | DataLoader,
         batch_size: int = 32,
         save_path: str | os.PathLike | None = None,
         save_format: str = "csv",
-        include_ids: bool | None = None,
-        id_columns: str | list[str] | None = None,
         return_dataframe: bool = True,
         stream_chunk_size: int = 10000,
         num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
     ) -> pd.DataFrame | np.ndarray | Path | None:
         """
         Make predictions on the given data.
 
         Args:
-            data: Input data for prediction (file path, dict, DataFrame, or DataLoader).
+            data: Input data for prediction (file path or DataLoader).
             batch_size: Batch size for prediction (per process when distributed).
             save_path: Optional path to save predictions; if None, predictions are not saved to disk.
             save_format: Format to save predictions ('csv' or 'parquet').
-            include_ids: Whether to include ID columns in the output; if None, includes if id_columns are set.
-            id_columns: Column name(s) to use as IDs; if None, uses model's id_columns.
             return_dataframe: Whether to return predictions as a pandas DataFrame; if False, returns a NumPy array.
             stream_chunk_size: Number of rows per chunk when using streaming mode for large datasets.
             num_workers: DataLoader worker count.
+            prefetch_factor: Number of batches prefetched per worker (only when num_workers > 0).
+            num_processes: Number of inference processes for streaming file inference.
+            processor: Optional DataProcessor for transforming input data.
 
         Note:
-            predict does not support distributed mode currently, consider it as a single-process operation.
+            predict does not support distributed mode currently; streaming file inference can use
+            multiple processes via num_processes > 1, which may change output order.
         """
         self.eval()
-        # Use prediction-time id_columns if provided, otherwise fall back to model's id_columns
-        predict_id_columns = id_columns if id_columns is not None else self.id_columns
-        if isinstance(predict_id_columns, str):
-            predict_id_columns = [predict_id_columns]
 
-        if include_ids is None:
-            include_ids = bool(predict_id_columns)
-        include_ids = include_ids and bool(predict_id_columns)
-
-        # Use streaming mode for large file saves without loading all data into memory
-        if save_path is not None and not return_dataframe:
+        # streaming mode prediction
+        if (
+            save_path is not None
+            and not return_dataframe
+            and isinstance(data, (str, os.PathLike))
+        ):
+            if num_processes > 1 and not isinstance(data, (str, os.PathLike)):
+                raise ValueError(
+                    "[BaseModel-predict Error] Multi-process streaming requires data to be a file path."
+                )
+            if num_workers != 0:
+                logging.info(
+                    "[BaseModel-predict-streaming Info] Streaming mode enforces num_workers=0."
+                )
+                logging.info("")
             return self.predict_streaming(
                 data=data,
                 batch_size=batch_size,
                 save_path=save_path,
                 save_format=save_format,
-                include_ids=include_ids,
                 stream_chunk_size=stream_chunk_size,
                 return_dataframe=return_dataframe,
-                id_columns=predict_id_columns,
+                num_workers=0,
+                num_processes=num_processes,
+                processor=processor,
             )
 
-        # Create DataLoader based on data type
+        return self.predict_in_memory(
+            data=data,
+            batch_size=batch_size,
+            save_path=save_path,
+            save_format=save_format,
+            return_dataframe=return_dataframe,
+            stream_chunk_size=stream_chunk_size,
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
+            processor=processor,
+        )
+
+    def predict_in_memory(
+        self,
+        data: str | os.PathLike | dict | pd.DataFrame | DataLoader,
+        batch_size: int = 32,
+        save_path: str | os.PathLike | None = None,
+        save_format: str = "csv",
+        return_dataframe: bool = True,
+        stream_chunk_size: int = 10000,
+        num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        processor: Any | None = None,
+    ) -> pd.DataFrame | np.ndarray | Path | None:
+
+        predict_id_columns = self.id_columns
+        if isinstance(predict_id_columns, str):
+            predict_id_columns = [predict_id_columns]
+        include_ids = bool(predict_id_columns)
         if isinstance(data, DataLoader):
             data_loader = data
-            if num_workers != 0:
-                logging.warning(
-                    "[Predict Warning] num_workers parameter is ignored when data is already a DataLoader. "
-                    "The DataLoader's existing num_workers configuration will be used."
-                )
         elif isinstance(data, (str, os.PathLike)):
             rec_loader = RecDataLoader(
                 dense_features=self.dense_features,
@@ -1750,6 +1768,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 sequence_features=self.sequence_features,
                 target=self.target_columns,
                 id_columns=predict_id_columns,
+                processor=processor,
             )
             data_loader = rec_loader.create_dataloader(
                 data=data,
@@ -1757,6 +1776,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 shuffle=False,
                 streaming=True,
                 chunk_size=stream_chunk_size,
+                num_workers=0,
+                prefetch_factor=prefetch_factor,
             )
         else:
             data_loader = self.prepare_data_loader(
@@ -1834,23 +1855,16 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 else y_pred_all
             )
         if save_path is not None:
-            # Check streaming write support
-            if not check_streaming_support(save_format):
-                logging.warning(
-                    f"[BaseModel-predict Warning] Format '{save_format}' does not support streaming writes. "
-                    "The entire result will be saved at once. Use csv or parquet for large datasets."
+            if save_format not in {"csv", "parquet"}:
+                raise ValueError(
+                    f"Unsupported save format: {save_format}. "
+                    "Supported: csv, parquet"
                 )
-
-            # Get file extension from format
-            from nextrec.utils.data import FILE_FORMAT_CONFIG
-
-            suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
-
             target_path = get_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
                 default_name="predictions",
-                suffix=suffix,
+                suffix=f".{save_format}",
                 add_timestamp=True if save_path is None else False,
             )
             if isinstance(output, pd.DataFrame):
@@ -1870,12 +1884,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 df_to_save.to_csv(target_path, index=False)
             elif save_format == "parquet":
                 df_to_save.to_parquet(target_path, index=False)
-            elif save_format == "feather":
-                df_to_save.to_feather(target_path)
-            elif save_format == "excel":
-                df_to_save.to_excel(target_path, index=False)
-            elif save_format == "hdf5":
-                df_to_save.to_hdf(target_path, key="predictions", mode="w")
             else:
                 raise ValueError(f"Unsupported save format: {save_format}")
 
@@ -1886,37 +1894,64 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
     def predict_streaming(
         self,
-        data: str | dict | pd.DataFrame | DataLoader,
+        data: str | os.PathLike | DataLoader,
         batch_size: int,
         save_path: str | os.PathLike,
         save_format: str,
-        include_ids: bool,
         stream_chunk_size: int,
         return_dataframe: bool,
-        id_columns: list[str] | None = None,
+        num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
+        shard_rank: int = 0,
+        shard_count: int = 1,
     ):
         """
         Make predictions on the given data using streaming mode for large datasets.
 
         Args:
-            data: Input data for prediction (file path, dict, DataFrame, or DataLoader).
+            data: Input data for prediction (file path or DataLoader).
             batch_size: Batch size for prediction.
             save_path: Path to save predictions.
             save_format: Format to save predictions ('csv' or 'parquet').
-            include_ids: Whether to include ID columns in the output.
             stream_chunk_size: Number of rows per chunk when using streaming mode.
             return_dataframe: Whether to return predictions as a pandas DataFrame.
-            id_columns: Column name(s) to use as IDs; if None, uses model's id_columns.
-        Note:
-            This method uses streaming writes to handle large datasets without loading all data into memory.
+            num_workers: DataLoader worker count.
+            prefetch_factor: Number of batches prefetched per worker (only when num_workers > 0).
+            num_processes: Number of inference processes for streaming file inference.
+            processor: Optional DataProcessor for transforming input data.
+            shard_rank: Process shard rank for multi-process inference.
+            shard_count: Total number of shards for multi-process inference.
         """
+        predict_id_columns = self.id_columns
+        if isinstance(predict_id_columns, str):
+            predict_id_columns = [predict_id_columns]
+        include_ids = bool(predict_id_columns)
+
+        # Multi-process streaming
+        if num_processes > 1:
+            return self.predict_streaming_multiprocess(
+                data=data,
+                batch_size=batch_size,
+                save_path=save_path,
+                save_format=save_format,
+                stream_chunk_size=stream_chunk_size,
+                return_dataframe=return_dataframe,
+                num_workers=num_workers,
+                prefetch_factor=None,  # disable prefetching in multi-process mode
+                num_processes=num_processes,
+                processor=processor,
+            )
+        # Single-process streaming
         if isinstance(data, (str, os.PathLike)):
             rec_loader = RecDataLoader(
                 dense_features=self.dense_features,
                 sparse_features=self.sparse_features,
                 sequence_features=self.sequence_features,
                 target=self.target_columns,
-                id_columns=id_columns,
+                id_columns=predict_id_columns,
+                processor=processor,
             )
             data_loader = rec_loader.create_dataloader(
                 data=data,
@@ -1924,53 +1959,41 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 shuffle=False,
                 streaming=True,
                 chunk_size=stream_chunk_size,
+                num_workers=num_workers,
+                prefetch_factor=None if num_workers == 0 else prefetch_factor,
+                shard_rank=shard_rank,
+                shard_count=shard_count,
             )
         elif not isinstance(data, DataLoader):
-            data_loader = self.prepare_data_loader(
-                data,
-                batch_size=batch_size,
-                shuffle=False,
+            raise TypeError(
+                "[BaseModel-predict-streaming Error] data must be a file path or a DataLoader."
             )
-        else:
+        else:  # data is a DataLoader
             data_loader = data
 
-            if hasattr(data_loader, "num_workers") and data_loader.num_workers > 0:
-                if (
-                    hasattr(data_loader.dataset, "__class__")
-                    and "Streaming" in data_loader.dataset.__class__.__name__
-                ):
-                    logging.warning(
-                        f"[Predict Streaming Warning] Detected DataLoader with num_workers={data_loader.num_workers} "
-                        "and streaming dataset. This may cause data duplication! "
-                        "When using streaming mode, set num_workers=0 to avoid reading data multiple times."
-                    )
-
-        # Check streaming support and prepare file path
-        if not check_streaming_support(save_format):
-            logging.warning(
-                f"[Predict Streaming Warning] Format '{save_format}' does not support streaming writes. "
-                "Results will be collected in memory and saved at the end. Use csv or parquet for true streaming."
+        if save_format not in {"csv", "parquet"}:
+            raise ValueError(
+                f"Unsupported save format: {save_format}. Supported: csv, parquet"
             )
-
-        suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
-
         target_path = get_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
             default_name="predictions",
-            suffix=suffix,
+            suffix=f".{save_format}",
             add_timestamp=True if save_path is None else False,
         )
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        header_written = target_path.exists() and target_path.stat().st_size > 0
+        header_written = target_path.exists()
         parquet_writer = None
-        pred_columns = None
-        collected_frames = (
-            []
-        )  # used when return_dataframe=True or for non-streaming formats
 
+        pred_columns = None
+        cached_frames = []  # used when return_dataframe=True
+
+        disable_progress = shard_count > 1
         with torch.no_grad():
-            for batch_data in progress(data_loader, description="Predicting"):
+            for batch_data in progress(
+                data_loader, description="Predicting", disable=disable_progress
+            ):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 y_pred = self.forward(X_input)
@@ -1989,14 +2012,18 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     while len(pred_columns) < num_outputs:
                         pred_columns.append(f"pred_{len(pred_columns)}")
 
-                ids = batch_dict.get("ids") if include_ids and id_columns else None
+                ids = (
+                    batch_dict.get("ids")
+                    if include_ids and predict_id_columns
+                    else None
+                )
                 id_arrays_batch = {
                     id_name: (
                         ids[id_name].detach().cpu().numpy()
                         if isinstance(ids[id_name], torch.Tensor)
                         else np.asarray(ids[id_name])
                     ).reshape(-1)
-                    for id_name in (id_columns or [])
+                    for id_name in (predict_id_columns or [])
                     if ids and id_name in ids
                 }
 
@@ -2015,46 +2042,121 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         target_path, mode="a", header=not header_written, index=False
                     )
                     header_written = True
+                    if return_dataframe:
+                        cached_frames.append(df_batch)
                 elif save_format == "parquet":
-                    try:
-                        import pyarrow as pa
-                        import pyarrow.parquet as pq
-                    except ImportError as exc:  # pragma: no cover
-                        raise ImportError(
-                            "[BaseModel-predict-streaming Error] Parquet streaming save requires pyarrow."
-                        ) from exc
                     table = pa.Table.from_pandas(df_batch, preserve_index=False)
                     if parquet_writer is None:
                         parquet_writer = pq.ParquetWriter(target_path, table.schema)
                     parquet_writer.write_table(table)
+                    if return_dataframe:
+                        cached_frames.append(df_batch)
                 else:
                     # Non-streaming formats: collect all data
-                    collected_frames.append(df_batch)
-
-                if return_dataframe and save_format in ["csv", "parquet"]:
-                    collected_frames.append(df_batch)
+                    cached_frames.append(df_batch)
 
         # Close writers
         if parquet_writer is not None:
             parquet_writer.close()
-        # For non-streaming formats, save collected data
-        if save_format in ["feather", "excel", "hdf5"] and collected_frames:
-            combined_df = pd.concat(collected_frames, ignore_index=True)
-            if save_format == "feather":
-                combined_df.to_feather(target_path)
-            elif save_format == "excel":
-                combined_df.to_excel(target_path, index=False)
-            elif save_format == "hdf5":
-                combined_df.to_hdf(target_path, key="predictions", mode="w")
 
         logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         if return_dataframe:
             return (
-                pd.concat(collected_frames, ignore_index=True)
-                if collected_frames
+                pd.concat(cached_frames, ignore_index=True)
+                if cached_frames
                 else pd.DataFrame(columns=pred_columns or [])
             )
         # Return the actual save path when not returning dataframe
+        return target_path
+
+    def predict_streaming_multiprocess(
+        self,
+        data: str | os.PathLike | DataLoader,
+        batch_size: int,
+        save_path: str | os.PathLike,
+        save_format: str,
+        stream_chunk_size: int,
+        return_dataframe: bool,
+        num_workers: int,
+        prefetch_factor: int | None,
+        num_processes: int,
+        processor: Any | None,
+    ):
+        target_path = Path(
+            get_save_path(
+                path=save_path,
+                default_dir=self.session.predictions_dir,
+                default_name="predictions",
+                suffix=f".{save_format}",
+                add_timestamp=True if save_path is None else False,
+            )
+        )
+        parts_dir = target_path.parent / f".{target_path.stem}_parts"
+        parts_dir.mkdir(parents=True, exist_ok=True)
+        part_paths = [
+            parts_dir / f"{target_path.stem}.part{rank}{target_path.suffix}"
+            for rank in range(num_processes)
+        ]
+
+        ctx = mp.get_context("spawn")
+        processes = []
+        for rank in range(num_processes):
+            process = ctx.Process(
+                target=predict_streaming_worker,
+                args=(
+                    self,
+                    data,
+                    batch_size,
+                    part_paths[rank],
+                    save_format,
+                    stream_chunk_size,
+                    num_workers,
+                    prefetch_factor,
+                    processor,
+                    rank,
+                    num_processes,
+                ),
+            )
+            process.start()
+            processes.append(process)
+
+        for process in progress(
+            iter(processes), description="Predicting...", total=None
+        ):
+            process.join()
+
+        for process in processes:
+            if process.exitcode not in (0, None):
+                raise RuntimeError(
+                    "[BaseModel-predict-streaming Error] One or more inference processes failed."
+                )
+        # Merge part files
+        existing_parts = [p for p in part_paths if p.exists()]
+        if existing_parts:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if save_format == "csv":
+                lazy_frames = [pl.scan_csv(p) for p in existing_parts]
+                pl.concat(lazy_frames).sink_csv(target_path)
+            elif save_format == "parquet":
+                lazy_frames = [pl.scan_parquet(p) for p in existing_parts]
+                pl.concat(lazy_frames).sink_parquet(target_path)
+            else:
+                raise ValueError(
+                    f"Unsupported save format: {save_format}. Supported: csv, parquet"
+                )
+
+        for part_path in part_paths:
+            if part_path.exists():
+                part_path.unlink()
+        if parts_dir.exists() and not any(parts_dir.iterdir()):
+            parts_dir.rmdir()
+
+        logging.info(
+            colorize(
+                f"Predictions saved to: {target_path} (merged from {num_processes} parts)",
+                color="green",
+            )
+        )
         return target_path
 
     def prepare_onnx_dataloader(
@@ -2074,11 +2176,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         """
         if isinstance(data, DataLoader):
-            if num_workers != 0:
-                logging.warning(
-                    "[Predict ONNX Warning] num_workers parameter is ignored when data is already a DataLoader. "
-                    "The DataLoader's existing num_workers configuration will be used."
-                )
             return data
         # if data is a file path, use streaming DataLoader
         # will set batch_size=1 cause each batch is a file chunk
@@ -2366,18 +2463,16 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             output = df_to_return
 
         if save_path is not None:
-            if not check_streaming_support(save_format):
-                logging.warning(
-                    f"[BaseModel-predict-onnx Warning] Format '{save_format}' does not support streaming writes. "
-                    "The entire result will be saved at once. Use csv or parquet for large datasets."
+            if save_format not in {"csv", "parquet"}:
+                raise ValueError(
+                    f"Unsupported save format: {save_format}. "
+                    "Supported: csv, parquet"
                 )
-
-            suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
             target_path = get_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
                 default_name="predictions",
-                suffix=suffix,
+                suffix=f".{save_format}",
             )
             if return_dataframe and isinstance(output, pd.DataFrame):
                 df_to_save = output
@@ -2390,12 +2485,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 df_to_save.to_csv(target_path, index=False)
             elif save_format == "parquet":
                 df_to_save.to_parquet(target_path, index=False)
-            elif save_format == "feather":
-                df_to_save.to_feather(target_path)
-            elif save_format == "excel":
-                df_to_save.to_excel(target_path, index=False)
-            elif save_format == "hdf5":
-                df_to_save.to_hdf(target_path, key="predictions", mode="w")
             else:
                 raise ValueError(f"Unsupported save format: {save_format}")
             logging.info(
@@ -2432,24 +2521,21 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_workers=num_workers,
         )
 
-        if not check_streaming_support(save_format):
-            logging.warning(
-                f"[Predict ONNX Streaming Warning] Format '{save_format}' does not support streaming writes. "
-                "Results will be collected in memory and saved at the end. Use csv or parquet for true streaming."
+        if save_format not in {"csv", "parquet"}:
+            raise ValueError(
+                f"Unsupported save format: {save_format}. " "Supported: csv, parquet"
             )
-
-        suffix = FILE_FORMAT_CONFIG[save_format]["extension"][0]
         target_path = get_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
             default_name="predictions",
-            suffix=suffix,
+            suffix=f".{save_format}",
             add_timestamp=False,
         )
         header_written = target_path.exists() and target_path.stat().st_size > 0
         parquet_writer = None
         pred_columns = None
-        collected_frames = []
+        cached_frames = []
 
         for batch_data in progress(data_loader, description="Predicting (ONNX)"):
             batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
@@ -2514,7 +2600,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
             should_collect = return_dataframe or save_format not in {"csv", "parquet"}
             if should_collect:
-                collected_frames.append(df_batch)
+                cached_frames.append(df_batch)
 
             if save_format == "csv":
                 df_batch.to_csv(
@@ -2538,20 +2624,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if parquet_writer is not None:
             parquet_writer.close()
 
-        if save_format in ["feather", "excel", "hdf5"] and collected_frames:
-            combined_df = pd.concat(collected_frames, ignore_index=True)
-            if save_format == "feather":
-                combined_df.to_feather(target_path)
-            elif save_format == "excel":
-                combined_df.to_excel(target_path, index=False)
-            elif save_format == "hdf5":
-                combined_df.to_hdf(target_path, key="predictions", mode="w")
-
         logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         if return_dataframe:
             return (
-                pd.concat(collected_frames, ignore_index=True)
-                if collected_frames
+                pd.concat(cached_frames, ignore_index=True)
+                if cached_frames
                 else pd.DataFrame(columns=pred_columns or [])
             )
         return target_path
@@ -2736,6 +2813,36 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         )
         model.load_model(model_file, map_location=map_location, verbose=verbose)
         return model
+
+
+def predict_streaming_worker(
+    model: "BaseModel",
+    data_path: str | os.PathLike,
+    batch_size: int,
+    save_path: str | os.PathLike,
+    save_format: str,
+    stream_chunk_size: int,
+    num_workers: int,
+    prefetch_factor: int | None,
+    processor: Any | None,
+    shard_rank: int,
+    shard_count: int,
+) -> None:
+    model.eval()
+    model.predict_streaming(
+        data=data_path,
+        batch_size=batch_size,
+        save_path=save_path,
+        save_format=save_format,
+        stream_chunk_size=stream_chunk_size,
+        return_dataframe=False,
+        num_workers=num_workers,
+        prefetch_factor=prefetch_factor,
+        processor=processor,
+        num_processes=1,
+        shard_rank=shard_rank,
+        shard_count=shard_count,
+    )
 
 
 class BaseMatchModel(BaseModel):

@@ -112,10 +112,10 @@ def train_model(train_config_path: str) -> None:
     # train data
     data_path = resolve_path(data_cfg["path"], config_dir)
     target = to_list(data_cfg["target"])
-    file_paths: List[str] = []
-    file_type: str | None = None
-    streaming_train_files: List[str] | None = None
-    streaming_valid_files: List[str] | None = None
+    file_paths = []
+    file_type = None
+    streaming_train_files = None
+    streaming_valid_files = None
 
     feature_cfg_path = resolve_path(
         cfg.get("feature_config", "feature_config.yaml"), config_dir
@@ -652,6 +652,7 @@ def predict_model(predict_config_path: str) -> None:
     streaming = bool(predict_cfg.get("streaming", True))
     chunk_size = int(predict_cfg.get("chunk_size", 20000))
     batch_size = int(predict_cfg.get("batch_size", 512))
+    num_processes = int(predict_cfg.get("num_processes", 1))
     effective_batch_size = chunk_size if streaming else batch_size
 
     log_cli_section("Data")
@@ -667,17 +668,35 @@ def predict_model(predict_config_path: str) -> None:
             ("Batch size", effective_batch_size),
             ("Chunk size", chunk_size),
             ("Streaming", streaming),
+            ("Num processes", num_processes),
         ]
     )
+    if num_processes > 1 and predict_cfg.get("num_workers", 0) != 0:
+        logger.info("")
+        logger.info(
+            "[NextRec CLI Info] Multi-process streaming enforces num_workers=0 for each shard."
+        )
     logger.info("")
-    pred_loader = rec_dataloader.create_dataloader(
-        data=str(data_path),
-        batch_size=1 if streaming else batch_size,
-        shuffle=False,
-        streaming=streaming,
-        chunk_size=chunk_size,
-        prefetch_factor=predict_cfg.get("prefetch_factor"),
-    )
+    if num_processes > 1:
+        if not streaming:
+            raise ValueError(
+                "[NextRec CLI Error] num_processes > 1 requires streaming=true."
+            )
+        if use_onnx:
+            raise ValueError(
+                "[NextRec CLI Error] num_processes > 1 is not supported with ONNX inference."
+            )
+        pred_data = str(data_path)
+    else:
+        pred_data = rec_dataloader.create_dataloader(
+            data=str(data_path),
+            batch_size=1 if streaming else batch_size,
+            shuffle=False,
+            streaming=streaming,
+            chunk_size=chunk_size,
+            num_workers=predict_cfg.get("num_workers", 0),
+            prefetch_factor=predict_cfg.get("prefetch_factor"),
+        )
 
     save_format = predict_cfg.get(
         "save_data_format", predict_cfg.get("save_format", "csv")
@@ -696,7 +715,7 @@ def predict_model(predict_config_path: str) -> None:
     if use_onnx:
         result = model.predict_onnx(
             onnx_path=onnx_path,
-            data=pred_loader,
+            data=pred_data,
             batch_size=effective_batch_size,
             include_ids=bool(id_columns),
             return_dataframe=False,
@@ -706,13 +725,14 @@ def predict_model(predict_config_path: str) -> None:
         )
     else:
         result = model.predict(
-            data=pred_loader,
+            data=pred_data,
             batch_size=effective_batch_size,
-            include_ids=bool(id_columns),
             return_dataframe=False,
             save_path=str(save_path),
             save_format=save_format,
             num_workers=predict_cfg.get("num_workers", 0),
+            num_processes=num_processes,
+            processor=processor,
         )
     duration = time.time() - start
     # When return_dataframe=False, result is the actual file path

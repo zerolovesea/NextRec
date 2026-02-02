@@ -54,7 +54,7 @@ import torch
 import torch.distributed as dist
 from sklearn.model_selection import train_test_split
 
-from nextrec.utils import generate_distributed_ranking_data
+from nextrec.utils.data import generate_distributed_ranking_data
 from nextrec.models.ranking.deepfm import DeepFM
 
 

@@ -66,7 +66,7 @@ from nextrec.models.ranking.ffm import FFM
 from nextrec.models.ranking.pnn import PNN
 from nextrec.models.ranking.masknet import MaskNet
 
-from nextrec.utils import generate_ranking_data
+from nextrec.utils.data import generate_ranking_data
 
 
 def train_model(
