@@ -1,16 +1,26 @@
+# FiBiNET 是一个 CTR 预估模型，通过 SENET 重新分配特征字段的重要性，再用双线性
+# 交互层捕捉成对特征关系。模型先对稀疏/序列特征做 embedding，SENET 生成字段权重并
+# 重标定 embedding，随后在原始和重标定的 embedding 上分别计算双线性交互，最后将
+# 交互结果与线性部分一起输入 MLP 得到预测。
+# 主要优点：
+# - SENET 让模型聚焦最重要的特征字段
+# - 双线性交互显式建模特征对关系，表达力强于简单点积
+# - 标准与重标定两路交互结合，丰富特征表示
+# - 线性与深层结构并行，兼顾记忆与泛化
+
 model: fibinet
 
 params:
   mlp_params:
-    hidden_dims: [256, 128, 64]  
-    activation: relu            
-    dropout: 0.2                 
+    hidden_dims: [256, 128, 64]  # 深层 MLP 隐藏维度（拼接交互特征后）
+    activation: relu             # MLP 激活函数
+    dropout: 0.2                 # MLP dropout
 
-  interaction_combo: "11"           
-  bilinear_type: field_interaction  
-  senet_reduction: 3                
+  interaction_combo: "11"           # 交互组合方式("0": Hadamard, "1": Bilinear)
+  bilinear_type: field_interaction  # 双线性交互方式（field_all/field_each/field_interaction）
+  senet_reduction: 3                # SENET 压缩比例（reduction ratio）
 
-  embedding_l1_reg: 1.e-6      
-  embedding_l2_reg: 1.e-5       
-  dense_l1_reg: 1.e-6           
-  dense_l2_reg: 1.e-4           
+  embedding_l1_reg: 1.e-6       # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5       # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6           # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4           # 线性/MLP 等 dense 参数的 L2 正则

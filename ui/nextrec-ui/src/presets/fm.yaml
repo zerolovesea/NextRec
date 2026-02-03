@@ -1,8 +1,23 @@
+# FM 是一种通过分解二阶特征交互矩阵、以线性复杂度建模特征对的 CTR 模型。
+# 每个特征映射为低维向量，FM 对任意特征对进行内积求和并叠加线性项，
+# 无需复杂特征工程即可在稀疏高维场景取得稳健效果。
+
+# 处理流程：
+#   (1) 对稀疏/序列特征做 embedding
+#   (2) 计算线性部分的 logit
+#   (3) 计算嵌入对之间的二阶交互 logit
+#   (4) 线性项与交互项求和，再通过预测层输出
+
+# 主要优点：
+# - 线性复杂度建模二阶交互，效率高
+# - 对稀疏特征友好，减少人工特征交叉
+# - 结构简单、表现强健，常作 CTR 基线
+
 model: fm
 
 params:
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6  # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5  # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6      # 线性参数的 L1 正则（FM 一阶部分）
+  dense_l2_reg: 1.e-4      # 线性参数的 L2 正则（FM 一阶部分）

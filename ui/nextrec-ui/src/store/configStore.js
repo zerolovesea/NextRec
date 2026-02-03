@@ -129,6 +129,7 @@ export const store = reactive({
     predict: {
       data_path: '/path/to/prediction/data',
       source_data_format: 'parquet',
+      id_column: 'user_id',
       name: 'pred',
       save_data_format: 'csv',
       preview_rows: 5,

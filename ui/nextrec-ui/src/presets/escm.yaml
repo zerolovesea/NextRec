@@ -2,20 +2,20 @@ model: escm
 
 params:
   ctr_mlp_params:
-    hidden_dims: [128, 64]
-    activation: relu
-    dropout: 0.1
+    hidden_dims: [128, 64]  # CTR 塔隐藏维度（P(click|impression)）
+    activation: relu        # CTR 塔激活函数
+    dropout: 0.1            # CTR 塔 dropout
   cvr_mlp_params:
-    hidden_dims: [128, 64]
-    activation: relu
-    dropout: 0.1
+    hidden_dims: [128, 64]  # CVR 塔隐藏维度（P(conv|click)）
+    activation: relu        # CVR 塔激活函数
+    dropout: 0.1            # CVR 塔 dropout
   imp_mlp_params:
-    hidden_dims: [64]
-    activation: relu
-    dropout: 0.1
-  use_dr: false
+    hidden_dims: [64]       # 曝光倾向（IMP/propensity）塔隐藏维度
+    activation: relu        # IMP 塔激活函数
+    dropout: 0.1            # IMP 塔 dropout
+  use_dr: false             # 是否启用 DR/IPS 等反事实校正（ESCM²）
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6   # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5   # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6       # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4       # 线性/MLP 等 dense 参数的 L2 正则

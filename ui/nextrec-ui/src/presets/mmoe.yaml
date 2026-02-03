@@ -1,22 +1,38 @@
+# MMoE（Multi-gate Mixture-of-Experts）是多任务学习框架，通过多个专家网络与
+# 任务特定门控进行软路由，兼顾共享表示与任务特化，减轻梯度冲突问题。
+
+# 一次前向流程：
+#   (1) 共享 embedding 统一编码稠密、稀疏与序列特征
+#   (2) 每个专家对相同输入进行特征变换，得到候选共享表示
+#   (3) 每个任务的门控产生对专家的概率分布，完成软选择与加权
+#   (4) 加权结果输入到对应任务的塔网络与预测头
+
+# 主要优点：
+# - 软参数共享，缓解任务间负迁移
+# - 按任务难度自适应分配专家容量
+# - 便于扩展多任务，而无需复制完整网络
+# - 支持多种特征类型的统一建模
+# - 专家与门控数量可灵活调节以控制模型容量
+
 model: mmoe
 
 params:
-  num_experts: 6  
+  num_experts: 6            # 专家网络数量（MMoE expert pool）
   
   expert_mlp_params:
-    hidden_dims: [256, 128]        
-    activation: relu
-    dropout: 0.1               
+    hidden_dims: [256, 128]  # 专家网络隐藏维度
+    activation: relu         # 专家网络激活函数
+    dropout: 0.1             # 专家网络 dropout
   
-  tower_mlp_params_list:
+  tower_mlp_params_list:    # 各任务 tower MLP 参数列表，与任务数量一一对应
     - hidden_dims: [256, 128]           
-      activation: relu
-      dropout: 0.2
+      activation: relu       # 任务 1 tower 激活
+      dropout: 0.2           # 任务 1 tower dropout
     - hidden_dims: [256, 128]        
-      activation: relu
-      dropout: 0.2             
+      activation: relu       # 任务 2 tower 激活
+      dropout: 0.2           # 任务 2 tower dropout
   
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4         
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

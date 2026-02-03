@@ -1,33 +1,50 @@
+# PLE（Progressive Layered Extraction）通过堆叠 CGC 模块，联合共享与任务特定专家，
+# 利用任务门与共享门逐层软路由，逐步分离共享与任务差异信息，缓解多任务间的梯度冲突。
+
+# 层内流程：
+#   (1) 共享与任务专家对同一输入做特征变换
+#   (2) 任务门在共享+任务专家上进行软选择
+#   (3) 共享门汇总全部专家，更新共享分支
+#   (4) 输出作为下一层输入，完成逐层细化
+#   (5) 最后由任务塔完成各任务预测
+
+# 主要优点：
+# - 逐层路由降低负迁移
+# - 显式区分共享/特定专家，增强特征解耦
+# - 专家数量与层数可按任务复杂度灵活设置
+# - 统一 embedding 支持多种特征类型
+# - 共享与任务门分离，训练更稳定
+
 model: ple
 
 params:
-  num_levels: 2
-  num_specific_experts: 4
-  num_shared_experts: 4
+  num_levels: 2             # CGC 层数（Progressive layers）
+  num_specific_experts: 4   # 每个任务的专属专家数量
+  num_shared_experts: 4     # 共享专家数量
 
   shared_expert_mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.1
+    hidden_dims: [256, 128]  # 共享专家隐藏维度
+    activation: relu         # 共享专家激活函数
+    dropout: 0.1             # 共享专家 dropout
 
-  specific_expert_mlp_params:
+  specific_expert_mlp_params: # 任务专属专家 MLP 参数列表，按任务顺序排列，数量应与任务数一致
     - hidden_dims: [192, 96]
-      activation: relu
-      dropout: 0.1
+      activation: relu       # 任务 1 专家激活
+      dropout: 0.1           # 任务 1 专家 dropout
     - hidden_dims: [192, 96]
-      activation: relu
-      dropout: 0.1
+      activation: relu       # 任务 2 专家激活
+      dropout: 0.1           # 任务 2 专家 dropout
 
-  tower_mlp_params_list:
+  tower_mlp_params_list:  # 任务塔 MLP 参数列表，按任务顺序排列，数量应与任务数一致
     - hidden_dims: [96, 48]
-      activation: relu
-      dropout: 0.2
+      activation: relu       # 任务 1 tower 激活
+      dropout: 0.2           # 任务 1 tower dropout
     - hidden_dims: [128, 64]
-      activation: relu
-      dropout: 0.2
+      activation: relu       # 任务 2 tower 激活
+      dropout: 0.2           # 任务 2 tower dropout
+            
 
-
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

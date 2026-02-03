@@ -1,18 +1,35 @@
+# DIN 是一个 CTR 预估模型，通过对用户历史行为序列进行目标感知的注意力加权，
+# 构建针对当前候选物品的兴趣表示。它不是将全部行为压缩为固定向量，而是突出
+# 与候选物品最相关的行为，实现请求级的自适应兴趣建模。
+
+# 处理流程：
+#   (1) 对候选物品、用户行为序列及其他稀疏/稠密特征做 embedding
+#   (2) 使用小型注意力 MLP 计算每个历史行为与候选 embedding 的相关性
+#   (3) 通过掩码加权池化得到目标特定的兴趣向量
+#   (4) 拼接候选、兴趣向量、其他稀疏 embedding 与稠密特征
+#   (5) 输入 MLP 完成最终点击率预测
+
+# 主要优点：
+# - 目标感知注意力捕捉候选级的细粒度兴趣
+# - 自适应池化应对多样化行为模式，减少手工特征工程
+# - 掩码加权降低序列填充位置的噪声
+# - 便捷融合行为与额外稀疏/稠密上下文信息
+
 model: din
 
 params:
   attention_mlp_params:
-    hidden_dims: [80, 40]
-    activation: sigmoid
-  attention_use_softmax: true
-  behavior_feature_name: hist_item_seq   # sequence column holding user behavior
-  candidate_feature_name: item           # current item column to attend with
+    hidden_dims: [80, 40]   # 注意力 MLP 的隐藏维度（论文中的 local activation unit）
+    activation: sigmoid     # 注意力 MLP 激活函数（DIN 论文常用 sigmoid）
+  attention_use_softmax: true  # 注意力权重是否做 softmax 归一化
+  behavior_feature_name: hist_item_seq  # 用户历史行为序列特征名，需要是包含在训练数据中的序列特征
+  candidate_feature_name: item          # 候选物品特征名（作为注意力 query），需要是包含在训练数据中的特征
   mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.3
+    hidden_dims: [256, 128]  # 拼接后 MLP 的隐藏维度
+    activation: relu         # MLP 激活函数
+    dropout: 0.3             # MLP dropout
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

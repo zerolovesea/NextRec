@@ -137,7 +137,7 @@ def train_model(train_config_path: str) -> None:
     model_cfg = read_yaml(model_cfg_path)
 
     # Extract id_column from data config for GAUC metrics
-    id_column = data_cfg.get("id_column") or data_cfg.get("user_id_column")
+    id_column = data_cfg.get("id_column")
     id_columns = [id_column] if id_column else []
 
     log_cli_section("Data")
@@ -378,6 +378,7 @@ def train_model(train_config_path: str) -> None:
         sparse_features,
         sequence_features,
         target,
+        id_columns,
         device,
     )
 
@@ -585,14 +586,16 @@ def predict_model(predict_config_path: str) -> None:
         sparse_features=sparse_features,
         sequence_features=sequence_features,
         target=target_cols,
+        id_columns=id_columns,
         device=predict_cfg.get("device", "cpu"),
     )
-    model.id_columns = id_columns
+
     model.load_model(
         model_file, map_location=predict_cfg.get("device", "cpu"), verbose=True
     )
 
-    effective_id_columns = model.id_columns
+    effective_id_columns = id_columns or model.id_columns
+
     log_cli_section("Features")
     log_kv_lines(
         [

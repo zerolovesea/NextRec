@@ -8,7 +8,7 @@
     </div>
 
     <div class="card">
-      <h2>{{ t('Dense 特征', 'Dense Features') }}</h2>
+      <h2>{{ t('稠密特征', 'Dense Features') }}</h2>
       <div class="inline-list">
         <div v-for="(item, index) in dense" :key="item.id" class="inline-item">
           <div class="grid-inline">
@@ -17,11 +17,13 @@
               <input v-model="item.name" placeholder="user_active_days_7" />
             </div>
             <div class="field">
-              <label>{{ t('归一化方式', 'scaler') }}</label>
+              <label>{{ t('缩放方式', 'Scaler') }}</label>
               <select v-model="item.processor.scaler">
                 <option value="standard">standard</option>
                 <option value="minmax">minmax</option>
                 <option value="robust">robust</option>
+                <option value="maxabs">maxabs</option>
+                <option value="log">log</option>
                 <option value="none">none</option>
               </select>
             </div>
@@ -42,7 +44,7 @@
             </div>
           </div>
           <div class="actions">
-            <button class="ghost" @click="remove(dense, index)">{{ t('移除', 'Remove') }}</button>
+            <button class="icon-button icon-button-small icon-button-danger" @click="remove(dense, index)" aria-label="移除">×</button>
           </div>
         </div>
       </div>
@@ -52,7 +54,7 @@
     </div>
 
     <div class="card">
-      <h2>{{ t('Sparse 特征', 'Sparse Features') }}</h2>
+      <h2>{{ t('稀疏特征', 'Sparse Features') }}</h2>
       <div class="inline-list">
         <div v-for="(item, index) in sparse" :key="item.id" class="inline-item">
           <div class="grid-inline">
@@ -68,10 +70,10 @@
               <label>{{ t('编码方式', 'encode_method') }}</label>
               <select v-model="item.processor.encode_method">
                 <option value="hash">hash</option>
-                <option value="vocab">vocab</option>
+                <option value="label">label</option>
               </select>
             </div>
-            <div class="field">
+            <div class="field" v-if="item.processor.encode_method === 'hash'">
               <label>{{ t('哈希桶大小', 'hash_size') }}</label>
               <input v-model.number="item.processor.hash_size" type="number" />
             </div>
@@ -89,7 +91,7 @@
             </div>
           </div>
           <div class="actions">
-            <button class="ghost" @click="remove(sparse, index)">{{ t('移除', 'Remove') }}</button>
+            <button class="icon-button icon-button-small icon-button-danger" @click="remove(sparse, index)" aria-label="移除">×</button>
           </div>
         </div>
       </div>
@@ -99,7 +101,7 @@
     </div>
 
     <div class="card">
-      <h2>{{ t('Sequence 特征', 'Sequence Features') }}</h2>
+      <h2>{{ t('序列特征', 'Sequence Features') }}</h2>
       <div class="inline-list">
         <div v-for="(item, index) in sequence" :key="item.id" class="inline-item">
           <div class="grid-inline">
@@ -115,10 +117,10 @@
               <label>{{ t('编码方式', 'encode_method') }}</label>
               <select v-model="item.processor.encode_method">
                 <option value="hash">hash</option>
-                <option value="vocab">vocab</option>
+                <option value="label">label</option>
               </select>
             </div>
-            <div class="field">
+            <div class="field" v-if="item.processor.encode_method === 'hash'">
               <label>{{ t('哈希桶大小', 'hash_size') }}</label>
               <input v-model.number="item.processor.hash_size" type="number" />
             </div>
@@ -127,7 +129,7 @@
               <input v-model.number="item.processor.min_freq" type="number" />
             </div>
             <div class="field">
-              <label>{{ t('最大长度', 'max_len') }}</label>
+              <label>{{ t('截断最大长度', 'max_len') }}</label>
               <input v-model.number="item.processor.max_len" type="number" />
             </div>
             <div class="field">
@@ -150,10 +152,6 @@
               <input v-model.number="item.embedding.vocab_size" type="number" />
             </div>
             <div class="field">
-              <label>{{ t('最大长度', 'max_len') }}</label>
-              <input v-model.number="item.embedding.max_len" type="number" />
-            </div>
-            <div class="field">
               <label>{{ t('池化方式', 'combiner') }}</label>
               <select v-model="item.embedding.combiner">
                 <option value="mean">mean</option>
@@ -173,7 +171,7 @@
             </div>
           </div>
           <div class="actions">
-            <button class="ghost" @click="remove(sequence, index)">{{ t('移除', 'Remove') }}</button>
+            <button class="icon-button icon-button-small icon-button-danger" @click="remove(sequence, index)" aria-label="移除">×</button>
           </div>
         </div>
       </div>
@@ -188,7 +186,7 @@
         <textarea class="mono" readonly :value="yamlText"></textarea>
       </div>
       <div class="actions spaced-top">
-        <button class="primary" @click="download">{{ t('下载 feature_config.yaml', 'Download feature_config.yaml') }}</button>
+        <button class="primary" @click="download">{{ t('下载', 'Download') }}</button>
       </div>
     </div>
   </section>
@@ -230,6 +228,7 @@ function buildSection(items) {
       continue;
     }
     const embedding = { ...item.embedding };
+    embedding.max_len = item.processor.max_len;
     embedding.name = item.name;
     section[item.name] = {
       processor_config: { ...item.processor },

@@ -29,11 +29,11 @@
       <h2>{{ t('Predict 参数', 'Prediction Settings') }}</h2>
       <div class="grid-2">
         <div class="field">
-          <label>{{ t('Data Path', 'Data Path') }}</label>
+          <label>{{ t('数据路径', 'Data Path') }}</label>
           <input v-model="form.predict.data_path" placeholder="/path/to/predict/data" />
         </div>
         <div class="field">
-          <label>{{ t('Source Data Format', 'Source Data Format') }}</label>
+          <label>{{ t('源数据格式', 'Source Data Format') }}</label>
           <select v-model="form.predict.source_data_format">
             <option value="parquet">parquet</option>
             <option value="csv">csv</option>
@@ -41,52 +41,56 @@
           </select>
         </div>
         <div class="field">
-          <label>{{ t('Output Name', 'Output Name') }}</label>
+          <label>{{ t('ID 列', 'ID Column') }}</label>
+          <input v-model="form.predict.id_column" placeholder="user_id" />
+        </div>
+        <div class="field">
+          <label>{{ t('输出名称', 'Output Name') }}</label>
           <input v-model="form.predict.name" placeholder="pred" />
         </div>
         <div class="field">
-          <label>{{ t('Save Data Format', 'Save Data Format') }}</label>
+          <label>{{ t('保存格式', 'Save Data Format') }}</label>
           <select v-model="form.predict.save_data_format">
             <option value="csv">csv</option>
             <option value="parquet">parquet</option>
           </select>
         </div>
         <div class="field">
-          <label>{{ t('Preview Rows', 'Preview Rows') }}</label>
+          <label>{{ t('预览行数', 'Preview Rows') }}</label>
           <input v-model.number="form.predict.preview_rows" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('Batch Size', 'Batch Size') }}</label>
+          <label>{{ t('批大小', 'Batch Size') }}</label>
           <input v-model.number="form.predict.batch_size" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('Num Workers', 'Num Workers') }}</label>
+          <label>{{ t('工作进程数', 'Num Workers') }}</label>
           <input v-model.number="form.predict.num_workers" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('Num Processes', 'Num Processes') }}</label>
+          <label>{{ t('推理进程数', 'Num Processes') }}</label>
           <input v-model.number="form.predict.num_processes" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('Device', 'Device') }}</label>
+          <label>{{ t('设备', 'Device') }}</label>
           <input v-model="form.predict.device" placeholder="cpu" />
         </div>
         <div class="field">
-          <label>{{ t('Use ONNX', 'Use ONNX') }}</label>
+          <label>{{ t('使用 ONNX', 'Use ONNX') }}</label>
           <select v-model="form.predict.use_onnx">
             <option :value="false">false</option>
             <option :value="true">true</option>
           </select>
         </div>
         <div class="field">
-          <label>{{ t('Streaming', 'Streaming') }}</label>
+          <label>{{ t('流式处理', 'Streaming') }}</label>
           <select v-model="form.predict.streaming">
             <option :value="true">true</option>
             <option :value="false">false</option>
           </select>
         </div>
         <div class="field">
-          <label>{{ t('Chunk Size', 'Chunk Size') }}</label>
+          <label>{{ t('分块大小', 'Chunk Size') }}</label>
           <input v-model.number="form.predict.chunk_size" type="number" />
         </div>
       </div>
@@ -98,7 +102,7 @@
         <textarea class="mono" readonly :value="yamlText"></textarea>
       </div>
       <div class="actions spaced-top">
-        <button class="primary" @click="download">{{ t('下载 predict_config.yaml', 'Download predict_config.yaml') }}</button>
+        <button class="primary" @click="download">{{ t('下载', 'Download') }}</button>
       </div>
     </div>
   </section>

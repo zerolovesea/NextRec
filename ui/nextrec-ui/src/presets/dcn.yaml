@@ -1,13 +1,33 @@
+# DCN（Deep & Cross Network）通过 Cross 层显式生成多项式特征交互，同时可选 Deep
+# 分支学习高阶非线性关系，两者共享 embedding。Cross 层按
+# x_{l+1} = x0 * (w_l^T x_l) + b_l + x_l 递推，参数线性增长且具解释性；
+# Deep 分支提升表达能力；最终将 Cross（及 Deep）结果送入线性层与预测层，形成兼具
+# 效率与效果的 CTR/CVR 预估模型。
+
+# 流程：
+#   (1) 对稀疏/序列特征做 embedding，并与稠密特征拼接
+#   (2) Cross 层以残差形式显式构造多阶交叉特征
+#   (3) 可选 MLP 学习隐式高阶非线性交互
+#   (4) 将 Cross（及 Deep）输出融合后接线性头得到 logit
+#   (5) 预测层输出二分类 CTR 分数
+
+# 主要优点：
+# - 显式交叉特征、参数线性增长、易解释
+# - 残差式 Cross 提升训练稳定性
+# - Deep 分支可灵活增强模型容量
+# - 共享 embedding，减少冗余参数与预处理
+# - CTR/CVR 排序任务的简洁强基线
+
 model: dcn
 
 params:
-  cross_num: 3
+  cross_num: 3           # Cross Network 层数（显式特征交叉次数）
   mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.2
+    hidden_dims: [256, 128]  # Deep 分支隐藏维度
+    activation: relu         # Deep 分支激活函数
+    dropout: 0.2             # Deep 分支 dropout
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4         
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

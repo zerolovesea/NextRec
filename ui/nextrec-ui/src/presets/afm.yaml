@@ -1,10 +1,24 @@
+# AFM 在 FM 的二阶交互上引入注意力，为每个特征对学习重要性权重；同时保留 FM 的一阶项，
+# 保持对稀疏特征的友好与可解释性。具体流程：
+#   (1) 对各字段做 embedding，并计算所有特征对的元素积 v_i ⊙ v_j
+#   (2) 经由注意力 MLP（ReLU + 线性映射）得到交互得分
+#   (3) 通过 softmax 归一化交互得分，得到权重
+#   (4) 将加权交互求和、线性映射，再与一阶项相加得到最终预测
+
+# 主要优点：
+# - 注意力显式告诉哪些特征对更重要
+# - 保留 FM 的效率和可解释性
+# - softmax 归一化减弱噪声交互的影响
+
 model: afm
 
 params:
-  attention_dim: 64
-  attention_dropout: 0.1
+  attention_dim: 64          # AFM 注意力网络的隐层维度（论文中 attention MLP 的 size）
+  attention_dropout: 0.1     # 注意力网络 dropout
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4     
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则
+
+

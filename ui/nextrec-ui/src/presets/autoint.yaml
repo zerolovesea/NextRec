@@ -1,13 +1,34 @@
+# AutoInt 是一个 CTR 预估模型，通过多头自注意力机制显式学习高阶特征交互，
+# 并具有良好的可解释性。不同于依赖人工特征工程或 MLP 隐式建模的方法，
+# AutoInt 通过对所有特征 embedding 进行注意力计算，捕捉特征之间的上下文依赖关系。
+
+# 在每个 Interacting Layer（交互层）中：
+#   (1) 每个特征 embedding 通过投影分成多个注意力头
+#   (2) 使用缩放点积注意力计算特征间交互权重
+#   (3) 将多头输出进行聚合，并使用残差连接
+#   (4) Layer Normalization 确保训练稳定性
+
+# 通过堆叠多个交互层，AutoInt 能逐步学习更高阶的特征交互；
+# 同时由于注意力权重可视化，模型具有明确的可解释能力，
+# 能展示哪些特征之间的关系最重要。
+
+# 主要优点：
+# - 显式建模高阶特征交互
+# - 多头机制增强表示能力
+# - 残差结构支持深层交互学习
+# - 注意力权重天然具备可解释性
+# - 减少繁重的人工特征工程工作
+
 model: autoint
 
 params:
-  att_layer_num: 3
-  att_embedding_dim: 16
-  att_head_num: 2
-  att_dropout: 0.1
-  att_use_residual: true
+  att_layer_num: 3        # Interacting Layer 层数（论文中的多层自注意力交互）
+  att_embedding_dim: 16   # 注意力投影维度（每个字段的 attention embedding）
+  att_head_num: 2         # 多头注意力的 head 数
+  att_dropout: 0.1        # 注意力层 dropout
+  att_use_residual: true  # 是否启用残差连接（论文中使用残差增强稳定性）
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4     
+  embedding_l1_reg: 1.e-6  # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5  # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6      # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4      # 线性/MLP 等 dense 参数的 L2 正则

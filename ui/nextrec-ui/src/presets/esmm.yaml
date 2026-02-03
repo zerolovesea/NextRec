@@ -1,16 +1,32 @@
+# ESMM（Entire Space Multi-task Model）用于 CVR 预估，通过在曝光全空间联合训练
+# CTR 与 CTCVR，缓解样本选择偏差和转化数据稀疏问题。CTR 预测 P(click|impression)，
+# CVR 预测 P(conversion|click)，二者相乘得到 CTCVR 并在曝光标签上直接监督。
+
+# 流程：
+#   (1) 共享 embedding 统一处理曝光特征
+#   (2) CTR 塔输出曝光下的点击概率
+#   (3) CVR 塔输出点击后的转化概率
+#   (4) CTR 与 CVR 相乘得到 CTCVR，无需只在点击子集上训练
+
+# 主要优点：
+# - 在曝光空间训练，避免样本选择偏差
+# - 通过共享表示将点击信号迁移到稀疏的转化任务
+# - 将 CTCVR 分解为子任务，优化稳定
+# - 结构简单，可与其它多任务方法组合使用
+
 model: esmm
 
 params:
   ctr_mlp_params:
-    hidden_dims: [128, 64]
-    activation: relu
-    dropout: 0.2
+    hidden_dims: [128, 64]  # CTR 塔隐藏维度（P(click|impression)）
+    activation: relu        # CTR 塔激活函数
+    dropout: 0.2            # CTR 塔 dropout
   cvr_mlp_params:
-    hidden_dims: [128, 64]
-    activation: relu
-    dropout: 0.2
+    hidden_dims: [128, 64]  # CVR 塔隐藏维度（P(conv|click)）
+    activation: relu        # CVR 塔激活函数
+    dropout: 0.2            # CVR 塔 dropout
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6   # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5   # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6       # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4       # 线性/MLP 等 dense 参数的 L2 正则
