@@ -6,8 +6,6 @@ predict:
   data_path: ../dataset/ctcvr_task.csv
   source_data_format: csv                  # Input data format: csv, parquet, etc.
                                            # Use 'auto' for automatic detection
-  id_column: user_id                       # Column name for user/sample IDs
-                                           # Will be included in prediction output
   name: pred                               # Output filename (without extension) or absolute path
                                            # Filename -> {checkpoint_path}/predictions/{name}.{save_data_format}
                                            # Absolute path -> saved directly (extension auto-added if missing)
