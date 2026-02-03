@@ -45,7 +45,7 @@
           <input v-model.number="form.data.random_state" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('Streaming', 'Streaming') }}</label>
+          <label>{{ t('流式训练', 'Streaming') }}</label>
           <select v-model="form.data.streaming">
             <option :value="false">false</option>
             <option :value="true">true</option>
@@ -54,12 +54,12 @@
       </div>
       <div style="margin-top: 16px;">
         <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">
-          {{ t('目标列 (targets)', 'Targets') }}
+          {{ t('目标列', 'Targets') }}
         </label>
         <div class="badge-row" style="margin-top: 8px;">
           <div v-for="(target, index) in form.data.target_list" :key="`target-${index}`" class="field" style="min-width: 160px;">
             <input v-model="form.data.target_list[index]" placeholder="label" />
-            <button class="icon-button" style="margin-top: 6px;" @click="removeItem(form.data.target_list, index)" :disabled="form.data.target_list.length <= 1" aria-label="移除">
+            <button class="icon-button icon-button-small icon-button-danger" style="margin-top: 6px;" @click="removeItem(form.data.target_list, index)" :disabled="form.data.target_list.length <= 1" aria-label="移除">
               ×
             </button>
           </div>
@@ -82,33 +82,33 @@
       <h2>{{ t('Dataloader 配置', 'Dataloader Configuration') }}</h2>
       <div class="grid-2">
         <div class="field">
-          <label>{{ t('训练 Batch Size', 'Train Batch Size') }}</label>
+          <label>{{ t('训练集 Batch Size', 'Train Batch Size') }}</label>
           <input v-model.number="form.dataloader.train_batch_size" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('训练 Shuffle', 'Train Shuffle') }}</label>
+          <label>{{ t('训练集 Shuffle', 'Train Shuffle') }}</label>
           <select v-model="form.dataloader.train_shuffle">
             <option :value="true">true</option>
             <option :value="false">false</option>
           </select>
         </div>
         <div class="field">
-          <label>{{ t('验证 Batch Size', 'Valid Batch Size') }}</label>
+          <label>{{ t('验证集 Batch Size', 'Valid Batch Size') }}</label>
           <input v-model.number="form.dataloader.valid_batch_size" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('验证 Shuffle', 'Valid Shuffle') }}</label>
+          <label>{{ t('验证集 Shuffle', 'Valid Shuffle') }}</label>
           <select v-model="form.dataloader.valid_shuffle">
             <option :value="false">false</option>
             <option :value="true">true</option>
           </select>
         </div>
         <div class="field">
-          <label>{{ t('Num Workers', 'Num Workers') }}</label>
+          <label>{{ t('线程数', 'Num Workers') }}</label>
           <input v-model.number="form.dataloader.num_workers" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('Prefetch Factor', 'Prefetch Factor') }}</label>
+          <label>{{ t('数据预取因子', 'Prefetch Factor') }}</label>
           <input v-model.number="form.dataloader.prefetch_factor" type="number" />
         </div>
       </div>
@@ -144,7 +144,7 @@
           <input v-model.number="form.train.batch_size" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('是否打乱', 'Shuffle') }}</label>
+          <label>{{ t('Shuffle', 'Shuffle') }}</label>
           <select v-model="form.train.shuffle">
             <option :value="true">true</option>
             <option :value="false">false</option>
@@ -161,7 +161,7 @@
       </div>
 
       <div style="margin-top: 16px;">
-        <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">{{ t('Loss 列表', 'Loss List') }}</label>
+        <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">{{ t('损失函数', 'Loss Function') }}</label>
         <div v-if="lossMismatch" class="alert alert-warn">
           {{ t('Loss 数量多于目标列，请检查。', 'Loss count exceeds targets. Please review.') }}
         </div>
@@ -170,7 +170,7 @@
             <select v-model="form.train.loss_list[index]">
               <option v-for="lossName in lossOptions" :key="lossName" :value="lossName">{{ lossName }}</option>
             </select>
-            <button class="icon-button" style="margin-top: 6px;" @click="removeItem(form.train.loss_list, index)" :disabled="form.train.loss_list.length <= 1" aria-label="移除">
+            <button class="icon-button icon-button-small icon-button-danger" style="margin-top: 6px;" @click="removeItem(form.train.loss_list, index)" :disabled="form.train.loss_list.length <= 1" aria-label="移除">
               ×
             </button>
           </div>
@@ -179,13 +179,13 @@
       </div>
 
       <div style="margin-top: 16px;">
-        <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">{{ t('Metrics 列表', 'Metrics List') }}</label>
+        <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">{{ t('评估指标', 'Metrics') }}</label>
         <div class="badge-row" style="margin-top: 8px;">
           <div v-for="(metric, index) in form.train.metrics_list" :key="`metric-${index}`" class="field" style="min-width: 200px;">
             <select v-model="form.train.metrics_list[index]">
               <option v-for="metricName in metricsOptions" :key="metricName" :value="metricName">{{ metricName }}</option>
             </select>
-            <button class="icon-button" style="margin-top: 6px;" @click="removeItem(form.train.metrics_list, index)" :disabled="form.train.metrics_list.length <= 1" aria-label="移除">
+            <button class="icon-button icon-button-small icon-button-danger" style="margin-top: 6px;" @click="removeItem(form.train.metrics_list, index)" :disabled="form.train.metrics_list.length <= 1" aria-label="移除">
               ×
             </button>
           </div>
@@ -206,14 +206,14 @@
 
       <div class="grid-2" style="margin-top: 16px;">
         <div class="field">
-          <label>{{ t('Use W&B', 'Use W&B') }}</label>
+          <label>{{ t('使用 W&B 管理日志', 'Use W&B') }}</label>
           <select v-model="form.train.use_wandb">
             <option :value="false">false</option>
             <option :value="true">true</option>
           </select>
         </div>
         <div class="field">
-          <label>{{ t('Use SwanLab', 'Use SwanLab') }}</label>
+          <label>{{ t('使用 SwanLab 管理日志', 'Use SwanLab') }}</label>
           <select v-model="form.train.use_swanlab">
             <option :value="false">false</option>
             <option :value="true">true</option>
@@ -259,7 +259,7 @@
         <textarea class="mono" readonly :value="yamlText"></textarea>
       </div>
       <div class="actions spaced-top">
-        <button class="primary" @click="download" :disabled="!!error">{{ t('下载 train_config.yaml', 'Download train_config.yaml') }}</button>
+        <button class="primary" @click="download" :disabled="!!error">{{ t('下载', 'Download') }}</button>
       </div>
     </div>
   </section>

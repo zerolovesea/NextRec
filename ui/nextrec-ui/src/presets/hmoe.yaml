@@ -1,35 +1,35 @@
 model: hmoe
 
 params:
-  num_experts: 4
+  num_experts: 4            # 专家网络数量（MMoE 的 expert pool）
 
   expert_mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.1
+    hidden_dims: [256, 128]  # 专家网络隐藏维度
+    activation: relu         # 专家网络激活函数
+    dropout: 0.1             # 专家网络 dropout
 
   gate_mlp_params:
-    hidden_dims: [64]
-    activation: relu
-    dropout: 0.1
+    hidden_dims: [64]        # 任务门控 MLP 隐藏维度（生成 expert 权重）
+    activation: relu         # 任务门控激活函数
+    dropout: 0.1             # 任务门控 dropout
 
-  tower_mlp_params_list:
+  tower_mlp_params_list:     # 各任务 tower MLP 参数列表，与任务数量一一对应
     - hidden_dims: [128, 64]
-      activation: relu
-      dropout: 0.1
+      activation: relu       # 任务 1 tower 激活
+      dropout: 0.1           # 任务 1 tower dropout
     - hidden_dims: [128, 64]
-      activation: relu
-      dropout: 0.1
+      activation: relu       # 任务 2 tower 激活
+      dropout: 0.1           # 任务 2 tower dropout
 
   task_weight_mlp_params:
     - hidden_dims: [64]
-      activation: relu
-      dropout: 0.1
+      activation: relu       # 任务 1 的任务权重网络激活（跨任务聚合）
+      dropout: 0.1           # 任务 1 的任务权重网络 dropout
     - hidden_dims: [64]
-      activation: relu
-      dropout: 0.1
+      activation: relu       # 任务 2 的任务权重网络激活
+      dropout: 0.1           # 任务 2 的任务权重网络 dropout
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

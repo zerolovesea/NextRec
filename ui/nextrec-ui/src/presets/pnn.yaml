@@ -1,14 +1,20 @@
+# PNN 是一种 CTR 预估模型，通过将线性信号与乘积信号结合，显式建模特征交互：
+#   - 线性信号：将各字段的 embedding 拼接，用于保留一阶信息
+#   - 乘积信号：对所有字段对做内积或外积，捕捉二阶及更高阶交互
+# 随后将两类信号拼接送入 MLP，实现对用户响应的预测。内积版本计算量更低，
+# 外积版本表达力更强，可根据场景取舍。
+
 model: pnn
 
 params:
-  product_type: inner  # inner or outer
-  outer_product_dim: 64
+  product_type: inner   # 乘积类型：inner(IPNN)/outer(OPNN)/both
+  outer_product_dim: 64 # 外积投影维度（OPNN 的 kernel 维度）
   mlp_params:
-    hidden_dims: [256, 128, 64]
-    activation: relu
-    dropout: 0.2
+    hidden_dims: [256, 128, 64]  # MLP 隐藏维度（线性+乘积信号后）
+    activation: relu             # MLP 激活函数
+    dropout: 0.2                 # MLP dropout
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6        # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5        # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6            # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4            # 线性/MLP 等 dense 参数的 L2 正则

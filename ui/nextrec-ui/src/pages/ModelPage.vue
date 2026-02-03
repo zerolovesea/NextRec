@@ -17,6 +17,41 @@
           </select>
         </div>
       </div>
+      <div v-if="modelNote" class="alert model-note" style="margin-top: 12px;">
+        {{ modelNote }}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>{{ t('参数配置', 'Parameter Configuration') }}</h2>
+      <div class="inline-list">
+        <div v-for="(entry, index) in visibleParamEntries" :key="entry.id" class="inline-item">
+          <div class="grid-2">
+            <div class="field">
+              <label>{{ t('参数名', 'Parameter Key') }}</label>
+              <input v-model="entry.key" placeholder="mlp_params" />
+            </div>
+          </div>
+          <div class="field" style="margin-top: 12px;">
+            <label>
+              {{ t('值', 'Value') }}
+              <span
+                v-if="paramHelp[entry.key]"
+                class="help-icon"
+                :title="paramHelp[entry.key]"
+                :data-tip="paramHelp[entry.key]"
+              >?</span>
+            </label>
+            <textarea v-model="entry.raw" class="mono" placeholder="relu 或 123 或 true 或 \nmlp_params:\n  hidden_dims: [256, 128]"></textarea>
+          </div>
+          <div class="actions">
+            <button class="icon-button icon-button-small icon-button-danger" @click="removeEntryById(entry.id)" :disabled="paramEntries.length <= 1" aria-label="移除">×</button>
+          </div>
+        </div>
+      </div>
+      <div class="actions" style="margin-top: 12px;">
+        <button class="secondary" @click="addEntry">{{ t('添加', 'Add') }}</button>
+      </div>
     </div>
 
     <div class="card">
@@ -42,37 +77,13 @@
     </div>
 
     <div class="card">
-      <h2>{{ t('参数配置', 'Parameter Configuration') }}</h2>
-      <div class="inline-list">
-        <div v-for="(entry, index) in visibleParamEntries" :key="entry.id" class="inline-item">
-          <div class="grid-2">
-            <div class="field">
-              <label>{{ t('参数名', 'Parameter Key') }}</label>
-              <input v-model="entry.key" placeholder="mlp_params" />
-            </div>
-          </div>
-          <div class="field" style="margin-top: 12px;">
-            <label>{{ t('值', 'Value') }}</label>
-            <textarea v-model="entry.raw" class="mono" placeholder="relu 或 123 或 true 或 \nmlp_params:\n  hidden_dims: [256, 128]"></textarea>
-          </div>
-          <div class="actions">
-            <button class="icon-button" @click="removeEntryById(entry.id)" :disabled="paramEntries.length <= 1" aria-label="移除">×</button>
-          </div>
-        </div>
-      </div>
-      <div class="actions" style="margin-top: 12px;">
-        <button class="secondary" @click="addEntry">{{ t('添加', 'Add') }}</button>
-      </div>
-    </div>
-
-    <div class="card">
       <h2>{{ t('YAML 预览', 'YAML Preview') }}</h2>
       <div v-if="error" class="alert">{{ error }}</div>
       <div class="field" style="margin-top: 12px;">
         <textarea class="mono" readonly :value="yamlText"></textarea>
       </div>
       <div class="actions spaced-top">
-        <button class="primary" @click="download" :disabled="!!error">{{ t('下载 model_config.yaml', 'Download model_config.yaml') }}</button>
+        <button class="primary" @click="download" :disabled="!!error">{{ t('下载', 'Download') }}</button>
       </div>
     </div>
   </section>
@@ -99,6 +110,68 @@ function toParamsText(raw) {
   return '';
 }
 
+function parsePresetComments(raw) {
+  const lines = raw.split(/\r?\n/);
+  const topComments = [];
+  let inTop = true;
+  const paramComments = {};
+  const pendingByIndent = new Map();
+  let inParams = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (inTop) {
+      if (trimmed.startsWith('#')) {
+        topComments.push(trimmed.replace(/^#+\s?/, ''));
+        continue;
+      }
+      if (trimmed === '') {
+        continue;
+      }
+      inTop = false;
+    }
+
+    if (trimmed.startsWith('params:')) {
+      inParams = true;
+      continue;
+    }
+    if (!inParams) {
+      continue;
+    }
+
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (trimmed.startsWith('#') && indent >= 2) {
+      pendingByIndent.set(indent, trimmed.replace(/^#+\s?/, ''));
+      continue;
+    }
+
+    const match = line.match(/^\s{2,}([A-Za-z0-9_]+):/);
+    if (!match) {
+      continue;
+    }
+    const key = match[1];
+    let comment = '';
+    const inlineIdx = line.indexOf('#');
+    if (inlineIdx !== -1) {
+      comment = line.slice(inlineIdx + 1).trim();
+    } else {
+      comment = pendingByIndent.get(indent) || '';
+    }
+    if (comment) {
+      paramComments[key] = comment;
+    }
+    pendingByIndent.delete(indent);
+  }
+
+  return { top: topComments.join('\n'), params: paramComments };
+}
+
+function getPresetRaw(name) {
+  const entry = Object.entries(presetModules).find(([path]) => path.endsWith(`/${name}.yaml`));
+  return entry ? entry[1] : '';
+}
+
 const presets = Object.entries(presetModules).reduce((acc, [path, raw]) => {
   const data = parseYaml(raw) || {};
   const modelName = data.model || filenameToModel(path);
@@ -116,6 +189,8 @@ const lang = computed(() => store.ui.lang);
 const t = (zh, en) => (lang.value === 'zh' ? zh : en);
 const error = ref('');
 const paramEntries = reactive([]);
+const paramHelp = reactive({});
+const modelNote = ref('');
 const hiddenParamKeys = new Set(['embedding_l1_reg', 'embedding_l2_reg', 'dense_l1_reg', 'dense_l2_reg']);
 const visibleParamEntries = computed(() => paramEntries.filter((entry) => !hiddenParamKeys.has(entry.key)));
 
@@ -159,6 +234,12 @@ function applyPreset() {
   form.paramsText = preset.paramsText;
   const params = parseYaml(form.paramsText) || {};
   setEntriesFromParams(params);
+  const comments = parsePresetComments(getPresetRaw(modelName));
+  modelNote.value = comments.top;
+  Object.keys(paramHelp).forEach((key) => delete paramHelp[key]);
+  Object.entries(comments.params).forEach(([key, note]) => {
+    paramHelp[key] = note;
+  });
 }
 
 function addEntry() {
@@ -272,5 +353,13 @@ onMounted(() => {
   }
   const params = parseYaml(form.paramsText || '') || {};
   setEntriesFromParams(params);
+  if (preset) {
+    const comments = parsePresetComments(getPresetRaw(preset.model));
+    modelNote.value = comments.top;
+    Object.keys(paramHelp).forEach((key) => delete paramHelp[key]);
+    Object.entries(comments.params).forEach(([key, note]) => {
+      paramHelp[key] = note;
+    });
+  }
 });
 </script>

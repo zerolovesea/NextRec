@@ -30,6 +30,10 @@ predict:
   # ----- Data Format Settings -----
   source_data_format: parquet              # Input data format: csv, parquet, etc.
                                            # Use 'auto' for automatic detection
+
+  # ----- Identification Settings -----
+  id_column: user_id                       # Column name for user/sample IDs
+                                           # Will be included in prediction output
   
   # ----- Output Settings -----
   name: pred                               # Output filename (without extension) or absolute path

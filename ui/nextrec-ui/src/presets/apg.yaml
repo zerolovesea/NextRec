@@ -2,13 +2,13 @@ model: apg
 
 params:
   mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.1
+    hidden_dims: [256, 128]  # APG 主干层的隐藏维度列表（对应论文中的多层参数生成）
+    activation: relu         # APG 层输出的激活函数
+    dropout: 0.1             # 主干层 dropout
 
-  scene_features: [channel]
+  scene_features: [channel]  # 场景/域特征，用于生成 APG 的自适应参数，需要修改为实际数据中的场景/域特征字段名称
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

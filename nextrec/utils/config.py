@@ -388,6 +388,7 @@ def build_model_instance(
     sparse_features: List["SparseFeature"],
     sequence_features: List["SequenceFeature"],
     target: List[str],
+    id_columns: list[str] | str | None,
     device: str,
 ) -> Any:
     """
@@ -400,6 +401,7 @@ def build_model_instance(
         sparse_features: List of sparse feature objects
         sequence_features: List of sequence feature objects
         target: List of target column names
+        id_columns: Identifier column name(s) for GAUC or ID passthrough
         device: Device string (e.g., 'cpu', 'cuda:0')
     """
     dense_map = {f.name: f for f in dense_features}
@@ -436,7 +438,7 @@ def build_model_instance(
         param.kind == inspect.Parameter.VAR_KEYWORD for param in sig_params.values()
     )
 
-    init_kwargs: Dict[str, Any] = dict(params_cfg)
+    init_kwargs = dict(params_cfg)
 
     # Explicit bindings (model_config.feature_bindings) take priority
     for param_name, binding in feature_bindings_cfg.items():
@@ -517,6 +519,8 @@ def build_model_instance(
 
     if accepts("target"):
         init_kwargs.setdefault("target", target)
+    if accepts("id_columns") or accepts_var_kwargs:
+        init_kwargs.setdefault("id_columns", id_columns)
     if accepts("device"):
         init_kwargs.setdefault("device", device)
 

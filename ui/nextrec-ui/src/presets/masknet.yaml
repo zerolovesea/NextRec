@@ -1,17 +1,40 @@
+# MaskNet 是一种用于 CTR 预估的模型，它在深度排序网络中引入了
+# 基于实例（Instance-Guided）的特征级逐元素（Feature-wise）
+# 乘法交互机制。
+
+# 与传统仅依赖 MLP 的加性特征交互不同，MaskNet 会根据每个样本的
+# embedding 表示生成一个个性化的 “mask” 向量，通过逐元素的乘法
+# 选择性地放大有效特征维度、抑制无关或噪声特征。
+
+# 每个 MaskBlock 包含以下关键步骤：
+#   (1) 基于当前样本 embedding 的双层 MLP Mask 生成
+#   (2) Mask 与隐藏表示之间的逐元素乘法交互
+#   (3) Layer Normalization 与非线性变换
+
+# 通过串联（SerialMaskNet）或并联（ParallelMaskNet）
+# 多个 MaskBlock，MaskNet 在保持高效的同时显著增强了特征表达能力，
+# 在无需大量特征工程的情况下提升 CTR 模型性能。
+
+# 核心优势：
+# - 通过乘法门控学习高阶特征交互关系
+# - 针对每个样本自适应调整特征重要性
+# - 有效区分信息特征与噪声特征
+# - 支持灵活的串行与并行网络结构设计
+
 model: masknet
 
 params:
-  architecture: parallel
-  num_blocks: 3
-  mask_hidden_dim: 64
-  block_hidden_dim: 256
-  block_dropout: 0.2
+  architecture: parallel   # MaskNet 结构：serial 串行或 parallel 并行
+  num_blocks: 3            # MaskBlock 数量（论文中可堆叠/并联）
+  mask_hidden_dim: 64      # Instance-Guided Mask 生成器隐藏维度
+  block_hidden_dim: 256    # MaskBlock 隐藏维度（FFN 输出维度）
+  block_dropout: 0.2       # MaskBlock dropout
   mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.2
+    hidden_dims: [256, 128]  # MaskNet 后续 MLP 隐藏维度
+    activation: relu         # MLP 激活函数
+    dropout: 0.2             # MLP dropout
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则
