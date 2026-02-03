@@ -25,7 +25,7 @@ import resource
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import pandas as pd
 
@@ -592,12 +592,7 @@ def predict_model(predict_config_path: str) -> None:
         model_file, map_location=predict_cfg.get("device", "cpu"), verbose=True
     )
 
-    id_columns = []
-    if predict_cfg.get("id_column"):
-        id_columns = [predict_cfg["id_column"]]
-        model.id_columns = id_columns
-
-    effective_id_columns = id_columns or model.id_columns
+    effective_id_columns = model.id_columns
     log_cli_section("Features")
     log_kv_lines(
         [

@@ -131,3 +131,5 @@ docs/rtd/_build/
 
 *.onnx
 artifacts/
+
+node_modules/

@@ -7,44 +7,44 @@
 dense:
   user_active_days_7:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: user_active_days_7, input_dim: 1, embedding_dim: 8, use_projection: false}
+    embedding_config: {input_dim: 1, proj_dim: 8, use_projection: false}
   user_ctr:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: user_ctr, input_dim: 1, embedding_dim: 8, use_projection: false}
+    embedding_config: {input_dim: 1, proj_dim: 8, use_projection: false}
   item_price:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: item_price, input_dim: 1, embedding_dim: 8, use_projection: false}
+    embedding_config: {input_dim: 1, proj_dim: 8, use_projection: false}
   item_popularity:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: item_popularity, input_dim: 1, embedding_dim: 8, use_projection: false}
+    embedding_config: {input_dim: 1, proj_dim: 8, use_projection: false}
   time_since_last_click:
     processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: time_since_last_click, input_dim: 1, embedding_dim: 8, use_projection: false}
+    embedding_config: {input_dim: 1, proj_dim: 8, use_projection: false}
 
 sparse:
   user_id:
     processor_config: {type: sparse, encode_method: hash, hash_size: 100000, min_freq: 1}
-    embedding_config: {name: user_id, embedding_dim: 8, padding_idx: 0}
+    embedding_config: {name: user_id, embedding_name: user_id, embedding_dim: 8, padding_idx: 0}
   item:
     processor_config: {type: sparse, encode_method: hash, hash_size: 5000, min_freq: 1}
-    embedding_config: {name: item, embedding_dim: 8, padding_idx: 0}
+    embedding_config: {name: item, embedding_name: item, embedding_dim: 8, padding_idx: 0}
   gender:
     processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
-    embedding_config: {name: gender, embedding_dim: 8, padding_idx: 0}
+    embedding_config: {name: gender, embedding_name: gender, embedding_dim: 8, padding_idx: 0}
   city:
     processor_config: {type: sparse, encode_method: hash, hash_size: 20, min_freq: 1}
-    embedding_config: {name: city, embedding_dim: 8, padding_idx: 0}
+    embedding_config: {name: city, embedding_name: city, embedding_dim: 8, padding_idx: 0}
   device:
     processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
-    embedding_config: {name: device, embedding_dim: 8, padding_idx: 0}
+    embedding_config: {name: device, embedding_name: device, embedding_dim: 8, padding_idx: 0}
   channel:
     processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
-    embedding_config: {name: channel, embedding_dim: 8, padding_idx: 0}
+    embedding_config: {name: channel, embedding_name: channel, embedding_dim: 8, padding_idx: 0}
   age_bucket:
     processor_config: {type: sparse, encode_method: hash, hash_size: 20, min_freq: 1}
-    embedding_config: {name: age_bucket, embedding_dim: 8, padding_idx: 0}
+    embedding_config: {name: age_bucket, embedding_name: age_bucket, embedding_dim: 8, padding_idx: 0}
 
 sequence:
   hist_item_seq:
     processor_config: {type: sequence, encode_method: hash, hash_size: 5000, min_freq: 1, max_len: 30, pad_value: 0, truncate: post, separator: ','}
-    embedding_config: {name: hist_item_seq, vocab_size: 5000, max_len: 30, combiner: mean, embedding_dim: 8, padding_idx: 0, shared_with: item}
+    embedding_config: {name: hist_item_seq, embedding_name: hist_item_seq, vocab_size: 5000, max_len: 30, combiner: mean, embedding_dim: 8, padding_idx: 0}

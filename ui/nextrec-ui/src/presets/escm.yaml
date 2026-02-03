@@ -1,0 +1,21 @@
+model: escm
+
+params:
+  ctr_mlp_params:
+    hidden_dims: [128, 64]
+    activation: relu
+    dropout: 0.1
+  cvr_mlp_params:
+    hidden_dims: [128, 64]
+    activation: relu
+    dropout: 0.1
+  imp_mlp_params:
+    hidden_dims: [64]
+    activation: relu
+    dropout: 0.1
+  use_dr: false
+
+  embedding_l1_reg: 1.e-6
+  embedding_l2_reg: 1.e-5
+  dense_l1_reg: 1.e-6
+  dense_l2_reg: 1.e-4

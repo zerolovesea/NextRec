@@ -2099,6 +2099,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         ]
 
         ctx = mp.get_context("spawn")
+        error_queue = ctx.SimpleQueue()
         processes = []
         for rank in range(num_processes):
             process = ctx.Process(
@@ -2115,6 +2116,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     processor,
                     rank,
                     num_processes,
+                    error_queue,
                 ),
             )
             process.start()
@@ -2127,8 +2129,18 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         for process in processes:
             if process.exitcode not in (0, None):
+                errors = []
+                try:
+                    while not error_queue.empty():
+                        errors.append(error_queue.get_nowait())
+                except Exception:
+                    pass
+                error_text = (
+                    "\n\n".join(errors) if errors else "No worker traceback captured."
+                )
                 raise RuntimeError(
-                    "[BaseModel-predict-streaming Error] One or more inference processes failed."
+                    "[BaseModel-predict-streaming Error] One or more inference processes failed.\n"
+                    + error_text
                 )
         # Merge part files
         existing_parts = [p for p in part_paths if p.exists()]
@@ -2827,22 +2839,32 @@ def predict_streaming_worker(
     processor: Any | None,
     shard_rank: int,
     shard_count: int,
+    error_queue: "mp.SimpleQueue[str] | None" = None,
 ) -> None:
-    model.eval()
-    model.predict_streaming(
-        data=data_path,
-        batch_size=batch_size,
-        save_path=save_path,
-        save_format=save_format,
-        stream_chunk_size=stream_chunk_size,
-        return_dataframe=False,
-        num_workers=num_workers,
-        prefetch_factor=prefetch_factor,
-        processor=processor,
-        num_processes=1,
-        shard_rank=shard_rank,
-        shard_count=shard_count,
-    )
+    try:
+        model.eval()
+        model.predict_streaming(
+            data=data_path,
+            batch_size=batch_size,
+            save_path=save_path,
+            save_format=save_format,
+            stream_chunk_size=stream_chunk_size,
+            return_dataframe=False,
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
+            processor=processor,
+            num_processes=1,
+            shard_rank=shard_rank,
+            shard_count=shard_count,
+        )
+    except Exception:
+        if error_queue is not None:
+            import traceback
+
+            error_queue.put(
+                f"[PredictWorker Error] rank={shard_rank}\n{traceback.format_exc()}"
+            )
+        raise
 
 
 class BaseMatchModel(BaseModel):

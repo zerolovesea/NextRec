@@ -1,0 +1,7 @@
+services:
+  nextrec-ui:
+    build: .
+    ports:
+      - "15173:15173"
+    environment:
+      - NODE_ENV=development
