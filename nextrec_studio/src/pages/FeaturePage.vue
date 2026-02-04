@@ -63,22 +63,34 @@
               <input v-model="item.name" placeholder="user_id" />
             </div>
             <div class="field">
-              <label>{{ t('嵌入名称', 'Embedding Name') }}</label>
+              <label>
+                {{ t('嵌入名称', 'Embedding Name') }}
+                <span class="help-icon" :data-tip="t('为特征嵌入指定名称，当多个特征使用统一嵌入名称时，它们共享同一嵌入向量。', 'Name for the embedding. Features sharing the same embedding name share one embedding table.')">?</span>
+              </label>
               <input v-model="item.embedding.embedding_name" placeholder="user_id" />
             </div>
             <div class="field">
-              <label>{{ t('编码方式', 'encode_method') }}</label>
+              <label>
+                {{ t('编码方式', 'encode_method') }}
+                <span class="help-icon" :data-tip="t('编码方式决定如何将特征值转换为数值表示。支持哈希编码和标签编码。选择哈希时，需要配置哈希桶大小', 'Encoding method determines how feature values are converted to numeric representations. Supports hash and label encoding. When using hash, configure hash size.')">?</span>
+              </label>
               <select v-model="item.processor.encode_method">
                 <option value="hash">hash</option>
                 <option value="label">label</option>
               </select>
             </div>
             <div class="field" v-if="item.processor.encode_method === 'hash'">
-              <label>{{ t('哈希桶大小', 'hash_size') }}</label>
+              <label>
+                {{ t('哈希桶大小', 'hash_size') }}
+                <span class="help-icon" :data-tip="t('哈希编码时使用的桶大小，决定哈希函数的取值范围。', 'Bucket size used for hash encoding; defines the hash value range.')">?</span>
+              </label>
               <input v-model.number="item.processor.hash_size" type="number" />
             </div>
             <div class="field">
-              <label>{{ t('最小频次', 'min_freq') }}</label>
+              <label>
+                {{ t('最小频次', 'min_freq') }}
+                <span class="help-icon" :data-tip="t('特征值出现的最小频次，低于该频次的值将被视为词表外。', 'Minimum frequency for a feature value; values below this are treated as OOV.')">?</span>
+              </label>
               <input v-model.number="item.processor.min_freq" type="number" />
             </div>
             <div class="field">
@@ -86,7 +98,7 @@
               <input v-model.number="item.embedding.embedding_dim" type="number" />
             </div>
             <div class="field">
-              <label>{{ t('填充索引', 'padding_idx') }}</label>
+              <label>{{ t('PADDING IDX', 'padding_idx') }}</label>
               <input v-model.number="item.embedding.padding_idx" type="number" />
             </div>
           </div>
@@ -110,26 +122,41 @@
               <input v-model="item.name" placeholder="hist_item_seq" />
             </div>
             <div class="field">
-              <label>{{ t('嵌入名称', 'Embedding Name') }}</label>
+              <label>
+                {{ t('嵌入名称', 'Embedding Name') }}
+                <span class="help-icon" :data-tip="t('为特征嵌入指定名称，当多个特征使用统一嵌入名称时，它们共享同一嵌入向量。', 'Name for the embedding. Features sharing the same embedding name share one embedding table.')">?</span>
+              </label>
               <input v-model="item.embedding.embedding_name" placeholder="hist_item_seq" />
             </div>
             <div class="field">
-              <label>{{ t('编码方式', 'encode_method') }}</label>
+              <label>
+                {{ t('编码方式', 'encode_method') }}
+                <span class="help-icon" :data-tip="t('编码方式决定如何将特征值转换为数值表示。支持哈希编码和标签编码。选择哈希时，需要配置哈希桶大小', 'Encoding method determines how feature values are converted to numeric representations. Supports hash and label encoding. When using hash, configure hash size.')">?</span>
+              </label>
               <select v-model="item.processor.encode_method">
                 <option value="hash">hash</option>
                 <option value="label">label</option>
               </select>
             </div>
             <div class="field" v-if="item.processor.encode_method === 'hash'">
-              <label>{{ t('哈希桶大小', 'hash_size') }}</label>
+              <label>
+                {{ t('哈希桶大小', 'hash_size') }}
+                <span class="help-icon" :data-tip="t('哈希编码时使用的桶大小，决定哈希函数的取值范围。', 'Bucket size used for hash encoding; defines the hash value range.')">?</span>
+              </label>
               <input v-model.number="item.processor.hash_size" type="number" />
             </div>
             <div class="field">
-              <label>{{ t('最小频次', 'min_freq') }}</label>
+              <label>
+                {{ t('最小频次', 'min_freq') }}
+                <span class="help-icon" :data-tip="t('特征值出现的最小频次，低于该频次的值将被视为词表外。', 'Minimum frequency for a feature value; values below this are treated as OOV.')">?</span>
+              </label>
               <input v-model.number="item.processor.min_freq" type="number" />
             </div>
             <div class="field">
-              <label>{{ t('截断最大长度', 'max_len') }}</label>
+              <label>
+                {{ t('截断最大长度', 'max_len') }}
+                <span class="help-icon" :data-tip="t('序列特征的最大截断长度，超过该长度的序列将被截断。', 'Maximum truncation length for sequence features; sequences longer than this are truncated.')">?</span>
+              </label>
               <input v-model.number="item.processor.max_len" type="number" />
             </div>
             <div class="field">
@@ -137,14 +164,20 @@
               <input v-model.number="item.processor.pad_value" type="number" />
             </div>
             <div class="field">
-              <label>{{ t('截断方式', 'truncate') }}</label>
+              <label>
+                {{ t('截断方式', 'truncate') }}
+                <span class="help-icon" :data-tip="t('截断方式决定序列特征在超过最大长度时如何截断。当选择post时，从序列末尾截断；选择pre时，从序列开头截断。', 'Truncation strategy when exceeding max length. post truncates from the end; pre truncates from the beginning.')">?</span>
+              </label>
               <select v-model="item.processor.truncate">
                 <option value="post">post</option>
                 <option value="pre">pre</option>
               </select>
             </div>
             <div class="field">
-              <label>{{ t('分隔符', 'separator') }}</label>
+              <label>
+                {{ t('分隔符', 'separator') }}
+                <span class="help-icon" :data-tip="t('序列特征中元素的分隔符，用于将字符串拆分为序列。', 'Separator for elements in a sequence feature, used to split a string into a sequence.')">?</span>
+              </label>
               <input v-model="item.processor.separator" placeholder="," />
             </div>
             <div class="field">
@@ -166,7 +199,7 @@
               <input v-model.number="item.embedding.embedding_dim" type="number" />
             </div>
             <div class="field">
-              <label>{{ t('填充索引', 'padding_idx') }}</label>
+              <label>{{ t('PADDING IDX', 'padding_idx') }}</label>
               <input v-model.number="item.embedding.padding_idx" type="number" />
             </div>
           </div>

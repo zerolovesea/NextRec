@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.5.5-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.5.6-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -44,6 +44,7 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 ## NextRec Progress
 
+- **03/02/2026** In v0.5.3, we introduced the NextRec Studio front-end project as a companion tool for the NextRec CLI, and provided a related [tutorial](nextrec_studio/README_en.md).
 - **28/01/2026** Added support for ONNX export and loading in v0.4.39, and significantly accelerated data preprocessing speed (up to 9x speedup)
 - **01/01/2026** Happy New Year! In v0.4.27, added support for multiple multi-task models: [APG](/nextrec/models/multi_task/apg.py), [ESCM](/nextrec/models/multi_task/escm.py), [HMoE](/nextrec/models/multi_task/hmoe.py), [Cross Stitch](/nextrec/models/multi_task/cross_stitch.py)
 - **28/12/2025** Added support for SwanLab and Weights & Biases in v0.4.21, configurable via the model `fit` method: `use_swanlab=True, swanlab_kwargs={"project": "NextRec","name":"tutorial_movielens_deepfm"},`
@@ -197,11 +198,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.5.5, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.5.6, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.5.5. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.5.6. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|

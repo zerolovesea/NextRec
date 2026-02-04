@@ -18,11 +18,8 @@
     <main class="main" ref="mainRef">
       <div class="hero">
         <h1>NextRec Studio</h1>
-        <p>为训练、特征、模型、推理提供标准化的 YAML 文件配置。</p>
+        <p>{{ t('为训练、特征、模型、推理提供标准化的 YAML 文件配置。', 'Provide standardized YAML configuration files for training, features, models, and prediction.') }}</p>
         <div v-if="bundleError" class="alert">{{ bundleError }}</div>
-        <div class="actions">
-          <button class="primary" @click="downloadBundle" :disabled="!!bundleError">打包下载 4 个 YAML</button>
-        </div>
       </div>
       <RouterView />
     </main>
@@ -35,7 +32,6 @@ import { RouterLink, RouterView } from 'vue-router';
 import { store } from './store/configStore.js';
 import { dumpYaml, parseYaml } from './utils/yaml.js';
 import { buildTrainConfig } from './utils/buildTrainConfig.js';
-import { downloadZip } from './utils/zip.js';
 import logoUrl from './assets/logo.png';
 
 const mainRef = ref(null);
@@ -136,17 +132,5 @@ const bundleError = computed(() => {
   }
   return '';
 });
-
-async function downloadBundle() {
-  if (bundleError.value) {
-    return;
-  }
-  await downloadZip('nextrec-configs.zip', {
-    'train_config.yaml': trainYamlResult.value.text,
-    'feature_config.yaml': featureYamlResult.value.text,
-    'model_config.yaml': modelYamlResult.value.text,
-    'predict_config.yaml': predictYaml.value
-  });
-}
 
 </script>

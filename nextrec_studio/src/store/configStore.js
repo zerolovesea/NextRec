@@ -15,6 +15,7 @@ export const store = reactive({
       path: '/path/to/training/data',
       format: 'parquet',
       target_list: ['label'],
+      id_column: '',
       valid_ratio: 0.2,
       random_state: 2024,
       streaming: false
@@ -36,7 +37,7 @@ export const store = reactive({
         weight_decay: 0.0
       },
       loss_list: ['bce'],
-      loss_params_text: '',
+      loss_params_list: [''],
       loss_weights_text: '',
       metrics_list: ['auc'],
       epochs: 10,
@@ -45,6 +46,7 @@ export const store = reactive({
       log_interval: 1,
       use_wandb: false,
       use_swanlab: false,
+      note: '',
       wandb_api: '',
       wandb_kwargs: {
         project: '',
@@ -56,6 +58,11 @@ export const store = reactive({
         name: ''
       },
       device: 'cpu'
+    },
+    export_onnx: {
+      enable: false,
+      batch_size: 512,
+      opset_version: 18
     }
   },
   feature: {
