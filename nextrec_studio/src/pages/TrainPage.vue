@@ -8,7 +8,7 @@
     </div>
 
     <div class="card">
-      <h2>{{ t('Session 配置', 'Session Settings') }}</h2>
+      <h2>{{ t('会话配置', 'Session Settings') }}</h2>
       <div class="grid-2">
         <div class="field">
           <label>{{ t('会话 ID', 'Session ID') }}</label>
@@ -51,10 +51,18 @@
             <option :value="true">true</option>
           </select>
         </div>
+        <div class="field">
+          <label>
+            {{ t('ID 列', 'ID Column') }}
+            <span class="help-icon" :data-tip="t('标识用户的唯一列', 'The unique column identifying users')">?</span>
+          </label>
+          <input v-model="form.data.id_column" placeholder="user_id" />
+        </div>
       </div>
       <div style="margin-top: 16px;">
         <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">
           {{ t('目标列', 'Targets') }}
+          <span class="help-icon" :data-tip="t('模型的目标列', 'The target columns for the model')">?</span>
         </label>
         <div class="badge-row" style="margin-top: 8px;">
           <div v-for="(target, index) in form.data.target_list" :key="`target-${index}`" class="field" style="min-width: 160px;">
@@ -104,11 +112,17 @@
           </select>
         </div>
         <div class="field">
-          <label>{{ t('线程数', 'Num Workers') }}</label>
+          <label>
+            {{ t('数据加载线程数', 'Num Workers') }}
+            <span class="help-icon" :data-tip="t('用于数据加载的线程数量，提高时可以加快数据加载速度', 'The number of threads used for data loading; increasing this can speed up data loading')">?</span>
+          </label>
           <input v-model.number="form.dataloader.num_workers" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('数据预取因子', 'Prefetch Factor') }}</label>
+          <label>
+            {{ t('数据预取因子', 'Prefetch Factor') }}
+            <span class="help-icon" :data-tip="t('每个工作线程预取的数据批次数量，提高时可以减少数据加载等待', 'The number of batches to prefetch for each worker thread; increasing this can reduce data loading wait time')">?</span>
+          </label>
           <input v-model.number="form.dataloader.prefetch_factor" type="number" />
         </div>
       </div>
@@ -140,7 +154,7 @@
           <input v-model.number="form.train.epochs" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('批大小', 'Batch Size') }}</label>
+          <label>{{ t('训练集 Batch Size', 'Batch Size') }}</label>
           <input v-model.number="form.train.batch_size" type="number" />
         </div>
         <div class="field">
@@ -158,6 +172,10 @@
           <label>{{ t('设备', 'Device') }}</label>
           <input v-model="form.train.device" placeholder="cpu" />
         </div>
+        <div class="field">
+          <label>{{ t('备注', 'Note') }}</label>
+          <input v-model="form.train.note" placeholder="baseline run" />
+        </div>
       </div>
 
       <div style="margin-top: 16px;">
@@ -165,16 +183,35 @@
         <div v-if="lossMismatch" class="alert alert-warn">
           {{ t('Loss 数量多于目标列，请检查。', 'Loss count exceeds targets. Please review.') }}
         </div>
-        <div class="badge-row" style="margin-top: 8px;">
+        <div class="badge-row" style="margin-top: 8px; align-items: flex-start;">
           <div v-for="(loss, index) in form.train.loss_list" :key="`loss-${index}`" class="field" style="min-width: 200px;">
             <select v-model="form.train.loss_list[index]">
-              <option v-for="lossName in lossOptions" :key="lossName" :value="lossName">{{ lossName }}</option>
+              <option v-for="lossName in lossOptions" :key="lossName" :value="lossName">{{ displayLossName(lossName) }}</option>
             </select>
-            <button class="icon-button icon-button-small icon-button-danger" style="margin-top: 6px;" @click="removeItem(form.train.loss_list, index)" :disabled="form.train.loss_list.length <= 1" aria-label="移除">
+            <input
+              v-model="form.train.loss_params_list[index]"
+              :placeholder="lossParamPlaceholder(index)"
+              style="margin-top: 8px; font-size: 11px;"
+            />
+            <button class="icon-button icon-button-small icon-button-danger" style="margin-top: 6px;" @click="removeLoss(index)" :disabled="form.train.loss_list.length <= 1" aria-label="移除">
               ×
             </button>
           </div>
-          <button class="secondary" @click="addItem(form.train.loss_list, lossOptions[0])">{{ t('添加', 'Add') }}</button>
+          <button class="secondary" @click="addLoss">{{ t('添加', 'Add') }}</button>
+        </div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">{{ t('损失函数权重', 'Loss Weights') }}</label>
+        <div class="field" style="margin-top: 8px;">
+          <textarea
+            v-model="form.train.loss_weights_text"
+            :placeholder="`例如[0.3, 0.7]或
+method: grad_norm
+alpha: 1.5
+lr: 0.025`"
+            rows="4"
+          ></textarea>
         </div>
       </div>
 
@@ -183,24 +220,13 @@
         <div class="badge-row" style="margin-top: 8px;">
           <div v-for="(metric, index) in form.train.metrics_list" :key="`metric-${index}`" class="field" style="min-width: 200px;">
             <select v-model="form.train.metrics_list[index]">
-              <option v-for="metricName in metricsOptions" :key="metricName" :value="metricName">{{ metricName }}</option>
+              <option v-for="metricName in metricsOptions" :key="metricName" :value="metricName">{{ metricName.toUpperCase() }}</option>
             </select>
             <button class="icon-button icon-button-small icon-button-danger" style="margin-top: 6px;" @click="removeItem(form.train.metrics_list, index)" :disabled="form.train.metrics_list.length <= 1" aria-label="移除">
               ×
             </button>
           </div>
           <button class="secondary" @click="addItem(form.train.metrics_list, metricsOptions[0])">{{ t('添加', 'Add') }}</button>
-        </div>
-      </div>
-
-      <div class="grid-2" style="margin-top: 16px;">
-        <div class="field">
-          <label>{{ t('损失参数', 'Loss Params') }}</label>
-          <textarea v-model="form.train.loss_params_text" placeholder="- pos_weight: 1.0\n  logits: false"></textarea>
-        </div>
-        <div class="field">
-          <label>{{ t('损失权重', 'Loss Weights') }}</label>
-          <textarea v-model="form.train.loss_weights_text" placeholder="method: grad_norm\nalpha: 1.5\nlr: 0.025"></textarea>
         </div>
       </div>
 
@@ -253,6 +279,36 @@
     </div>
 
     <div class="card">
+      <h2>
+        {{ t('模型量化', 'Model Quantization') }}
+        <span class="help-icon" :data-tip="t('使用 ONNX 格式导出模型以便于跨平台部署，ONNX 是一种开放模型格式，通过对模型进行量化可以减小模型大小并加快推理速度。', 'Use ONNX format to export the model for cross-platform deployment. ONNX is an open model format, and quantizing the model can reduce its size and speed up inference.')">?</span>
+      </h2>
+      <div class="grid-2">
+        <div class="field">
+          <label>{{ t('启用 ONNX 导出', 'Enable ONNX Export') }}</label>
+          <select v-model="form.export_onnx.enable">
+            <option :value="false">false</option>
+            <option :value="true">true</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>
+            {{ t('导出 Batch Size', 'Export Batch Size') }}
+            <span class="help-icon" :data-tip="t('导出模型时使用的批次大小，ONNX要求固定批次大小来保证模型推理时的正确性。', 'The batch size used when exporting the model; ONNX requires a fixed batch size to ensure correct inference.')">?</span>
+          </label>
+          <input v-model.number="form.export_onnx.batch_size" type="number" />
+        </div>
+        <div class="field">
+          <label>
+            {{ t('ONNX Opset 版本', 'ONNX Opset Version') }}
+            <span class="help-icon" :data-tip="t('导出模型时使用的 ONNX Opset 版本，ONNX Opset 版本决定了模型中算子的版本，默认为18以确保兼容性。', 'The ONNX Opset version used when exporting the model; the ONNX Opset version determines the version of operators in the model, defaulting to 18 for compatibility.')">?</span>
+          </label>
+          <input v-model.number="form.export_onnx.opset_version" type="number" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>{{ t('YAML 预览', 'YAML Preview') }}</h2>
       <div v-if="error" class="alert">{{ error }}</div>
       <div class="field">
@@ -278,10 +334,8 @@ const lang = computed(() => store.ui.lang);
 const t = (zh, en) => (lang.value === 'zh' ? zh : en);
 
 const lossOptions = [
-  'bce',
   'binary_crossentropy',
   'weighted_bce',
-  'focal',
   'focal_loss',
   'cb_focal',
   'class_balanced_focal',
@@ -348,12 +402,45 @@ function addItem(list, defaultValue = '') {
 
 function addTarget() {
   form.data.target_list.push('');
-  form.train.loss_list.push(lossOptions[0]);
-  form.train.metrics_list.push(metricsOptions[0]);
+  addLoss();
 }
 
 function removeItem(list, index) {
   list.splice(index, 1);
+}
+
+function lossParamPlaceholder(index) {
+  const lossName = form.train.loss_list[index];
+  if (lossName === 'weighted_bce') {
+    return `auto_balance: true/pos_weight: 1.0`;
+  }
+  if (lossName === 'focal_loss') {
+    return '{"gamma": 2.0, "alpha": 0.25}';
+  }
+  return '';
+}
+
+function displayLossName(lossName) {
+  if (lossName === 'weighted_bce') {
+    return t('WEIGHTED_BCE', 'WEIGHTED_BCE');
+  }
+  if (lossName === 'bce' || lossName === 'binary_crossentropy') {
+    return t('BCE', 'BCE');
+  }
+  const upper = String(lossName).toUpperCase();
+  return t(upper, upper);
+}
+
+function addLoss() {
+  form.train.loss_list.push(lossOptions[0]);
+  form.train.loss_params_list.push('');
+}
+
+function removeLoss(index) {
+  form.train.loss_list.splice(index, 1);
+  if (Array.isArray(form.train.loss_params_list)) {
+    form.train.loss_params_list.splice(index, 1);
+  }
 }
 
 const yamlText = computed(() => {

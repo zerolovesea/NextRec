@@ -594,7 +594,16 @@ def predict_model(predict_config_path: str) -> None:
         model_file, map_location=predict_cfg.get("device", "cpu"), verbose=True
     )
 
-    effective_id_columns = id_columns or model.id_columns
+    # load id_columns override from predict config
+    input_id_columns = predict_cfg.get("id_columns")
+    if input_id_columns is not None:
+        input_id_columns = to_list(input_id_columns)
+
+    if input_id_columns is not None:
+        effective_id_columns = input_id_columns
+        model.id_columns = input_id_columns
+    else:
+        effective_id_columns = model.id_columns or []
 
     log_cli_section("Features")
     log_kv_lines(
@@ -633,7 +642,7 @@ def predict_model(predict_config_path: str) -> None:
             ("Checkpoint", model_file),
             ("Device", predict_cfg.get("device", "cpu")),
             ("Use ONNX", use_onnx),
-            ("ONNX path", onnx_path if use_onnx else "(disabled)"),
+            ("ONNX path", onnx_path if use_onnx else "disabled"),
         ]
     )
 
@@ -715,7 +724,7 @@ def predict_model(predict_config_path: str) -> None:
             onnx_path=onnx_path,
             data=pred_data,
             batch_size=effective_batch_size,
-            include_ids=bool(id_columns),
+            include_ids=bool(effective_id_columns),
             return_dataframe=False,
             save_path=str(save_path),
             save_format=save_format,

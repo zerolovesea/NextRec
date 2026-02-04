@@ -11,6 +11,7 @@ export function buildTrainConfig(trainState) {
       path: trainState.data.path,
       format: trainState.data.format,
       target: targetList.length <= 1 ? (targetList[0] || '') : targetList,
+      ...(trainState.data.id_column ? { id_column: trainState.data.id_column } : {}),
       valid_ratio: trainState.data.valid_ratio,
       random_state: trainState.data.random_state,
       streaming: trainState.data.streaming
@@ -33,6 +34,10 @@ export function buildTrainConfig(trainState) {
     }
   };
 
+  if (trainState.train.note && trainState.train.note.trim()) {
+    output.train.note = trainState.train.note.trim();
+  }
+
   if (trainState.train.use_wandb) {
     if (trainState.train.wandb_api) {
       output.train.wandb_api = trainState.train.wandb_api;
@@ -53,12 +58,26 @@ export function buildTrainConfig(trainState) {
     }
   }
 
-  if (trainState.train.loss_params_text && trainState.train.loss_params_text.trim()) {
+  if (Array.isArray(trainState.train.loss_params_list)) {
+    const parsedParams = trainState.train.loss_params_list.map((item) => {
+      if (item && item.trim()) {
+        return parseYaml(item);
+      }
+      return {};
+    });
+    if (parsedParams.some((item) => Object.keys(item || {}).length > 0)) {
+      output.train.loss_params = parsedParams;
+    }
+  } else if (trainState.train.loss_params_text && trainState.train.loss_params_text.trim()) {
     output.train.loss_params = parseYaml(trainState.train.loss_params_text);
   }
 
   if (trainState.train.loss_weights_text && trainState.train.loss_weights_text.trim()) {
     output.train.loss_weights = parseYaml(trainState.train.loss_weights_text);
+  }
+
+  if (trainState.export_onnx) {
+    output.export_onnx = { ...trainState.export_onnx };
   }
 
   return dumpYaml(output);

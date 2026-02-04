@@ -357,6 +357,7 @@ button.icon-button-danger:hover:not(:disabled) {
   width: 16px;
   height: 16px;
   margin-left: 6px;
+  margin-top: -5px;
   border-radius: 999px;
   border: 1px solid #c5e6e9;
   font-size: 11px;
@@ -373,8 +374,10 @@ button.icon-button-danger:hover:not(:disabled) {
   left: 22px;
   top: 45%;
   transform: translateY(-50%);
-  width: max-content;
-  max-width: none;
+  width: auto;
+  max-width: min(15em, calc(100vw - 40px));
+  min-width: 140px;
+  box-sizing: border-box;
   background: rgba(15, 23, 32, 0.88);
   color: #ffffff;
   padding: 10px 12px;
@@ -382,6 +385,8 @@ button.icon-button-danger:hover:not(:disabled) {
   font-size: 12px;
   line-height: 1.4;
   white-space: pre-line;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   z-index: 10;
   box-shadow: 0 12px 24px rgba(15, 23, 32, 0.2);
 }
@@ -406,5 +411,24 @@ button.icon-button-danger:hover:not(:disabled) {
   .sidebar {
     position: relative;
     height: auto;
+  }
+
+  .help-icon:hover::after {
+    max-width: min(15em, 70vw);
+  }
+}
+
+@media (max-width: 520px) {
+  .help-icon:hover::after {
+    left: 0;
+    top: 22px;
+    transform: none;
+    max-width: min(15em, 82vw);
+  }
+
+  .help-icon:hover::before {
+    left: 8px;
+    top: 16px;
+    transform: rotate(45deg);
   }
 }
