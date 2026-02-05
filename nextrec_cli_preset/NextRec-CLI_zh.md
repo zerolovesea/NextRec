@@ -115,6 +115,7 @@ train:
   batch_size: 512                      # 可覆盖 dataloader.train_batch_size
   shuffle: true                        # 是否打乱数据
   log_interval: 1                      # 每 N 个 epoch 记录一次验证指标
+  note: ""                             # 训练备注信息（可选）
   use_wandb: false                     # 启用 Weights & Biases 日志
   use_swanlab: false                   # 启用 SwanLab 日志
   # wandb_api: YOUR_WANDB_API_KEY      # 可选，非交互登录用 API Key
@@ -126,6 +127,12 @@ train:
   #   project: NextRec
   #   name: example_run
   device: cpu                          # 设备：cpu, cuda, cuda:0, mps
+
+# export_onnx:
+#   enable: false                       # 训练完成后导出 ONNX
+#   batch_size: 512                     # 导出用的 dummy batch size
+#   opset_version: 18                   # ONNX opset 版本
+#   path: /path/to/model.onnx           # 导出路径（别名：save_path）
 ```
 
 #### 参数说明
@@ -187,6 +194,7 @@ train:
 - `batch_size`: 可覆盖 dataloader 的批次大小
 - `shuffle`: 是否打乱训练数据
 - `log_interval`: 每 N 个 epoch 记录一次验证指标
+- `note`: 训练备注信息（可选）
 - `use_wandb`: 启用 Weights & Biases 日志
 - `use_swanlab`: 启用 SwanLab 日志
 - `wandb_api`: W&B API key（非交互登录）
@@ -198,6 +206,12 @@ train:
   - `cuda`: NVIDIA GPU
   - `cuda:0`: 指定 GPU 索引
   - `mps`: Apple Silicon GPU
+
+##### export_onnx 部分
+- `enable`: 是否在训练完成后导出 ONNX
+- `batch_size`: 导出用的 dummy batch size
+- `opset_version`: ONNX opset 版本
+- `path`: 导出路径（别名：`save_path`）
 
 ---
 
@@ -217,17 +231,24 @@ predict:
   data_path: /path/to/prediction/data   # 预测数据路径
   source_data_format: parquet           # 输入数据格式：csv, parquet
                                         # 使用 auto 自动识别
+  # data_format: auto                   # source_data_format 的别名
   id_column: user_id                    # ID列名（可选，用于关联预测结果）
   name: pred                            # 输出文件名（不含扩展名）
                                         # 最终路径: {checkpoint_path}/predictions/{name}.{save_data_format}
   save_data_format: csv                 # 输出格式：csv, parquet
+  # save_format: csv                    # save_data_format 的别名
   preview_rows: 5                       # 预览行数（输出到日志）
   batch_size: 512                       # 预测批次大小
   num_workers: 4                        # 数据加载线程数
-  num_processes: 1                      # 流式推理的进程数
+  # num_processes: 1                    # 流式推理的进程数
+                                       # 不填则 CLI 会根据负载自动选择 1~5
   device: cpu                           # 运行设备
+  use_onnx: false                       # 是否启用 ONNX 推理
+  # onnx_path: /path/to/model.onnx      # 可选 ONNX 模型路径（覆盖自动查找）
   streaming: true                       # 是否启用流式加载
   chunk_size: 20000                     # 流式处理时的分块大小
+  # prefetch_factor: 2                  # DataLoader 预取 batch 数（num_workers>0 时生效）
+  # profile: false                      # 记录推理阶段耗时统计
 ```
 
 #### 参数说明
@@ -238,23 +259,30 @@ predict:
 - `model_config`: 模型配置覆盖（可选，未指定会在 checkpoint 目录自动查找）
 - `predict.data_path`: 待预测的数据路径
 - `predict.source_data_format`: 输入数据格式或 `auto`
+- `predict.data_format`: `source_data_format` 的别名
 - `predict.id_column`: ID列名（可选）
   - 如果指定，预测结果将包含此列
 - `predict.name`: 输出文件名（不含扩展名）
 - `predict.save_data_format`: 输出格式
   - `csv`: CSV 文件
   - `parquet`: Parquet 文件
+- `predict.save_format`: `save_data_format` 的别名
 - `predict.batch_size`: 预测时的批次大小
 - `predict.num_workers`: 数据加载进程数
 - `predict.num_processes`: 流式推理的进程数
+  - 不填则 CLI 会根据负载自动选择 1~5
   - `>1` 需要 `streaming=true`，且不支持 ONNX 推理
   - 每个进程会各自加载模型/数据，内存占用近似线性增长
+- `predict.use_onnx`: 是否启用 ONNX 推理
+- `predict.onnx_path`: ONNX 模型路径（可选，覆盖自动查找）
 - `predict.streaming`: 是否启用流式加载
   - `true`: 流式处理，适用于大数据集
   - `false`: 一次性加载到内存（小数据集）
 - `predict.chunk_size`: 流式处理时的分块大小
+- `predict.prefetch_factor`: DataLoader 预取 batch 数（`num_workers > 0` 时生效）
 - `predict.preview_rows`: 预览行数
   - 预测完成后在日志中显示前 N 行结果
+- `predict.profile`: 是否记录推理阶段耗时统计
 
 ---
 
@@ -794,15 +822,6 @@ feature_groups:
     - time
     - device
 ```
-
-### 多目标预测
-
-```yaml
-# predict_config.yaml
-targets: [label_click, label_purchase]  # 覆盖训练配置的目标
-```
-
----
 
 ## 常见问题
 

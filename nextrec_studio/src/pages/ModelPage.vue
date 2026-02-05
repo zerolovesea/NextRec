@@ -17,15 +17,20 @@
           </select>
         </div>
       </div>
-      <div v-if="modelNote" class="alert model-note" style="margin-top: 12px;">
-        {{ modelNote }}
+      <div v-if="modelNote" style="margin-top: 12px;">
+        <button class="secondary" @click="showModelNote = !showModelNote">
+          {{ showModelNote ? t('收起模型说明', 'Hide Model Notes') : t('查看模型说明', 'Show Model Notes') }}
+        </button>
+        <div v-if="showModelNote" class="alert model-note" style="margin-top: 12px;">
+          {{ modelNote }}
+        </div>
       </div>
     </div>
 
     <div class="card">
       <h2>{{ t('参数配置', 'Parameter Configuration') }}</h2>
-      <div class="inline-list">
-        <div v-for="(entry, index) in visibleParamEntries" :key="entry.id" class="inline-item">
+      <div class="param-list">
+        <div v-for="(entry, index) in visibleParamEntries" :key="entry.id" class="param-card">
           <div class="grid-2">
             <div class="field">
               <label>{{ t('参数名', 'Parameter Key') }}</label>
@@ -36,13 +41,14 @@
             <label>
               {{ t('值', 'Value') }}
               <span
-                v-if="paramHelp[entry.key]"
+                v-if="getEntryHelp(entry.key)"
                 class="help-icon"
-                :title="paramHelp[entry.key]"
-                :data-tip="paramHelp[entry.key]"
+                :class="{ 'help-icon-warn': getEntryWarn(entry.key) }"
+                :title="getEntryHelp(entry.key)"
+                :data-tip="getEntryHelp(entry.key)"
               >?</span>
             </label>
-            <textarea v-model="entry.raw" class="mono" placeholder="relu 或 123 或 true 或 \nmlp_params:\n  hidden_dims: [256, 128]"></textarea>
+            <textarea v-model="entry.raw" class="mono textarea-compact" placeholder="relu 或 123 或 true 或 \nmlp_params:\n  hidden_dims: [256, 128]"></textarea>
           </div>
           <div class="actions">
             <button class="icon-button icon-button-small icon-button-danger" @click="removeEntryById(entry.id)" :disabled="paramEntries.length <= 1" aria-label="移除">×</button>
@@ -95,7 +101,7 @@ import { dumpYaml, parseYaml } from '../utils/yaml.js';
 import { downloadText } from '../utils/download.js';
 import { store } from '../store/configStore.js';
 
-const presetModules = import.meta.glob('../presets/*.yaml', { as: 'raw', eager: true });
+const presetModules = import.meta.glob('../presets/*.yaml', { query: '?raw', import: 'default', eager: true });
 
 function filenameToModel(path) {
   const file = path.split('/').pop() || '';
@@ -115,8 +121,10 @@ function parsePresetComments(raw) {
   const topComments = [];
   let inTop = true;
   const paramComments = {};
+  const paramWarn = {};
   const pendingByIndent = new Map();
   let inParams = false;
+  const keyStack = [];
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
@@ -134,6 +142,7 @@ function parsePresetComments(raw) {
 
     if (trimmed.startsWith('params:')) {
       inParams = true;
+      keyStack.length = 0;
       continue;
     }
     if (!inParams) {
@@ -151,6 +160,11 @@ function parsePresetComments(raw) {
       continue;
     }
     const key = match[1];
+    while (keyStack.length && keyStack[keyStack.length - 1].indent >= indent) {
+      keyStack.pop();
+    }
+    keyStack.push({ indent, key });
+    const path = keyStack.map((item) => item.key).join('.');
     let comment = '';
     const inlineIdx = line.indexOf('#');
     if (inlineIdx !== -1) {
@@ -159,12 +173,44 @@ function parsePresetComments(raw) {
       comment = pendingByIndent.get(indent) || '';
     }
     if (comment) {
-      paramComments[key] = comment;
+      paramComments[path] = comment;
+      if (comment.includes('需要修改')) {
+        paramWarn[path] = true;
+      }
     }
     pendingByIndent.delete(indent);
   }
 
-  return { top: topComments.join('\n'), params: paramComments };
+  return { top: topComments.join('\n'), params: paramComments, warn: paramWarn };
+}
+
+function getEntryHelp(key) {
+  if (!key) {
+    return '';
+  }
+  const base = paramHelp[key] || '';
+  const prefix = `${key}.`;
+  const nested = Object.entries(paramHelp)
+    .filter(([path, note]) => path.startsWith(prefix) && note)
+    .map(([path, note]) => `${path.slice(prefix.length)}: ${note}`);
+  if (nested.length === 0) {
+    return base;
+  }
+  if (base) {
+    return `${base}\n${nested.join('\n')}`;
+  }
+  return nested.join('\n');
+}
+
+function getEntryWarn(key) {
+  if (!key) {
+    return false;
+  }
+  if (paramWarn[key]) {
+    return true;
+  }
+  const prefix = `${key}.`;
+  return Object.keys(paramWarn).some((path) => path.startsWith(prefix));
 }
 
 function getPresetRaw(name) {
@@ -190,7 +236,9 @@ const t = (zh, en) => (lang.value === 'zh' ? zh : en);
 const error = ref('');
 const paramEntries = reactive([]);
 const paramHelp = reactive({});
+const paramWarn = reactive({});
 const modelNote = ref('');
+const showModelNote = ref(false);
 const hiddenParamKeys = new Set(['embedding_l1_reg', 'embedding_l2_reg', 'dense_l1_reg', 'dense_l2_reg']);
 const visibleParamEntries = computed(() => paramEntries.filter((entry) => !hiddenParamKeys.has(entry.key)));
 
@@ -236,9 +284,16 @@ function applyPreset() {
   setEntriesFromParams(params);
   const comments = parsePresetComments(getPresetRaw(modelName));
   modelNote.value = comments.top;
+  showModelNote.value = false;
   Object.keys(paramHelp).forEach((key) => delete paramHelp[key]);
+  Object.keys(paramWarn).forEach((key) => delete paramWarn[key]);
   Object.entries(comments.params).forEach(([key, note]) => {
     paramHelp[key] = note;
+  });
+  Object.entries(comments.warn || {}).forEach(([key, value]) => {
+    if (value) {
+      paramWarn[key] = true;
+    }
   });
 }
 
@@ -357,8 +412,14 @@ onMounted(() => {
     const comments = parsePresetComments(getPresetRaw(preset.model));
     modelNote.value = comments.top;
     Object.keys(paramHelp).forEach((key) => delete paramHelp[key]);
+    Object.keys(paramWarn).forEach((key) => delete paramWarn[key]);
     Object.entries(comments.params).forEach(([key, note]) => {
       paramHelp[key] = note;
+    });
+    Object.entries(comments.warn || {}).forEach(([key, value]) => {
+      if (value) {
+        paramWarn[key] = true;
+      }
     });
   }
 });

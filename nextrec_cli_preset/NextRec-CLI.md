@@ -115,6 +115,7 @@ train:
   batch_size: 512                      # Overrides dataloader.train_batch_size if set
   shuffle: true                        # Shuffle training data
   log_interval: 1                      # Log validation metrics every N epochs
+  note: ""                             # Optional run note stored in training logs
   use_wandb: false                     # Enable Weights & Biases logging
   use_swanlab: false                   # Enable SwanLab logging
   # wandb_api: YOUR_WANDB_API_KEY      # Optional API key for non-tty login
@@ -126,6 +127,12 @@ train:
   #   project: NextRec
   #   name: example_run
   device: cpu                          # Device: cpu, cuda, cuda:0, mps
+
+# export_onnx:
+#   enable: false                       # Export ONNX after training
+#   batch_size: 512                     # Dummy batch size for export
+#   opset_version: 18                   # ONNX opset version
+#   path: /path/to/model.onnx           # Export path (alias: save_path)
 ```
 
 #### Parameter Description
@@ -187,6 +194,7 @@ train:
 - `batch_size`: Overrides dataloader batch size if set
 - `shuffle`: Whether to shuffle training data
 - `log_interval`: Log validation metrics every N epochs
+- `note`: Optional run note stored in training logs
 - `use_wandb`: Enable Weights & Biases logging
 - `use_swanlab`: Enable SwanLab logging
 - `wandb_api`: W&B API key for non-tty login
@@ -198,6 +206,12 @@ train:
   - `cuda`: NVIDIA GPU
   - `cuda:0`: Specific NVIDIA GPU index
   - `mps`: Apple Silicon GPU
+
+##### export_onnx Section
+- `enable`: Whether to export ONNX after training
+- `batch_size`: Dummy batch size for export
+- `opset_version`: ONNX opset version
+- `path`: Export path (alias: `save_path`)
 
 ---
 
@@ -217,17 +231,24 @@ predict:
   data_path: /path/to/prediction/data   # Prediction data path
   source_data_format: parquet           # Input data format: csv, parquet
                                         # Use 'auto' for automatic detection
+  # data_format: auto                   # Alias for source_data_format
   id_column: user_id                    # ID column name (optional, for linking predictions)
   name: pred                            # Output filename (without extension)
                                         # Final path: {checkpoint_path}/predictions/{name}.{save_data_format}
   save_data_format: csv                 # Output format: csv, parquet
+  # save_format: csv                    # Alias for save_data_format
   preview_rows: 5                       # Number of preview rows (output to log)
   batch_size: 512                       # Prediction batch size
   num_workers: 4                        # Number of data loading threads
-  num_processes: 1                      # Number of processes for streaming inference
+  # num_processes: 1                    # Number of processes for streaming inference
+                                       # If omitted, CLI auto-selects 1~5 based on system load
   device: cpu                           # Computing device
+  use_onnx: false                       # Enable ONNX inference
+  # onnx_path: /path/to/model.onnx      # Optional ONNX model path (overrides auto-detect)
   streaming: true                       # Whether to stream data from disk
   chunk_size: 20000                     # Chunk size for streaming processing
+  # prefetch_factor: 2                  # DataLoader prefetch batches (only when num_workers>0)
+  # profile: false                      # Enable timing profiler for prediction stages
 ```
 
 #### Parameter Description
@@ -238,23 +259,30 @@ predict:
 - `model_config`: Model config override (optional, auto-searches in checkpoint directory)
 - `predict.data_path`: Path to data for prediction
 - `predict.source_data_format`: Input data format or `auto`
+- `predict.data_format`: Alias for `source_data_format`
 - `predict.id_column`: ID column name (optional)
   - If specified, prediction results will include this column
 - `predict.name`: Output filename (without extension)
 - `predict.save_data_format`: Output format
   - `csv`: CSV file
   - `parquet`: Parquet file
+- `predict.save_format`: Alias for `save_data_format`
 - `predict.batch_size`: Batch size for prediction
 - `predict.num_workers`: Number of data loading workers
 - `predict.num_processes`: Number of processes for streaming inference
+  - If omitted, CLI auto-selects 1~5 based on system load
   - `>1` requires `streaming=true` and is not supported with ONNX inference
   - Each process loads its own model/data; memory usage grows roughly linearly
+- `predict.use_onnx`: Enable ONNX inference
+- `predict.onnx_path`: ONNX model path (optional, overrides auto-detect)
 - `predict.streaming`: Whether to stream data from disk
   - `true`: Streaming processing, for large datasets
   - `false`: Load all data into memory (small datasets)
 - `predict.chunk_size`: Chunk size for streaming processing
+- `predict.prefetch_factor`: DataLoader prefetch batches (only when `num_workers > 0`)
 - `predict.preview_rows`: Number of preview rows
   - Displays first N rows of results in log after prediction
+- `predict.profile`: Enable timing profiler for prediction stages
 
 ---
 
@@ -794,15 +822,6 @@ feature_groups:
     - time
     - device
 ```
-
-### Multi-Target Prediction
-
-```yaml
-# predict_config.yaml
-targets: [label_click, label_purchase]  # Override training config targets
-```
-
----
 
 ## FAQ
 

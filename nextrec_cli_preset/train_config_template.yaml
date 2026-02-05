@@ -153,6 +153,8 @@ train:
   log_interval: 1                                      # Log validation metrics every N epochs
                                                        # Metrics still computed each epoch
 
+  note: ""                                             # Optional run note stored in training logs
+
   # ----- Optional: Experiment Tracking -----
   use_wandb: false                                     # Enable Weights & Biases logging
   use_swanlab: false                                   # Enable SwanLab logging
@@ -177,3 +179,4 @@ train:
 #   enable: false                                      # Set true to export ONNX after training
 #   batch_size: 512                                    # Dummy batch size for export
 #   opset_version: 18                                  # ONNX opset version
+#   path: /path/to/model.onnx                           # Optional export path (alias: save_path)

@@ -1,33 +1,52 @@
-# DIN 是一个 CTR 预估模型，通过对用户历史行为序列进行目标感知的注意力加权，
-# 构建针对当前候选物品的兴趣表示。它不是将全部行为压缩为固定向量，而是突出
-# 与候选物品最相关的行为，实现请求级的自适应兴趣建模。
-
-# 处理流程：
-#   (1) 对候选物品、用户行为序列及其他稀疏/稠密特征做 embedding
-#   (2) 使用小型注意力 MLP 计算每个历史行为与候选 embedding 的相关性
-#   (3) 通过掩码加权池化得到目标特定的兴趣向量
-#   (4) 拼接候选、兴趣向量、其他稀疏 embedding 与稠密特征
-#   (5) 输入 MLP 完成最终点击率预测
-
+# DIN（Deep Interest Network）是一种面向 CTR 预估的行为序列模型，
+# 核心思想是：用户的“兴趣”并不是固定不变的，而是会随着当前候选物品不同而变化。
+#
+# 因此，DIN 不再将用户全部历史行为简单压缩为一个固定向量，
+# 而是引入「目标感知（Target-Aware）注意力机制」：
+#   - 以当前候选物品作为 query
+#   - 对用户历史行为序列进行加权
+#   - 动态生成“针对该候选物品的兴趣表示”
+#
+# 这种设计实现了请求级（request-level）的自适应兴趣建模，
+# 能突出与当前候选最相关的历史行为，弱化无关行为的干扰。
+#
+# 整体处理流程如下：
+#   (1) 对候选物品、用户历史行为序列，以及其他稀疏 / 稠密特征进行 embedding
+#       - 行为序列通常为 item / category 等 ID 序列
+#   (2) 使用注意力网络（小型 MLP，又称 Local Activation Unit）
+#       计算每个历史行为 embedding 与候选物品 embedding 之间的相关性
+#       （通常基于拼接、差分、元素积等特征形式）
+#   (3) 对注意力得分进行掩码（mask）处理，
+#       屏蔽 padding 位置，并根据配置选择是否做 softmax 归一化
+#   (4) 使用加权池化（weighted sum），
+#       将行为序列聚合为一个“目标特定”的用户兴趣向量
+#   (5) 拼接候选物品 embedding、兴趣向量、其他稀疏 embedding
+#       以及数值型特征，输入 MLP
+#   (6) 通过 MLP 输出最终的点击率预测结果
+#
 # 主要优点：
-# - 目标感知注意力捕捉候选级的细粒度兴趣
-# - 自适应池化应对多样化行为模式，减少手工特征工程
-# - 掩码加权降低序列填充位置的噪声
-# - 便捷融合行为与额外稀疏/稠密上下文信息
+#   - 目标感知注意力：针对不同候选物品，生成不同的兴趣表示
+#   - 细粒度建模用户兴趣，优于简单平均 / sum pooling
+#   - 掩码加权有效降低序列 padding 带来的噪声
+#   - 结构直观、易扩展，便于融合多种上下文特征
+#
+# 适用场景：
+#   - 用户行为序列信息丰富的推荐 / 广告 CTR 预估任务
+#   - 用户兴趣随候选变化明显的场景（如电商、内容推荐）
 
 model: din
 
 params:
-  attention_mlp_params:
-    hidden_dims: [80, 40]   # 注意力 MLP 的隐藏维度（论文中的 local activation unit）
-    activation: sigmoid     # 注意力 MLP 激活函数（DIN 论文常用 sigmoid）
+  attention_mlp_params:     # 注意力 MLP 参数，用于计算行为与候选的相关性
+    hidden_dims: [80, 40]  
+    activation: sigmoid    
   attention_use_softmax: true  # 注意力权重是否做 softmax 归一化
-  behavior_feature_name: hist_item_seq  # 用户历史行为序列特征名，需要是包含在训练数据中的序列特征
-  candidate_feature_name: item          # 候选物品特征名（作为注意力 query），需要是包含在训练数据中的特征
+  behavior_feature_name: hist_item_seq  # 用户历史行为序列特征名，需要修改为训练数据中包含目标序列的特征列
+  candidate_feature_name: item          # 候选物品特征名（作为注意力 query），需要修改为训练数据中包含候选物品的特征列
   mlp_params:
-    hidden_dims: [256, 128]  # 拼接后 MLP 的隐藏维度
-    activation: relu         # MLP 激活函数
-    dropout: 0.3             # MLP dropout
+    hidden_dims: [256, 128]  
+    activation: relu         
+    dropout: 0.3             
 
   embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
   embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则

@@ -133,3 +133,7 @@ docs/rtd/_build/
 artifacts/
 
 node_modules/
+
+.ENV
+
+generate_feature_config_original.txt

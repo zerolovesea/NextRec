@@ -14,6 +14,7 @@ import sys
 import pickle
 import socket
 import multiprocessing as mp
+import time
 from pathlib import Path
 from typing import Any, Literal, cast, overload
 
@@ -69,6 +70,7 @@ from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.utils.loss import get_loss_fn
 from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.console import display_metrics_table, progress
+from nextrec.utils.timing import StageTimer
 from nextrec.utils.torch_utils import (
     add_distributed_sampler,
     get_device,
@@ -1636,6 +1638,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> pd.DataFrame: ...
 
     @overload
@@ -1651,6 +1654,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> np.ndarray: ...
 
     @overload
@@ -1667,6 +1671,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> Path: ...
 
     def predict(
@@ -1681,6 +1686,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> pd.DataFrame | np.ndarray | Path | None:
         """
         Make predictions on the given data.
@@ -1696,6 +1702,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             prefetch_factor: Number of batches prefetched per worker (only when num_workers > 0).
             num_processes: Number of inference processes for streaming file inference.
             processor: Optional DataProcessor for transforming input data.
+            profiler: Optional StageTimer for profiling pipeline stages.
 
         Note:
             predict does not support distributed mode currently; streaming file inference can use
@@ -1713,11 +1720,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 raise ValueError(
                     "[BaseModel-predict Error] Multi-process streaming requires data to be a file path."
                 )
-            if num_workers != 0:
+            if num_processes > 1 and num_workers != 0:
                 logging.info(
-                    "[BaseModel-predict-streaming Info] Streaming mode enforces num_workers=0."
+                    "[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0."
                 )
                 logging.info("")
+                num_workers = 0
             return self.predict_streaming(
                 data=data,
                 batch_size=batch_size,
@@ -1725,9 +1733,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 save_format=save_format,
                 stream_chunk_size=stream_chunk_size,
                 return_dataframe=return_dataframe,
-                num_workers=0,
+                num_workers=num_workers,
                 num_processes=num_processes,
                 processor=processor,
+                profiler=profiler,
             )
 
         return self.predict_in_memory(
@@ -1740,6 +1749,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_workers=num_workers,
             prefetch_factor=prefetch_factor,
             processor=processor,
+            profiler=profiler,
         )
 
     def predict_in_memory(
@@ -1753,6 +1763,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_workers: int = 0,
         prefetch_factor: int | None = None,
         processor: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> pd.DataFrame | np.ndarray | Path | None:
 
         predict_id_columns = self.id_columns
@@ -1778,6 +1789,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 chunk_size=stream_chunk_size,
                 num_workers=0,
                 prefetch_factor=prefetch_factor,
+                profiler=profiler,
             )
         else:
             data_loader = self.prepare_data_loader(
@@ -1794,7 +1806,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             for batch_data in progress(data_loader, description="Predicting"):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
+                start = time.perf_counter()
                 y_pred = self(X_input)
+                if profiler is not None:
+                    profiler.add("inference", time.perf_counter() - start)
                 if y_pred is not None and isinstance(y_pred, torch.Tensor):
                     y_pred_list.append(y_pred.detach().cpu().numpy())
                 if include_ids and predict_id_columns and batch_dict.get("ids"):
@@ -1881,9 +1896,15 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
             # Save based on format
             if save_format == "csv":
+                start = time.perf_counter()
                 df_to_save.to_csv(target_path, index=False)
+                if profiler is not None:
+                    profiler.add("write_output", time.perf_counter() - start)
             elif save_format == "parquet":
+                start = time.perf_counter()
                 df_to_save.to_parquet(target_path, index=False)
+                if profiler is not None:
+                    profiler.add("write_output", time.perf_counter() - start)
             else:
                 raise ValueError(f"Unsupported save format: {save_format}")
 
@@ -1906,6 +1927,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         processor: Any | None = None,
         shard_rank: int = 0,
         shard_count: int = 1,
+        profiler: StageTimer | None = None,
     ):
         """
         Make predictions on the given data using streaming mode for large datasets.
@@ -1942,6 +1964,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 prefetch_factor=None,  # disable prefetching in multi-process mode
                 num_processes=num_processes,
                 processor=processor,
+                profiler=profiler,
             )
         # Single-process streaming
         if isinstance(data, (str, os.PathLike)):
@@ -1963,6 +1986,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 prefetch_factor=None if num_workers == 0 else prefetch_factor,
                 shard_rank=shard_rank,
                 shard_count=shard_count,
+                profiler=profiler,
             )
         elif not isinstance(data, DataLoader):
             raise TypeError(
@@ -1996,7 +2020,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             ):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
+                start = time.perf_counter()
                 y_pred = self.forward(X_input)
+                if profiler is not None:
+                    profiler.add("inference", time.perf_counter() - start)
                 if y_pred is None or not isinstance(y_pred, torch.Tensor):
                     continue
                 y_pred_np = y_pred.detach().cpu().numpy()
@@ -2038,17 +2065,23 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
                 # Streaming save based on format
                 if save_format == "csv":
+                    start = time.perf_counter()
                     df_batch.to_csv(
                         target_path, mode="a", header=not header_written, index=False
                     )
+                    if profiler is not None:
+                        profiler.add("write_output", time.perf_counter() - start)
                     header_written = True
                     if return_dataframe:
                         cached_frames.append(df_batch)
                 elif save_format == "parquet":
+                    start = time.perf_counter()
                     table = pa.Table.from_pandas(df_batch, preserve_index=False)
                     if parquet_writer is None:
                         parquet_writer = pq.ParquetWriter(target_path, table.schema)
                     parquet_writer.write_table(table)
+                    if profiler is not None:
+                        profiler.add("write_output", time.perf_counter() - start)
                     if return_dataframe:
                         cached_frames.append(df_batch)
                 else:
@@ -2081,7 +2114,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         prefetch_factor: int | None,
         num_processes: int,
         processor: Any | None,
+        profiler: StageTimer | None,
     ):
+        if num_workers > 0:
+            logging.info(
+                "[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0."
+            )
+        num_workers = 0
+        prefetch_factor = None
         target_path = Path(
             get_save_path(
                 path=save_path,
@@ -2097,6 +2137,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             parts_dir / f"{target_path.stem}.part{rank}{target_path.suffix}"
             for rank in range(num_processes)
         ]
+        profile_paths = (
+            [
+                parts_dir / f"{target_path.stem}.profile{rank}.json"
+                for rank in range(num_processes)
+            ]
+            if profiler is not None
+            else None
+        )
 
         ctx = mp.get_context("spawn")
         error_queue = ctx.SimpleQueue()
@@ -2117,6 +2165,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     rank,
                     num_processes,
                     error_queue,
+                    profile_paths[rank] if profile_paths else None,
                 ),
             )
             process.start()
@@ -2147,11 +2196,17 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if existing_parts:
             target_path.parent.mkdir(parents=True, exist_ok=True)
             if save_format == "csv":
+                start = time.perf_counter()
                 lazy_frames = [pl.scan_csv(p) for p in existing_parts]
                 pl.concat(lazy_frames).sink_csv(target_path)
+                if profiler is not None:
+                    profiler.add("merge_parts", time.perf_counter() - start)
             elif save_format == "parquet":
+                start = time.perf_counter()
                 lazy_frames = [pl.scan_parquet(p) for p in existing_parts]
                 pl.concat(lazy_frames).sink_parquet(target_path)
+                if profiler is not None:
+                    profiler.add("merge_parts", time.perf_counter() - start)
             else:
                 raise ValueError(
                     f"Unsupported save format: {save_format}. Supported: csv, parquet"
@@ -2160,6 +2215,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         for part_path in part_paths:
             if part_path.exists():
                 part_path.unlink()
+        if profile_paths and profiler is not None:
+            for profile_path in profile_paths:
+                if profile_path.exists():
+                    profiler.merge(StageTimer.load(profile_path))
+                    profile_path.unlink()
         if parts_dir.exists() and not any(parts_dir.iterdir()):
             parts_dir.rmdir()
 
@@ -2205,6 +2265,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 shuffle=False,
                 streaming=True,
                 chunk_size=batch_size,
+                num_workers=num_workers,
             )
         return self.prepare_data_loader(
             data, batch_size=batch_size, shuffle=False, num_workers=num_workers
@@ -2296,6 +2357,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         return_dataframe: Literal[True] = True,
         num_workers: int = 0,
         onnx_session: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> pd.DataFrame: ...
 
     @overload
@@ -2311,6 +2373,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         return_dataframe: Literal[False] = False,
         num_workers: int = 0,
         onnx_session: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> np.ndarray: ...
 
     @overload
@@ -2327,6 +2390,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         return_dataframe: Literal[False] = False,
         num_workers: int = 0,
         onnx_session: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> Path: ...
 
     def predict_onnx(
@@ -2341,6 +2405,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         return_dataframe: bool = True,
         num_workers: int = 0,
         onnx_session: Any | None = None,
+        profiler: StageTimer | None = None,
     ) -> pd.DataFrame | np.ndarray | Path | None:
         """
         Run ONNX inference on the given data.
@@ -2377,6 +2442,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 id_columns=predict_id_columns,
                 onnx_session=onnx_session,
                 num_workers=num_workers,
+                profiler=profiler,
             )
 
         session = onnx_session or load_onnx_session(onnx_path)
@@ -2412,7 +2478,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             feed = build_onnx_input_feed(
                 self.all_features, X_input, input_names=session_input_names
             )
+            start = time.perf_counter()
             outputs = session.run(None, feed)
+            if profiler is not None:
+                profiler.add("inference", time.perf_counter() - start)
             y_pred_np = merge_onnx_outputs(outputs)
             if y_pred_np.ndim == 1:
                 y_pred_np = y_pred_np.reshape(-1, 1)
@@ -2494,9 +2563,15 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     df_to_save = pd.concat([id_df, df_to_save], axis=1)
 
             if save_format == "csv":
+                start = time.perf_counter()
                 df_to_save.to_csv(target_path, index=False)
+                if profiler is not None:
+                    profiler.add("write_output", time.perf_counter() - start)
             elif save_format == "parquet":
+                start = time.perf_counter()
                 df_to_save.to_parquet(target_path, index=False)
+                if profiler is not None:
+                    profiler.add("write_output", time.perf_counter() - start)
             else:
                 raise ValueError(f"Unsupported save format: {save_format}")
             logging.info(
@@ -2516,6 +2591,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         id_columns: list[str] | None = None,
         onnx_session: Any | None = None,
         num_workers: int = 0,
+        profiler: StageTimer | None = None,
     ):
         """
         Run ONNX inference using streaming mode for large datasets.
@@ -2562,7 +2638,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             feed = build_onnx_input_feed(
                 self.all_features, X_input, input_names=session_input_names
             )
+            start = time.perf_counter()
             outputs = session.run(None, feed)
+            if profiler is not None:
+                profiler.add("inference", time.perf_counter() - start)
             y_pred_np = merge_onnx_outputs(outputs)
             if y_pred_np.ndim == 1:
                 y_pred_np = y_pred_np.reshape(-1, 1)
@@ -2615,9 +2694,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 cached_frames.append(df_batch)
 
             if save_format == "csv":
+                start = time.perf_counter()
                 df_batch.to_csv(
                     target_path, mode="a", header=not header_written, index=False
                 )
+                if profiler is not None:
+                    profiler.add("write_output", time.perf_counter() - start)
                 header_written = True
             elif save_format == "parquet":
                 try:
@@ -2627,10 +2709,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     raise ImportError(
                         "[BaseModel-predict-onnx-streaming Error] Parquet streaming save requires pyarrow."
                     ) from exc
+                start = time.perf_counter()
                 table = pa.Table.from_pandas(df_batch, preserve_index=False)
                 if parquet_writer is None:
                     parquet_writer = pq.ParquetWriter(target_path, table.schema)
                 parquet_writer.write_table(table)
+                if profiler is not None:
+                    profiler.add("write_output", time.perf_counter() - start)
             # Non-streaming formats are saved after collecting all batches.
 
         if parquet_writer is not None:
@@ -2840,9 +2925,11 @@ def predict_streaming_worker(
     shard_rank: int,
     shard_count: int,
     error_queue: "mp.SimpleQueue[str] | None" = None,
+    profile_path: str | os.PathLike | None = None,
 ) -> None:
     try:
         model.eval()
+        profiler = StageTimer(enabled=profile_path is not None) if profile_path else None
         model.predict_streaming(
             data=data_path,
             batch_size=batch_size,
@@ -2856,7 +2943,10 @@ def predict_streaming_worker(
             num_processes=1,
             shard_rank=shard_rank,
             shard_count=shard_count,
+            profiler=profiler,
         )
+        if profiler is not None and profile_path is not None:
+            profiler.dump(profile_path)
     except Exception:
         if error_queue is not None:
             import traceback

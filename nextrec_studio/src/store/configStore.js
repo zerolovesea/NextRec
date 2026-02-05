@@ -1,6 +1,9 @@
 import { reactive } from 'vue';
+import { isIdtank } from '../utils/appEnv.js';
 
 const uid = () => (crypto?.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+const defaultTarget = isIdtank ? 'label_' : 'label';
+const defaultIdColumn = isIdtank ? 'phone' : '';
 
 export const store = reactive({
   ui: {
@@ -14,8 +17,8 @@ export const store = reactive({
     data: {
       path: '/path/to/training/data',
       format: 'parquet',
-      target_list: ['label'],
-      id_column: '',
+      target_list: [defaultTarget],
+      id_column: defaultIdColumn,
       valid_ratio: 0.2,
       random_state: 2024,
       streaming: false
@@ -94,7 +97,8 @@ export const store = reactive({
         embedding: {
           embedding_name: 'user_id',
           embedding_dim: 8,
-          padding_idx: 0
+          padding_idx: 0,
+          init_type: 'xavier_uniform'
         }
       }
     ],
@@ -118,10 +122,61 @@ export const store = reactive({
           max_len: 30,
           combiner: 'mean',
           embedding_dim: 8,
-          padding_idx: 0
+          padding_idx: 0,
+          init_type: 'xavier_uniform'
         }
       }
     ]
+  },
+  featureBatch: {
+    rules: {
+      dense: "[col for col in columns if 'cnt' in col]",
+      sparse: "[col for col in columns if 'tag' in col]",
+      sequence: "[col for col in columns if 'textlist' in col] + ['outerBizSorted']"
+    },
+    dense: {
+      processor: {
+        scaler: 'log'
+      },
+      embedding: {
+        input_dim: 1,
+        use_projection: false
+      }
+    },
+    sparse: {
+      processor: {
+        encode_method: 'hash',
+        hash_size: 100,
+        min_freq: 2
+      },
+      embedding: {
+        embedding_dim: 6,
+        padding_idx: 0,
+        init_type: 'xavier_uniform',
+        l1_reg: 0.0,
+        l2_reg: 0.0
+      }
+    },
+    sequence: {
+      processor: {
+        encode_method: 'hash',
+        hash_size: 5000,
+        max_len: 20,
+        pad_value: 0,
+        truncate: 'pre',
+        separator: ','
+      },
+      embedding: {
+        vocab_size: 5000,
+        max_len: 30,
+        combiner: 'mean',
+        embedding_dim: 6,
+        padding_idx: 0,
+        init_type: 'xavier_uniform',
+        l1_reg: 0.0,
+        l2_reg: 0.0
+      }
+    }
   },
   model: {
     model: 'deepfm',
@@ -142,7 +197,8 @@ export const store = reactive({
       preview_rows: 5,
       batch_size: 512,
       num_workers: 4,
-      num_processes: 1,
+      num_processes: null,
+      profile: false,
       device: 'cpu',
       use_onnx: false,
       streaming: true,
@@ -166,7 +222,7 @@ export function addFeatureItem(list, type) {
       id: uid(),
       name: '',
       processor: { type: 'sparse', encode_method: 'hash', hash_size: 1000, min_freq: 1 },
-      embedding: { embedding_name: '', embedding_dim: 8, padding_idx: 0 }
+      embedding: { embedding_name: '', embedding_dim: 8, padding_idx: 0, init_type: 'xavier_uniform' }
     });
     return;
   }
@@ -189,7 +245,8 @@ export function addFeatureItem(list, type) {
       max_len: 30,
       combiner: 'mean',
       embedding_dim: 8,
-      padding_idx: 0
+      padding_idx: 0,
+      init_type: 'xavier_uniform'
     }
   });
 }

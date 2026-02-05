@@ -72,33 +72,63 @@
         <div class="field">
           <label>
             {{ t('数据加载线程数', 'Num Workers') }}
-            <span class="help-icon" :data-tip="t('用于数据加载的线程数量，影响数据预处理的并发度。', 'Number of worker threads for data loading; affects preprocessing parallelism.')">?</span>
+            <span
+              class="help-icon"
+              :data-tip="t('用于数据加载的线程数量，影响数据预处理的并发度。流式推理且 num_processes>1 时会被强制为 0。', 'Number of worker threads for data loading; affects preprocessing parallelism. Forced to 0 when streaming and num_processes>1.')"
+              >?</span
+            >
           </label>
-          <input v-model.number="form.predict.num_workers" type="number" />
+          <input
+            v-model.number="form.predict.num_workers"
+            type="number"
+            :disabled="isMultiProcStreaming"
+          />
         </div>
         <div class="field">
           <label>
             {{ t('并发推理进程数', 'Num Processes') }}
-            <span class="help-icon" :data-tip="t('用于并发推理的进程数量，影响推理的并发度。', 'Number of processes for concurrent inference; affects inference parallelism.')">?</span>
+            <span
+              class="help-icon"
+              :data-tip="t('留空时自动根据系统负载选择 1~5。仅在 streaming=true 且未启用 ONNX 时生效。', 'Leave empty to auto-select 1~5 based on system load. Only effective when streaming=true and ONNX is disabled.')"
+              >?</span
+            >
           </label>
-          <input v-model.number="form.predict.num_processes" type="number" />
+          <input
+            v-model.number="form.predict.num_processes"
+            type="number"
+            :placeholder="t('自动(1~5)', 'Auto (1~5)')"
+          />
         </div>
         <div class="field">
           <label>{{ t('设备', 'Device') }}</label>
           <input v-model="form.predict.device" placeholder="cpu" />
         </div>
         <div class="field">
-          <label>{{ t('使用 ONNX 模型', 'Use ONNX') }}</label>
+          <label>{{ t('使用 ONNX 模型推理', 'Use ONNX') }}</label>
           <select v-model="form.predict.use_onnx">
             <option :value="false">false</option>
             <option :value="true">true</option>
           </select>
         </div>
         <div class="field">
-          <label>{{ t('流式处理', 'Streaming') }}</label>
+          <label>{{ t('流式推理', 'Streaming') }}</label>
           <select v-model="form.predict.streaming">
             <option :value="true">true</option>
             <option :value="false">false</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>
+            {{ t('性能分析', 'Profile') }}
+            <span
+              class="help-icon"
+              :data-tip="t('开启后统计各阶段耗时（读取、预处理、推理、写入）。', 'Enable profiling to report stage timings (read, preprocess, inference, write).')"
+              >?</span
+            >
+          </label>
+          <select v-model="form.predict.profile">
+            <option :value="false">false</option>
+            <option :value="true">true</option>
           </select>
         </div>
         <div class="field" v-if="form.predict.streaming">
@@ -121,7 +151,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { dumpYaml } from '../utils/yaml.js';
 import { downloadText } from '../utils/download.js';
 import { store } from '../store/configStore.js';
@@ -129,11 +159,25 @@ import { store } from '../store/configStore.js';
 const form = store.predict;
 const lang = computed(() => store.ui.lang);
 const t = (zh, en) => (lang.value === 'zh' ? zh : en);
+const isMultiProcStreaming = computed(
+  () => form.predict.streaming && Number(form.predict.num_processes || 0) > 1
+);
 
 const yamlText = computed(() => {
+  const predict = { ...form.predict };
+  if (
+    predict.num_processes === null ||
+    predict.num_processes === '' ||
+    Number.isNaN(predict.num_processes)
+  ) {
+    delete predict.num_processes;
+  }
+  if (predict.profile === false) {
+    delete predict.profile;
+  }
   const output = {
     checkpoint_path: form.checkpoint_path,
-    predict: { ...form.predict }
+    predict
   };
 
   if (form.model_config) {
@@ -146,6 +190,16 @@ const yamlText = computed(() => {
 
   return dumpYaml(output);
 });
+
+watch(
+  () => isMultiProcStreaming.value,
+  (locked) => {
+    if (locked) {
+      form.predict.num_workers = 0;
+    }
+  },
+  { immediate: true }
+);
 
 function download() {
   downloadText('predict_config.yaml', yamlText.value);

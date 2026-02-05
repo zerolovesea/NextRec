@@ -6,14 +6,17 @@ Checkpoint: edit on 31/01/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
+from __future__ import annotations
+
 import logging
+import time
 import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, Dataset, IterableDataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset, get_worker_info
 
 from nextrec.basic.features import (
     DenseFeature,
@@ -29,6 +32,7 @@ from nextrec.utils.data import (
     read_table,
     resolve_file_paths,
 )
+from nextrec.utils.timing import StageTimer
 from nextrec.utils.torch_utils import to_tensor
 
 
@@ -85,6 +89,7 @@ class FileDataset(FeatureSet, IterableDataset):
         processor: DataProcessor | None = None,
         shard_rank: int = 0,
         shard_count: int = 1,
+        profiler: StageTimer | None = None,
     ):
         """Streaming dataset for reading files in chunks.
 
@@ -105,6 +110,7 @@ class FileDataset(FeatureSet, IterableDataset):
         self.processor = processor
         self.shard_rank = int(shard_rank)
         self.shard_count = int(shard_count)
+        self.profiler = profiler
 
         self.set_all_features(
             dense_features,
@@ -116,8 +122,13 @@ class FileDataset(FeatureSet, IterableDataset):
         self.total_files = len(file_paths)
 
     def __iter__(self):
-        shard_count = max(int(self.shard_count), 1)
-        shard_rank = int(self.shard_rank) if shard_count > 1 else 0
+        base_shard_count = max(int(self.shard_count), 1)
+        base_shard_rank = int(self.shard_rank) if base_shard_count > 1 else 0
+        worker_info = get_worker_info()
+        worker_id = worker_info.id if worker_info is not None else 0
+        worker_count = worker_info.num_workers if worker_info is not None else 1
+        shard_count = max(base_shard_count * worker_count, 1)
+        shard_rank = base_shard_rank * worker_count + worker_id
 
         # assign files to each worker
         file_indices_all = list(range(self.total_files))
@@ -125,15 +136,39 @@ class FileDataset(FeatureSet, IterableDataset):
             file_indices_all = [
                 idx for idx in file_indices_all if (idx % shard_count) == shard_rank
             ]
-        file_indices = file_indices_all
-        if not file_indices:
+
+        if not file_indices_all:
             return
 
-        for file_index in file_indices:
+        for file_index in file_indices_all:
             file_path = self.file_paths[file_index]
             chunk_index = 0
-            for chunk in iter_file_chunks(file_path, self.file_type, self.chunk_size):
-                if shard_count > 1 and self.total_files == 1:
+            use_row_group_shard = (
+                shard_count > 1
+                and self.total_files == 1
+                and self.file_type == "parquet"
+            )
+            if (
+                shard_count > 1
+                and self.total_files == 1
+                and self.file_type == "csv"
+                and shard_rank == 0
+                and worker_id == 0
+                and base_shard_rank == 0
+            ):
+                logging.info(
+                    "[RecDataLoader Info] Streaming with a single CSV file and multiple shards (processes/workers) will scan the full file in each shard. "
+                    "Consider splitting the file into multiple shards or converting to parquet for better parallelism."
+                )
+            for chunk in iter_file_chunks(
+                file_path,
+                self.file_type,
+                self.chunk_size,
+                shard_rank=shard_rank if use_row_group_shard else 0,
+                shard_count=shard_count if use_row_group_shard else 1,
+                profiler=self.profiler,
+            ):
+                if shard_count > 1 and self.total_files == 1 and not use_row_group_shard:
                     if (chunk_index % shard_count) != shard_rank:
                         chunk_index += 1
                         continue
@@ -143,7 +178,12 @@ class FileDataset(FeatureSet, IterableDataset):
                         raise ValueError(
                             "[DataLoader Error] DataProcessor must be fitted before using in streaming mode"
                         )
+                    start = time.perf_counter()
                     transformed_data = self.processor.transform(chunk, return_dict=True)
+                    if self.profiler is not None:
+                        self.profiler.add(
+                            "preprocess", time.perf_counter() - start
+                        )
                 else:
                     transformed_data = chunk
                 # if data=str|os.pathlike;  processor.transform(data, return_dict=False) will return file paths list
@@ -152,6 +192,7 @@ class FileDataset(FeatureSet, IterableDataset):
                     raise TypeError(
                         "[DataLoader Error] DataProcessor.transform returned file paths; use return_dict=True with in-memory data for streaming."
                     )
+                start = time.perf_counter()
                 batch = build_tensors_from_data(
                     data=transformed_data,
                     raw_data=chunk,
@@ -159,6 +200,8 @@ class FileDataset(FeatureSet, IterableDataset):
                     target_columns=self.target_columns,
                     id_columns=self.id_columns,
                 )
+                if self.profiler is not None:
+                    self.profiler.add("tensorize", time.perf_counter() - start)
                 # Indicate streaming mode for collate_fn to avoid extra batching.
                 batch["stream_mode"] = True
                 yield batch
@@ -213,6 +256,7 @@ class RecDataLoader(FeatureSet):
         shard_rank: int = 0,
         shard_count: int = 1,
         sampler=None,
+        profiler: StageTimer | None = None,
     ) -> DataLoader:
         """
         Create a DataLoader from various data sources: dict, pd.DataFrame, file path(s), or existing DataLoader.
@@ -249,6 +293,7 @@ class RecDataLoader(FeatureSet):
                 prefetch_factor=prefetch_factor,
                 shard_rank=shard_rank,
                 shard_count=shard_count,
+                profiler=profiler,
             )
 
         if isinstance(data, (dict, pd.DataFrame)):
@@ -320,6 +365,7 @@ class RecDataLoader(FeatureSet):
         prefetch_factor: int | None = None,
         shard_rank: int = 0,
         shard_count: int = 1,
+        profiler: StageTimer | None = None,
     ) -> DataLoader:
         """
         Create a DataLoader from file paths. It builds either a streaming
@@ -358,18 +404,18 @@ class RecDataLoader(FeatureSet):
             file_type = file_formats.pop()
 
         if streaming:
-            # streaming mode with IterableDataset will
-            # keep num_workers=0 and prefetch_factor=None
+            # streaming mode with IterableDataset
             return self.load_files_streaming(
                 file_paths,
                 file_type,
                 batch_size,
                 chunk_size,
                 shuffle,
-                num_workers=0,
-                prefetch_factor=None,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
                 shard_rank=shard_rank,
                 shard_count=shard_count,
+                profiler=profiler,
             )
         else:
             # read all files into memory
@@ -397,6 +443,7 @@ class RecDataLoader(FeatureSet):
         prefetch_factor: int | None = None,
         shard_rank: int = 0,
         shard_count: int = 1,
+        profiler: StageTimer | None = None,
     ) -> DataLoader:
         if shuffle:
             logging.info(
@@ -419,14 +466,16 @@ class RecDataLoader(FeatureSet):
             processor=self.processor,
             shard_rank=shard_rank,
             shard_count=shard_count,
+            profiler=profiler,
         )
         return DataLoader(
             dataset,
             batch_size=1,
             collate_fn=collate_fn,
-            num_workers=0,
-            prefetch_factor=None,
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor if num_workers > 0 else None,
             pin_memory=torch.cuda.is_available(),
+            persistent_workers=num_workers > 0,
         )
 
 
@@ -483,8 +532,8 @@ def prepare_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
 
 
 def build_tensors_from_data(
-    data: dict | pd.DataFrame,
-    raw_data: dict | pd.DataFrame,
+    data: dict | pd.DataFrame | "pl.DataFrame",
+    raw_data: dict | pd.DataFrame | "pl.DataFrame",
     features: list,
     target_columns: list[str],
     id_columns: list[str],

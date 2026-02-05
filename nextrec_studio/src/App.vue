@@ -17,7 +17,10 @@
     </aside>
     <main class="main" ref="mainRef">
       <div class="hero">
-        <h1>NextRec Studio</h1>
+        <h1>
+          NextRec Studio
+          <span v-if="isIdtank" class="idtank-tag">IDTANK VERSION</span>
+        </h1>
         <p>{{ t('为训练、特征、模型、推理提供标准化的 YAML 文件配置。', 'Provide standardized YAML configuration files for training, features, models, and prediction.') }}</p>
         <div v-if="bundleError" class="alert">{{ bundleError }}</div>
       </div>
@@ -33,6 +36,7 @@ import { store } from './store/configStore.js';
 import { dumpYaml, parseYaml } from './utils/yaml.js';
 import { buildTrainConfig } from './utils/buildTrainConfig.js';
 import logoUrl from './assets/logo.png';
+import { isIdtank } from './utils/appEnv.js';
 
 const mainRef = ref(null);
 const sidebarRef = ref(null);

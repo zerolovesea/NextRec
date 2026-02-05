@@ -20,6 +20,8 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 import argparse
 import logging
+import math
+import os
 import pickle
 import resource
 import sys
@@ -48,6 +50,7 @@ from nextrec.utils.data import (
     read_yaml,
     resolve_file_paths,
 )
+from nextrec.utils.timing import StageTimer
 from nextrec.utils.torch_utils import to_list
 
 logger = logging.getLogger(__name__)
@@ -482,7 +485,6 @@ def predict_model(predict_config_path: str) -> None:
         session_dir = artifact_root / session_id
     else:
         session_dir = Path(cfg["checkpoint_path"])
-        # Auto-infer session_id from checkpoint directory name
         session_cfg = cfg.get("session", {}) or {}
         session_id = session_cfg.get("id") or session_dir.name
 
@@ -564,20 +566,11 @@ def predict_model(predict_config_path: str) -> None:
 
     all_features = features_config.get("all_features", [])
     target_cols = features_config.get("target", [])
-    id_columns = features_config.get("id_columns", [])
+    id_columns = features_config.get("id_columns", []) # read id_columns from saved config
 
     dense_features = [f for f in all_features if isinstance(f, DenseFeature)]
     sparse_features = [f for f in all_features if isinstance(f, SparseFeature)]
     sequence_features = [f for f in all_features if isinstance(f, SequenceFeature)]
-
-    target_override = (
-        cfg.get("targets")
-        or model_cfg.get("targets")
-        or model_cfg.get("params", {}).get("targets")
-        or model_cfg.get("params", {}).get("target")
-    )
-    if target_override:
-        target_cols = to_list(target_override)
 
     model = build_model_instance(
         model_cfg=model_cfg,
@@ -595,15 +588,12 @@ def predict_model(predict_config_path: str) -> None:
     )
 
     # load id_columns override from predict config
-    input_id_columns = predict_cfg.get("id_columns")
+    input_id_columns = predict_cfg.get("id_column")
+    effective_id_columns = (
+        to_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
+    )
     if input_id_columns is not None:
-        input_id_columns = to_list(input_id_columns)
-
-    if input_id_columns is not None:
-        effective_id_columns = input_id_columns
-        model.id_columns = input_id_columns
-    else:
-        effective_id_columns = model.id_columns or []
+        model.id_columns = effective_id_columns
 
     log_cli_section("Features")
     log_kv_lines(
@@ -659,8 +649,32 @@ def predict_model(predict_config_path: str) -> None:
     streaming = bool(predict_cfg.get("streaming", True))
     chunk_size = int(predict_cfg.get("chunk_size", 20000))
     batch_size = int(predict_cfg.get("batch_size", 512))
-    num_processes = int(predict_cfg.get("num_processes", 1))
+    num_workers_cfg = int(predict_cfg.get("num_workers", 0))
+    num_processes_cfg = predict_cfg.get("num_processes")
+    num_processes_auto = None
+    if num_processes_cfg is None:
+        cpu_count = os.cpu_count() or 1
+        try:
+            load_1m = os.getloadavg()[0]
+        except (AttributeError, OSError):
+            load_1m = 0.0
+        free_cores = max(0.0, float(cpu_count) - float(load_1m))
+        suggested = int(math.floor(free_cores))
+        if suggested < 1:
+            suggested = 1
+        if suggested > 5:
+            suggested = 5
+        num_processes_auto = suggested
+        num_processes = suggested
+        if not streaming:
+            num_processes = 1
+        if use_onnx:
+            num_processes = 1
+    else:
+        num_processes = int(num_processes_cfg)
+    profile_enabled = bool(predict_cfg.get("profile", False))
     effective_batch_size = chunk_size if streaming else batch_size
+    effective_num_workers = num_workers_cfg
 
     log_cli_section("Data")
     log_kv_lines(
@@ -675,15 +689,28 @@ def predict_model(predict_config_path: str) -> None:
             ("Batch size", effective_batch_size),
             ("Chunk size", chunk_size),
             ("Streaming", streaming),
-            ("Num processes", num_processes),
+            ("Num workers", effective_num_workers),
+            (
+                "Num processes",
+                f"{num_processes} (auto)"
+                if num_processes_auto is not None and num_processes_cfg is None
+                else num_processes,
+            ),
+            ("Profile", profile_enabled),
         ]
     )
-    if num_processes > 1 and predict_cfg.get("num_workers", 0) != 0:
+    if num_processes_auto is not None and num_processes_cfg is None:
+        logger.info(format_kv("CPU cores", os.cpu_count() or 1))
+        logger.info(format_kv("Load avg (1m)", f"{load_1m:.2f}"))
+    if num_processes > 1 and num_workers_cfg != 0:
         logger.info("")
         logger.info(
             "[NextRec CLI Info] Multi-process streaming enforces num_workers=0 for each shard."
         )
+        effective_num_workers = 0
     logger.info("")
+    profiler = StageTimer(enabled=profile_enabled) if profile_enabled else None
+
     if num_processes > 1:
         if not streaming:
             raise ValueError(
@@ -701,8 +728,9 @@ def predict_model(predict_config_path: str) -> None:
             shuffle=False,
             streaming=streaming,
             chunk_size=chunk_size,
-            num_workers=predict_cfg.get("num_workers", 0),
+            num_workers=effective_num_workers,
             prefetch_factor=predict_cfg.get("prefetch_factor"),
+            profiler=profiler,
         )
 
     save_format = predict_cfg.get(
@@ -728,7 +756,8 @@ def predict_model(predict_config_path: str) -> None:
             return_dataframe=False,
             save_path=str(save_path),
             save_format=save_format,
-            num_workers=predict_cfg.get("num_workers", 0),
+            num_workers=effective_num_workers,
+            profiler=profiler,
         )
     else:
         result = model.predict(
@@ -737,9 +766,10 @@ def predict_model(predict_config_path: str) -> None:
             return_dataframe=False,
             save_path=str(save_path),
             save_format=save_format,
-            num_workers=predict_cfg.get("num_workers", 0),
+            num_workers=effective_num_workers,
             num_processes=num_processes,
             processor=processor,
+            profiler=profiler,
         )
     duration = time.time() - start
     # When return_dataframe=False, result is the actual file path
@@ -750,10 +780,42 @@ def predict_model(predict_config_path: str) -> None:
     logger.info(f"Prediction completed, results saved to: {output_path}")
     logger.info(f"Total time: {duration:.2f} seconds")
 
+    if profiler is not None and profiler.stats:
+        log_cli_section("Profile")
+        logger.info(format_kv("Wall time", f"{duration:.2f}s"))
+        prof_total = sum(stat.total for _, stat in profiler.summary_rows())
+        logger.info(format_kv("Profiled sum", f"{prof_total:.2f}s"))
+        for name, stat in profiler.summary_rows():
+            avg_ms = stat.avg * 1000
+            logger.info(
+                format_kv(
+                    name,
+                    f"total={stat.total:.2f}s | avg={avg_ms:.2f}ms | n={stat.count}",
+                )
+            )
+
     preview_rows = predict_cfg.get("preview_rows", 0)
     if preview_rows > 0:
         try:
-            preview = pd.read_csv(output_path, nrows=preview_rows, low_memory=False)
+            if save_format == "parquet" or output_path.suffix.lower() == ".parquet":
+                preview = pd.read_parquet(output_path)
+                if preview_rows:
+                    preview = preview.head(preview_rows)
+            else:
+                try:
+                    preview = pd.read_csv(
+                        output_path,
+                        nrows=preview_rows,
+                        low_memory=False,
+                        encoding_errors="replace",
+                    )
+                except TypeError:
+                    preview = pd.read_csv(
+                        output_path,
+                        nrows=preview_rows,
+                        low_memory=False,
+                        encoding="latin-1",
+                    )
             logger.info(f"Output preview:\n{preview}")
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Failed to read output preview: {exc}")
