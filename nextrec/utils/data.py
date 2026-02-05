@@ -11,10 +11,12 @@ Author: Yang Zhou, zyaztec@gmail.com
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Dict, Generator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pyarrow.parquet as pq
 import torch
 import yaml
@@ -108,14 +110,22 @@ def read_table(path: str | Path, data_format: str | None = None) -> pd.DataFrame
 
 
 def iter_file_chunks(
-    file_path: str, file_type: str, chunk_size: int
-) -> Generator[pd.DataFrame, None, None]:
+    file_path: str,
+    file_type: str,
+    chunk_size: int,
+    shard_rank: int = 0,
+    shard_count: int = 1,
+    profiler: "StageTimer | None" = None,
+) -> Generator[pl.DataFrame, None, None]:
     """Iterate over file in chunks for streaming reading.
 
     Args:
         file_path: Path to the file
         file_type: Format type (csv, parquet)
         chunk_size: Number of rows per chunk
+        shard_rank: Shard index for parquet row-group sharding
+        shard_count: Number of shards for parquet row-group sharding
+        profiler: Optional StageTimer for timing data read
 
     Yields:
         DataFrame chunks
@@ -130,11 +140,43 @@ def iter_file_chunks(
         )
 
     if file_type == "csv":
-        yield from pd.read_csv(file_path, chunksize=chunk_size)
+        lazy_frame = pl.scan_csv(file_path)
+        batch_iter = iter(lazy_frame.collect_batches(chunk_size=chunk_size))
+        while True:
+            start = time.perf_counter()
+            try:
+                batch = next(batch_iter)
+            except StopIteration:
+                break
+            if profiler is not None:
+                profiler.add("data_read", time.perf_counter() - start)
+            yield batch
     elif file_type == "parquet":
         parquet_file = pq.ParquetFile(file_path)
-        for batch in parquet_file.iter_batches(batch_size=chunk_size):
-            yield batch.to_pandas()
+        use_shards = max(int(shard_count), 1) > 1
+        if use_shards:
+            shard_rank = int(shard_rank) % int(shard_count)
+            row_groups = [
+                idx
+                for idx in range(parquet_file.num_row_groups)
+                if (idx % int(shard_count)) == shard_rank
+            ]
+            if not row_groups:
+                return
+        else:
+            row_groups = None
+        batch_iter = iter(
+            parquet_file.iter_batches(batch_size=chunk_size, row_groups=row_groups)
+        )
+        while True:
+            start = time.perf_counter()
+            try:
+                batch = next(batch_iter)
+            except StopIteration:
+                break
+            if profiler is not None:
+                profiler.add("data_read", time.perf_counter() - start)
+            yield pl.from_arrow(batch)
 
 
 def read_yaml(path: str | Path):

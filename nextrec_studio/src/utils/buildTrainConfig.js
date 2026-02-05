@@ -76,7 +76,7 @@ export function buildTrainConfig(trainState) {
     output.train.loss_weights = parseYaml(trainState.train.loss_weights_text);
   }
 
-  if (trainState.export_onnx) {
+  if (trainState.export_onnx && trainState.export_onnx.enable) {
     output.export_onnx = { ...trainState.export_onnx };
   }
 

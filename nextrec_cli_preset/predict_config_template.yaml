@@ -30,6 +30,7 @@ predict:
   # ----- Data Format Settings -----
   source_data_format: parquet              # Input data format: csv, parquet, etc.
                                            # Use 'auto' for automatic detection
+  # data_format: auto                      # Alias for source_data_format
 
   # ----- Identification Settings -----
   id_column: user_id                       # Column name for user/sample IDs
@@ -40,14 +41,16 @@ predict:
                                            # Filename -> {checkpoint_path}/predictions/{name}.{save_data_format}
                                            # Absolute path -> saved directly (extension auto-added if missing)
   save_data_format: csv                    # Output format: csv, parquet
+  # save_format: csv                       # Alias for save_data_format
   preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
   
   # ----- Performance Settings -----
-  batch_size: 512                          # Batch size for inference
+  batch_size: 20000                          # Batch size for inference
                                            # Larger = faster but more memory
   num_workers: 4                           # Number of parallel data loading workers
                                            # 0 = single process, >0 = multiprocessing
-  num_processes: 1                         # Number of inference processes for streaming
+  # num_processes: 1                       # Number of inference processes for streaming
+                                           # If omitted, CLI auto-selects 1~5 based on system load
                                            # >1 requires streaming=true and disables ONNX
                                            # Each process loads its own model/data; memory usage increases linearly
   device: cpu                              # Computation device:
@@ -58,6 +61,7 @@ predict:
 
   # ----- ONNX Inference Settings -----
   use_onnx: false                          # Enable ONNX inference
+  # onnx_path: /path/to/model.onnx         # Optional ONNX model path (overrides auto-detect)
   
   # ----- Memory Management Settings -----
   streaming: true                          # Enable streaming for large datasets
@@ -65,6 +69,8 @@ predict:
                                            # false: load entire dataset into memory
   chunk_size: 20000                        # Chunk size for streaming mode (when streaming=true)
                                            # Adjust based on available memory
+  # prefetch_factor: 2                     # DataLoader prefetch factor (only when num_workers>0)
+  # profile: false                         # Enable timing profiler for prediction stages
 
 # ===== Usage Example =====
 # Run prediction with this config:

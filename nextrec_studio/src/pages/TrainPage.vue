@@ -7,7 +7,7 @@
       </p>
     </div>
 
-    <div class="card">
+    <div class="card" v-if="!isIdtank">
       <h2>{{ t('会话配置', 'Session Settings') }}</h2>
       <div class="grid-2">
         <div class="field">
@@ -24,11 +24,11 @@
     <div class="card">
       <h2>{{ t('数据配置', 'Data Configuration') }}</h2>
       <div class="grid-2">
-        <div class="field">
+        <div class="field" v-if="!isIdtank">
           <label>{{ t('训练数据路径', 'Training Data Path') }}</label>
           <input v-model="form.data.path" placeholder="/path/to/training/data" />
         </div>
-        <div class="field">
+        <div class="field" v-if="!isIdtank">
           <label>{{ t('数据格式', 'Data Format') }}</label>
           <select v-model="form.data.format">
             <option value="parquet">parquet</option>
@@ -56,7 +56,7 @@
             {{ t('ID 列', 'ID Column') }}
             <span class="help-icon" :data-tip="t('标识用户的唯一列', 'The unique column identifying users')">?</span>
           </label>
-          <input v-model="form.data.id_column" placeholder="user_id" />
+          <input v-model="form.data.id_column" :placeholder="isIdtank ? 'phone' : 'user_id'" />
         </div>
       </div>
       <div style="margin-top: 16px;">
@@ -74,7 +74,7 @@
           <button class="secondary" @click="addTarget">{{ t('添加', 'Add') }}</button>
         </div>
       </div>
-      <div class="grid-2" style="margin-top: 12px;">
+      <div class="grid-2" style="margin-top: 12px;" v-if="!isIdtank">
         <div class="field">
           <label>{{ t('特征配置文件', 'Feature Config File') }}</label>
           <input v-model="form.feature_config" placeholder="feature_config.yaml" />
@@ -205,11 +205,15 @@
         <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">{{ t('损失函数权重', 'Loss Weights') }}</label>
         <div class="field" style="margin-top: 8px;">
           <textarea
+            class="textarea-compact"
             v-model="form.train.loss_weights_text"
-            :placeholder="`例如[0.3, 0.7]或
+            :placeholder="t(`例如[0.3, 0.7]或
 method: grad_norm
 alpha: 1.5
-lr: 0.025`"
+lr: 0.025`, `e.g. [0.3, 0.7] or
+method: grad_norm
+alpha: 1.5
+lr: 0.025`)"
             rows="4"
           ></textarea>
         </div>
@@ -231,7 +235,7 @@ lr: 0.025`"
       </div>
 
       <div class="grid-2" style="margin-top: 16px;">
-        <div class="field">
+        <div class="field" v-if="!isIdtank">
           <label>{{ t('使用 W&B 管理日志', 'Use W&B') }}</label>
           <select v-model="form.train.use_wandb">
             <option :value="false">false</option>
@@ -247,7 +251,7 @@ lr: 0.025`"
         </div>
       </div>
 
-      <div v-if="form.train.use_wandb" class="grid-2" style="margin-top: 16px;">
+      <div v-if="form.train.use_wandb && !isIdtank" class="grid-2" style="margin-top: 16px;">
         <div class="field">
           <label>{{ t('W&B API Key', 'wandb_api') }}</label>
           <input v-model="form.train.wandb_api" :placeholder="t('请输入你的 W&B API Key', 'YOUR_WANDB_API_KEY')" required />
@@ -325,6 +329,7 @@ lr: 0.025`"
 import { computed, ref } from 'vue';
 import { buildTrainConfig } from '../utils/buildTrainConfig.js';
 import { downloadText } from '../utils/download.js';
+import { isIdtank } from '../utils/appEnv.js';
 import { store } from '../store/configStore.js';
 
 const form = store.train;
@@ -334,7 +339,7 @@ const lang = computed(() => store.ui.lang);
 const t = (zh, en) => (lang.value === 'zh' ? zh : en);
 
 const lossOptions = [
-  'binary_crossentropy',
+  'bce',
   'weighted_bce',
   'focal_loss',
   'cb_focal',

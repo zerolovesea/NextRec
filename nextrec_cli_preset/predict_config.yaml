@@ -18,7 +18,8 @@ predict:
                                            # Larger = faster but more memory
   num_workers: 4                           # Number of parallel data loading workers
                                            # 0 = single process, >0 = multiprocessing
-  num_processes: 1                         # Number of inference processes for streaming
+  # num_processes: 1                       # Number of inference processes for streaming
+                                           # If omitted, CLI auto-selects 1~5 based on system load
                                            # >1 requires streaming=true and disables ONNX
                                            # Each process loads its own model/data; memory usage increases linearly
   device: cpu                              # Computation device:
