@@ -79,10 +79,8 @@ feature_config: path/to/feature_config.yaml  # 特征配置文件路径
 model_config: path/to/model_config.yaml      # 模型配置文件路径
 
 dataloader:
-  train_batch_size: 512                 # 训练批次大小
-  train_shuffle: true                   # 每轮打乱训练数据
-  valid_batch_size: 512                 # 验证批次大小
-  valid_shuffle: false                  # 是否打乱验证数据
+  batch_size: 512                       # 训练批次大小（验证集同批次）
+  shuffle: true                         # 每轮打乱训练数据
   num_workers: 4                        # 数据加载并行进程数
                                         # 0=单进程, >0=多进程
   # chunk_size: 20000                   # streaming=true 时的分块大小
@@ -112,7 +110,6 @@ train:
     # - mae
     # - rmse
   epochs: 10                           # 训练轮数
-  batch_size: 512                      # 可覆盖 dataloader.train_batch_size
   shuffle: true                        # 是否打乱数据
   log_interval: 1                      # 每 N 个 epoch 记录一次验证指标
   note: ""                             # 训练备注信息（可选）
@@ -160,10 +157,8 @@ train:
   - `false`: 一次性加载所有数据到内存
 
 ##### dataloader 部分
-- `train_batch_size`: 训练时的批次大小
-- `train_shuffle`: 是否打乱训练数据
-- `valid_batch_size`: 验证时的批次大小
-- `valid_shuffle`: 是否打乱验证数据
+- `batch_size`: 训练时的批次大小（验证集同批次）
+- `shuffle`: 是否打乱训练数据（验证集不打乱）
 - `num_workers`: 数据加载进程数
 - `prefetch_factor`: 每个 worker 预取的 batch 数量（`num_workers > 0` 时生效）
 - `chunk_size`: 流式处理时每次读取的数据量（`streaming=true`）
@@ -189,9 +184,8 @@ train:
   - `recall`: 召回率
   - `precision`: 精确率
   - `f1`: F1 分数
-  - `gauc`: Group AUC
+- `gauc`: Group AUC
 - `epochs`: 训练轮数
-- `batch_size`: 可覆盖 dataloader 的批次大小
 - `shuffle`: 是否打乱训练数据
 - `log_interval`: 每 N 个 epoch 记录一次验证指标
 - `note`: 训练备注信息（可选）
@@ -619,10 +613,8 @@ feature_config: feature_config.yaml
 model_config: model_config.yaml
 
 dataloader:
-  train_batch_size: 512
-  train_shuffle: true
-  valid_batch_size: 512
-  valid_shuffle: false
+  batch_size: 512
+  shuffle: true
   num_workers: 4
 
 train:
@@ -643,7 +635,6 @@ train:
     - recall
     - precision
   epochs: 10
-  batch_size: 512
   shuffle: true
   device: cuda
 ```
@@ -717,10 +708,8 @@ feature_config: feature_config.yaml
 model_config: mmoe_config.yaml
 
 dataloader:
-  train_batch_size: 512
-  train_shuffle: true
-  valid_batch_size: 512
-  valid_shuffle: false
+  batch_size: 512
+  shuffle: true
   num_workers: 4
 
 train:
@@ -733,7 +722,6 @@ train:
   metrics:
     - auc
   epochs: 10
-  batch_size: 512
   shuffle: true
   device: cuda
 ```
@@ -770,7 +758,7 @@ data:
 
 dataloader:
   chunk_size: 50000                   # 每次读取 50000 行
-  train_batch_size: 512
+  batch_size: 512
 ```
 
 ### 使用独立验证集

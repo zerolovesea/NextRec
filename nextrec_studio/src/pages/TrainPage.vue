@@ -90,25 +90,14 @@
       <h2>{{ t('Dataloader 配置', 'Dataloader Configuration') }}</h2>
       <div class="grid-2">
         <div class="field">
-          <label>{{ t('训练集 Batch Size', 'Train Batch Size') }}</label>
-          <input v-model.number="form.dataloader.train_batch_size" type="number" />
+          <label>{{ t('Batch Size', 'Batch Size') }}</label>
+          <input v-model.number="form.dataloader.batch_size" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('训练集 Shuffle', 'Train Shuffle') }}</label>
-          <select v-model="form.dataloader.train_shuffle">
+          <label>{{ t('Shuffle', 'Shuffle') }}</label>
+          <select v-model="form.dataloader.shuffle">
             <option :value="true">true</option>
             <option :value="false">false</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>{{ t('验证集 Batch Size', 'Valid Batch Size') }}</label>
-          <input v-model.number="form.dataloader.valid_batch_size" type="number" />
-        </div>
-        <div class="field">
-          <label>{{ t('验证集 Shuffle', 'Valid Shuffle') }}</label>
-          <select v-model="form.dataloader.valid_shuffle">
-            <option :value="false">false</option>
-            <option :value="true">true</option>
           </select>
         </div>
         <div class="field">
@@ -154,10 +143,6 @@
           <input v-model.number="form.train.epochs" type="number" />
         </div>
         <div class="field">
-          <label>{{ t('训练集 Batch Size', 'Batch Size') }}</label>
-          <input v-model.number="form.train.batch_size" type="number" />
-        </div>
-        <div class="field">
           <label>{{ t('Shuffle', 'Shuffle') }}</label>
           <select v-model="form.train.shuffle">
             <option :value="true">true</option>
@@ -174,7 +159,7 @@
         </div>
         <div class="field">
           <label>{{ t('备注', 'Note') }}</label>
-          <input v-model="form.train.note" placeholder="baseline run" />
+          <input v-model="form.train.note" :placeholder="t('基准测试', 'baseline run')" />
         </div>
       </div>
 
@@ -201,7 +186,7 @@
         </div>
       </div>
 
-      <div style="margin-top: 16px;">
+      <div v-if="showLossWeights" style="margin-top: 16px;">
         <label style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">{{ t('损失函数权重', 'Loss Weights') }}</label>
         <div class="field" style="margin-top: 8px;">
           <textarea
@@ -416,13 +401,27 @@ function removeItem(list, index) {
 
 function lossParamPlaceholder(index) {
   const lossName = form.train.loss_list[index];
-  if (lossName === 'weighted_bce') {
-    return `auto_balance: true/pos_weight: 1.0`;
-  }
-  if (lossName === 'focal_loss') {
-    return '{"gamma": 2.0, "alpha": 0.25}';
-  }
-  return '';
+  const placeholders = {
+    bce: '{reduction: "mean"}',
+    weighted_bce: '{pos_weight: 1.0, logits: false, auto_balance: false, reduction: "mean"}',
+    focal_loss: '{gamma: 2.0, alpha: 0.25, logits: false, reduction: "mean"}',
+    cb_focal: '{class_counts: [100, 50, 200], beta: 0.9999, gamma: 2.0, reduction: "mean"}',
+    class_balanced_focal: '{class_counts: [100, 50, 200], beta: 0.9999, gamma: 2.0, reduction: "mean"}',
+    crossentropy: '{reduction: "mean"}',
+    ce: '{reduction: "mean"}',
+    mse: '{reduction: "mean"}',
+    mae: '{reduction: "mean"}',
+    bpr: '{reduction: "mean"}',
+    hinge: '{margin: 1.0, reduction: "mean"}',
+    triplet: '{margin: 1.0, distance: "euclidean", reduction: "mean"}',
+    sampled_softmax: '{reduction: "mean"}',
+    softmax: '{reduction: "mean"}',
+    infonce: '{temperature: 0.07, reduction: "mean"}',
+    listnet: '{temperature: 1.0, reduction: "mean"}',
+    listmle: '{reduction: "mean"}',
+    approx_ndcg: '{temperature: 1.0, reduction: "mean"}'
+  };
+  return placeholders[lossName] || '';
 }
 
 function displayLossName(lossName) {
@@ -459,6 +458,7 @@ const yamlText = computed(() => {
 });
 
 const lossMismatch = computed(() => form.train.loss_list.length > form.data.target_list.length);
+const showLossWeights = computed(() => form.data.target_list.filter((item) => item && item.trim().length > 0).length > 1);
 
 function download() {
   if (error.value) {

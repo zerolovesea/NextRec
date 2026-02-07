@@ -83,9 +83,7 @@ def test_iter_file_chunks_csv_and_parquet(tmp_path):
     csv_chunks = list(data_utils.iter_file_chunks(str(csv_path), "csv", chunk_size=2))
     assert sum(len(chunk) for chunk in csv_chunks) == len(df)
 
-    parquet_chunks = list(
-        data_utils.iter_file_chunks(str(parquet_path), "parquet", chunk_size=2)
-    )
+    parquet_chunks = list(data_utils.iter_file_chunks(str(parquet_path), "parquet", chunk_size=2))
     assert sum(len(chunk) for chunk in parquet_chunks) == len(df)
 
 
@@ -119,15 +117,13 @@ def test_read_yaml(tmp_path):
 
 
 def test_generate_ranking_data_basic():
-    df, dense_features, sparse_features, sequence_features = (
-        data_utils.generate_ranking_data(
-            n_samples=8,
-            n_dense=2,
-            n_sparse=4,
-            n_sequences=2,
-            sequence_max_len=6,
-            seed=1,
-        )
+    df, dense_features, sparse_features, sequence_features = data_utils.generate_ranking_data(
+        n_samples=8,
+        n_dense=2,
+        n_sparse=4,
+        n_sequences=2,
+        sequence_max_len=6,
+        seed=1,
     )
 
     assert df.shape[0] == 8
@@ -205,9 +201,7 @@ def test_generate_distributed_ranking_data():
 
 
 def test_generate_synthetic_embeddings():
-    item_ids, embeddings = data_utils.generate_synthetic_embeddings(
-        num_samples=4, embedding_dim=3
-    )
+    item_ids, embeddings = data_utils.generate_synthetic_embeddings(num_samples=4, embedding_dim=3)
     assert item_ids.tolist() == [0, 1, 2, 3]
     assert embeddings.shape == (4, 3)
     assert embeddings.dtype == torch.float32

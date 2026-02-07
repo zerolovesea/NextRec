@@ -2,7 +2,7 @@
 Feature definitions for NextRec models.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 27/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -39,11 +39,7 @@ class EmbeddingFeature(BaseFeature):
         self.name = name
         self.vocab_size = vocab_size
         self.embedding_name = embedding_name or name
-        self.embedding_dim = (
-            get_auto_embedding_dim(vocab_size)
-            if embedding_dim is None
-            else embedding_dim
-        )
+        self.embedding_dim = get_auto_embedding_dim(vocab_size) if embedding_dim is None else embedding_dim
 
         self.init_type = init_type
         self.init_params = init_params or {}
@@ -189,16 +185,12 @@ class DenseFeature(BaseFeature):
         self.input_dim = max(int(input_dim), 1)
         self.proj_dim = self.input_dim if proj_dim is None else proj_dim
         if use_projection and self.proj_dim == 0:
-            raise ValueError(
-                "[Features Error] DenseFeature: use_projection=True is incompatible with proj_dim=0"
-            )
+            raise ValueError("[Features Error] DenseFeature: use_projection=True is incompatible with proj_dim=0")
         if proj_dim is not None and proj_dim > 1:
             self.use_projection = True
         else:
             self.use_projection = use_projection
-        self.embedding_dim = (
-            self.input_dim if not self.use_projection else self.proj_dim
-        )  # for compatibility
+        self.embedding_dim = self.input_dim if not self.use_projection else self.proj_dim  # for compatibility
 
         self.trainable = trainable
         self.pretrained_weight = pretrained_weight
@@ -218,9 +210,7 @@ class FeatureSet:
         self.sparse_features = list(sparse_features) if sparse_features else []
         self.sequence_features = list(sequence_features) if sequence_features else []
 
-        self.all_features = (
-            self.dense_features + self.sparse_features + self.sequence_features
-        )
+        self.all_features = self.dense_features + self.sparse_features + self.sequence_features
         self.feature_names = [feat.name for feat in self.all_features]
         self.target_columns = to_list(target)
         self.id_columns = to_list(id_columns)

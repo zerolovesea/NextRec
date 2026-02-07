@@ -2,7 +2,7 @@
 Activation function definitions.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 20/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -43,9 +43,7 @@ def activation_layer(
     """Create an activation layer based on the given activation name."""
     if activation == "dice":
         if emb_size is None:
-            raise ValueError(
-                "[ActivationLayer Error]: emb_size is required for Dice activation"
-            )
+            raise ValueError("[ActivationLayer Error]: emb_size is required for Dice activation")
         return Dice(emb_size)
     elif activation == "relu":
         return nn.ReLU()
@@ -84,6 +82,4 @@ def activation_layer(
     elif activation in ["none", "linear", "identity"]:
         return nn.Identity()
     else:
-        raise ValueError(
-            f"[ActivationLayer Error]: Unsupported activation function: {activation}"
-        )
+        raise ValueError(f"[ActivationLayer Error]: Unsupported activation function: {activation}")

@@ -51,21 +51,15 @@ def test_encode_multimodel_content_batches(monkeypatch):
             batch_size, seq_len = input_ids.shape
             offset = self.call_count * 100
             self.call_count += 1
-            base = torch.arange(
-                batch_size * seq_len * self.hidden_dim, dtype=torch.float32
-            )
-            last_hidden_state = (
-                base.reshape(batch_size, seq_len, self.hidden_dim) + offset
-            )
+            base = torch.arange(batch_size * seq_len * self.hidden_dim, dtype=torch.float32)
+            last_hidden_state = base.reshape(batch_size, seq_len, self.hidden_dim) + offset
             return types.SimpleNamespace(last_hidden_state=last_hidden_state)
 
     monkeypatch.setattr(embedding_utils, "AutoTokenizer", FakeAutoTokenizer)
     monkeypatch.setattr(embedding_utils, "AutoModel", FakeAutoModel)
 
     texts = ["t1", "t2", "t3", "t4", "t5"]
-    embeddings = embedding_utils.encode_multimodel_content(
-        texts=texts, model_name="fake", device="cpu", batch_size=2
-    )
+    embeddings = embedding_utils.encode_multimodel_content(texts=texts, model_name="fake", device="cpu", batch_size=2)
 
     assert embeddings.shape == (5, 4)
     assert torch.allclose(embeddings[0], torch.tensor([0.0, 1.0, 2.0, 3.0]))

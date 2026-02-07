@@ -109,17 +109,9 @@ sparse_features = [
 ]
 
 # 添加其他类别特征
-sparse_features.append(
-    SparseFeature("gender", vocab_size=df["gender"].max() + 1, embedding_dim=4)
-)
-sparse_features.append(
-    SparseFeature("occupation", vocab_size=df["occupation"].max() + 1, embedding_dim=4)
-)
-sparse_features.append(
-    SparseFeature(
-        "movie_title", vocab_size=df["movie_title"].max() + 1, embedding_dim=4
-    )
-)
+sparse_features.append(SparseFeature("gender", vocab_size=df["gender"].max() + 1, embedding_dim=4))
+sparse_features.append(SparseFeature("occupation", vocab_size=df["occupation"].max() + 1, embedding_dim=4))
+sparse_features.append(SparseFeature("movie_title", vocab_size=df["movie_title"].max() + 1, embedding_dim=4))
 
 # ==============================================================================
 # 5. 模型构建

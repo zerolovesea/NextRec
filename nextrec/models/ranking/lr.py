@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Hosmer D W, Lemeshow S, Sturdivant R X. Applied Logistic Regression.
@@ -82,9 +82,7 @@ class LR(BaseModel):
         self.linear = LinearLayer(linear_input_dim)
         self.prediction_layer = TaskHead(task_type=self.task)
 
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["linear"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear"])
 
     def forward(self, x):
         input_linear = self.embedding(x=x, features=self.all_features, squeeze_dim=True)

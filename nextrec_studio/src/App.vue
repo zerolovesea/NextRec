@@ -21,7 +21,10 @@
           NextRec Studio
           <span v-if="isIdtank" class="idtank-tag">IDTANK VERSION</span>
         </h1>
-        <p>{{ t('为训练、特征、模型、推理提供标准化的 YAML 文件配置。', 'Provide standardized YAML configuration files for training, features, models, and prediction.') }}</p>
+        <p>{{ t('为 NextRec 命令行工具提供标准化的 YAML 文件配置。', 'Provide standardized YAML configuration files for NextRec CLI. ') }}</p>
+        <div class="actions">
+          <button class="primary" @click="downloadAll" :disabled="!!bundleError">{{ t('下载全部', 'Download All') }}</button>
+        </div>
         <div v-if="bundleError" class="alert">{{ bundleError }}</div>
       </div>
       <RouterView />
@@ -37,6 +40,7 @@ import { dumpYaml, parseYaml } from './utils/yaml.js';
 import { buildTrainConfig } from './utils/buildTrainConfig.js';
 import logoUrl from './assets/logo.png';
 import { isIdtank } from './utils/appEnv.js';
+import { downloadZip } from './utils/zip.js';
 
 const mainRef = ref(null);
 const sidebarRef = ref(null);
@@ -136,5 +140,17 @@ const bundleError = computed(() => {
   }
   return '';
 });
+
+async function downloadAll() {
+  if (bundleError.value) {
+    return;
+  }
+  await downloadZip('nextrec_configs.zip', {
+    'train_config.yaml': trainYamlResult.value.text,
+    'feature_config.yaml': featureYamlResult.value.text,
+    'model_config.yaml': modelYamlResult.value.text,
+    'predict_config.yaml': predictYaml.value
+  });
+}
 
 </script>

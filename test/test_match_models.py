@@ -98,9 +98,7 @@ class TestDSSM:
         num_params = count_parameters(model)
         assert num_params > 0
 
-    def test_dssm_forward_pass(
-        self, user_features, item_features, device, batch_size, set_random_seed
-    ):
+    def test_dssm_forward_pass(self, user_features, item_features, device, batch_size, set_random_seed):
         """Test DSSM forward pass"""
         logger.info("=" * 80)
         logger.info("Testing DSSM forward pass")
@@ -200,9 +198,7 @@ class TestDSSM:
         logger.info("DSSM towers test successful")
 
     @pytest.mark.parametrize("similarity_metric", ["cosine", "dot"])
-    def test_dssm_similarity_metrics(
-        self, user_features, item_features, device, batch_size, similarity_metric
-    ):
+    def test_dssm_similarity_metrics(self, user_features, item_features, device, batch_size, similarity_metric):
         """Test DSSM with different similarity metrics"""
         logger.info("=" * 80)
         logger.info(f"Testing DSSM with {similarity_metric} similarity")
@@ -303,9 +299,7 @@ class TestYoutubeDNN:
 
         count_parameters(model)
 
-    def test_youtube_dnn_forward_pass(
-        self, user_features, item_features, device, batch_size, set_random_seed
-    ):
+    def test_youtube_dnn_forward_pass(self, user_features, item_features, device, batch_size, set_random_seed):
         """Test YoutubeDNN forward pass"""
         logger.info("=" * 80)
         logger.info("Testing YoutubeDNN forward pass")
@@ -344,9 +338,7 @@ class TestYoutubeDNN:
 
         logger.info("YoutubeDNN forward pass successful")
 
-    def test_youtube_dnn_embeddings(
-        self, user_features, item_features, device, batch_size
-    ):
+    def test_youtube_dnn_embeddings(self, user_features, item_features, device, batch_size):
         """Test YoutubeDNN user and item embeddings"""
         logger.info("=" * 80)
         logger.info("Testing YoutubeDNN embeddings")
@@ -385,12 +377,8 @@ class TestYoutubeDNN:
             user_emb = model.user_tower(user_data)
             item_emb = model.item_tower(item_data)
 
-        assert_model_output_shape(
-            user_emb, (batch_size, embedding_dim), "User embedding"
-        )
-        assert_model_output_shape(
-            item_emb, (batch_size, embedding_dim), "Item embedding"
-        )
+        assert_model_output_shape(user_emb, (batch_size, embedding_dim), "User embedding")
+        assert_model_output_shape(item_emb, (batch_size, embedding_dim), "Item embedding")
 
         # Check L2 normalization
         user_norms = torch.norm(user_emb, p=2, dim=1)
@@ -449,9 +437,7 @@ class TestMatchModelsComparison:
             output1 = model1(data)
             output2 = model2(data)
 
-        assert torch.allclose(
-            output1, output2, atol=1e-6
-        ), "Models with same seed should produce identical outputs"
+        assert torch.allclose(output1, output2, atol=1e-6), "Models with same seed should produce identical outputs"
 
         logger.info("Match models determinism test successful")
 
@@ -555,9 +541,7 @@ class TestMIND:
         logger.info("MIND forward pass successful")
 
     @pytest.mark.parametrize("num_interests", [2, 4, 8])
-    def test_mind_different_interests(
-        self, mind_user_features, mind_item_features, device, batch_size, num_interests
-    ):
+    def test_mind_different_interests(self, mind_user_features, mind_item_features, device, batch_size, num_interests):
         """Test MIND with different numbers of interests"""
         logger.info("=" * 80)
         logger.info(f"Testing MIND with {num_interests} interests")
@@ -645,9 +629,7 @@ class TestSDM:
 
         count_parameters(model)
 
-    def test_sdm_forward_pass(
-        self, sdm_user_features, sdm_item_features, device, batch_size, set_random_seed
-    ):
+    def test_sdm_forward_pass(self, sdm_user_features, sdm_item_features, device, batch_size, set_random_seed):
         """Test SDM forward pass with RNN"""
         logger.info("=" * 80)
         logger.info("Testing SDM forward pass")
@@ -684,9 +666,7 @@ class TestSDM:
         logger.info("SDM forward pass successful")
 
     @pytest.mark.parametrize("rnn_type", ["GRU", "LSTM"])
-    def test_sdm_different_rnn_types(
-        self, sdm_user_features, sdm_item_features, device, batch_size, rnn_type
-    ):
+    def test_sdm_different_rnn_types(self, sdm_user_features, sdm_item_features, device, batch_size, rnn_type):
         """Test SDM with different RNN types"""
         logger.info("=" * 80)
         logger.info(f"Testing SDM with {rnn_type}")
@@ -730,9 +710,7 @@ class TestTrainingModes:
         return user_sparse, item_sparse
 
     @pytest.mark.parametrize("training_mode", ["pointwise", "pairwise", "listwise"])
-    def test_dssm_training_modes(
-        self, simple_features, device, batch_size, training_mode
-    ):
+    def test_dssm_training_modes(self, simple_features, device, batch_size, training_mode):
         """Test DSSM with different training modes"""
         logger.info("=" * 80)
         logger.info(f"Testing DSSM with {training_mode} training mode")

@@ -2,7 +2,7 @@
 Listwise loss functions for ranking and contrastive training.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -21,14 +21,10 @@ class SampledSoftmaxLoss(nn.Module):
         super().__init__()
         self.reduction = reduction
 
-    def forward(
-        self, pos_logits: torch.Tensor, neg_logits: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, pos_logits: torch.Tensor, neg_logits: torch.Tensor) -> torch.Tensor:
         pos_logits = pos_logits.unsqueeze(1)
         all_logits = torch.cat([pos_logits, neg_logits], dim=1)
-        targets = torch.zeros(
-            all_logits.size(0), dtype=torch.long, device=all_logits.device
-        )
+        targets = torch.zeros(all_logits.size(0), dtype=torch.long, device=all_logits.device)
         loss = F.cross_entropy(all_logits, targets, reduction=self.reduction)
         return loss
 
@@ -47,9 +43,7 @@ class InfoNCELoss(nn.Module):
         self.temperature = temperature
         self.reduction = reduction
 
-    def forward(
-        self, query: torch.Tensor, pos_key: torch.Tensor, neg_keys: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, query: torch.Tensor, pos_key: torch.Tensor, neg_keys: torch.Tensor) -> torch.Tensor:
         pos_sim = torch.sum(query * pos_key, dim=-1) / self.temperature
         pos_sim = pos_sim.unsqueeze(1)
         query_expanded = query.unsqueeze(1)
@@ -100,11 +94,7 @@ class ListMLELoss(nn.Module):
     def forward(self, scores: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         sorted_labels, sorted_indices = torch.sort(labels, descending=True, dim=1)
         batch_size, list_size = scores.shape
-        batch_indices = (
-            torch.arange(batch_size, device=scores.device)
-            .unsqueeze(1)
-            .expand(-1, list_size)
-        )
+        batch_indices = torch.arange(batch_size, device=scores.device).unsqueeze(1).expand(-1, list_size)
         sorted_scores = scores[batch_indices, sorted_indices]
 
         loss = torch.tensor(0.0, device=scores.device)
@@ -142,16 +132,12 @@ class ApproxNDCGLoss(nn.Module):
             sorted_labels = sorted_labels[:, :k]
 
         gains = torch.pow(2.0, sorted_labels) - 1.0  # [B, K]
-        positions = torch.arange(
-            1, gains.size(1) + 1, device=gains.device, dtype=torch.float32
-        )  # [K]
+        positions = torch.arange(1, gains.size(1) + 1, device=gains.device, dtype=torch.float32)  # [K]
         discounts = 1.0 / torch.log2(positions + 1.0)  # [K]
         ideal_dcg = torch.sum(gains * discounts, dim=1)  # [B]
         return ideal_dcg
 
-    def forward(
-        self, scores: torch.Tensor, labels: torch.Tensor, k: int | None = None
-    ) -> torch.Tensor:
+    def forward(self, scores: torch.Tensor, labels: torch.Tensor, k: int | None = None) -> torch.Tensor:
         """
         scores: [B, L]
         labels: [B, L]

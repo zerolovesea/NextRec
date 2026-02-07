@@ -2,7 +2,7 @@
 Callback System for Training Process
 
 Date: create on 27/10/2025
-Checkpoint: edit on 21/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -304,6 +304,7 @@ class CheckpointSaver(Callback):
                                 color="bright_blue",
                             )
                         )
+                        logging.info("")
 
     def save_checkpoint(self, path: Path, epoch: int, logs: dict):
 
@@ -365,6 +366,4 @@ class LearningRateScheduler(Callback):
             if self.verbose == 1:
                 new_lr = self.model.optimizer_fn.param_groups[0]["lr"]
                 if new_lr != old_lr:
-                    logging.info(
-                        f"Learning rate changed from {old_lr:.6e} to {new_lr:.6e}"
-                    )
+                    logging.info(f"Learning rate changed from {old_lr:.6e} to {new_lr:.6e}")

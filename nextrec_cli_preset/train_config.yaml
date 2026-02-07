@@ -14,10 +14,8 @@ data:
   # valid_path
 
 dataloader:
-  train_batch_size: 512
-  train_shuffle: true
-  valid_batch_size: 512
-  valid_shuffle: false
+  batch_size: 512
+  shuffle: true
   num_workers: 6
   prefetch_factor: 2
 

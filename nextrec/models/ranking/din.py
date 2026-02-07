@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate prediction[C] //Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1059-1068.
@@ -102,26 +102,18 @@ class DIN(BaseModel):
 
         # DIN requires: user behavior sequence + candidate item + other features
         if len(sequence_features) == 0:
-            raise ValueError(
-                "DIN requires at least one sequence feature for user behavior history"
-            )
+            raise ValueError("DIN requires at least one sequence feature for user behavior history")
         if behavior_feature_name is None:
             raise ValueError("DIN requires an explicit behavior_feature_name")
 
         if candidate_feature_name is None:
             raise ValueError("DIN requires an explicit candidate_feature_name")
 
-        self.behavior_feature = [
-            f for f in sequence_features if f.name == behavior_feature_name
-        ][0]
-        self.candidate_feature = [
-            f for f in sparse_features if f.name == candidate_feature_name
-        ][0]
+        self.behavior_feature = [f for f in sequence_features if f.name == behavior_feature_name][0]
+        self.candidate_feature = [f for f in sparse_features if f.name == candidate_feature_name][0]
 
         # Other sparse features
-        self.other_sparse_features = [
-            f for f in sparse_features if f.name != self.candidate_feature.name
-        ]
+        self.other_sparse_features = [f for f in sparse_features if f.name != self.candidate_feature.name]
 
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
@@ -129,13 +121,8 @@ class DIN(BaseModel):
         # Attention layer for behavior sequence
         behavior_emb_dim = self.behavior_feature.embedding_dim
         self.candidate_attention_proj = None
-        if (
-            self.candidate_feature is not None
-            and self.candidate_feature.embedding_dim != behavior_emb_dim
-        ):
-            self.candidate_attention_proj = nn.Linear(
-                self.candidate_feature.embedding_dim, behavior_emb_dim
-            )
+        if self.candidate_feature is not None and self.candidate_feature.embedding_dim != behavior_emb_dim:
+            self.candidate_attention_proj = nn.Linear(self.candidate_feature.embedding_dim, behavior_emb_dim)
         self.attention = AttentionPoolingLayer(
             embedding_dim=behavior_emb_dim,
             hidden_units=attention_mlp_params["hidden_dims"],
@@ -150,12 +137,7 @@ class DIN(BaseModel):
             mlp_input_dim += self.candidate_feature.embedding_dim
         mlp_input_dim += behavior_emb_dim  # attention pooled
         mlp_input_dim += sum([f.embedding_dim for f in self.other_sparse_features])
-        mlp_input_dim += sum(
-            [
-                (f.embedding_dim if f.embedding_dim is not None else 1) or 1
-                for f in dense_features
-            ]
-        )
+        mlp_input_dim += sum([(f.embedding_dim if f.embedding_dim is not None else 1) or 1 for f in dense_features])
 
         # MLP for final prediction
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
@@ -171,9 +153,7 @@ class DIN(BaseModel):
         # Get candidate item embedding
         if self.candidate_feature is None:
             raise ValueError("DIN requires a candidate item feature")
-        candidate_emb = self.embedding.embed_dict[
-            self.candidate_feature.embedding_name
-        ](
+        candidate_emb = self.embedding.embed_dict[self.candidate_feature.embedding_name](
             x[self.candidate_feature.name].long()
         )  # [B, emb_dim]
 
@@ -185,11 +165,7 @@ class DIN(BaseModel):
 
         # Create mask for padding
         if self.behavior_feature.padding_idx is not None:
-            mask = (
-                (behavior_seq != self.behavior_feature.padding_idx)
-                .unsqueeze(-1)
-                .float()
-            )
+            mask = (behavior_seq != self.behavior_feature.padding_idx).unsqueeze(-1).float()
         else:
             mask = (behavior_seq != 0).unsqueeze(-1).float()
 
@@ -197,9 +173,7 @@ class DIN(BaseModel):
         candidate_query = candidate_emb
         if self.candidate_attention_proj is not None:
             candidate_query = self.candidate_attention_proj(candidate_query)
-        pooled_behavior = self.attention(
-            query=candidate_query, keys=behavior_emb, mask=mask
-        )  # [B, emb_dim]
+        pooled_behavior = self.attention(query=candidate_query, keys=behavior_emb, mask=mask)  # [B, emb_dim]
 
         # Get other features
         other_embeddings = []
@@ -210,9 +184,7 @@ class DIN(BaseModel):
 
         # Other sparse features
         for feat in self.other_sparse_features:
-            feat_emb = self.embedding.embed_dict[feat.embedding_name](
-                x[feat.name].long()
-            )
+            feat_emb = self.embedding.embed_dict[feat.embedding_name](x[feat.name].long())
             other_embeddings.append(feat_emb)
 
         # Dense features

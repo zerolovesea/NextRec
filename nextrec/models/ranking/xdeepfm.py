@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1754-1763.
@@ -155,32 +155,17 @@ class xDeepFM(BaseModel):
         self.cin = CIN(input_dim=num_fields, cin_size=cin_size, split_half=split_half)
 
         # Deep part: DNN
-        deep_emb_dim_total = sum(
-            [
-                f.embedding_dim
-                for f in self.deep_features
-                if not isinstance(f, DenseFeature)
-            ]
-        )
-        dense_input_dim = sum(
-            [
-                (f.embedding_dim if f.embedding_dim is not None else 1) or 1
-                for f in dense_features
-            ]
-        )
+        deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
+        dense_input_dim = sum([(f.embedding_dim if f.embedding_dim is not None else 1) or 1 for f in dense_features])
         self.mlp = MLP(input_dim=deep_emb_dim_total + dense_input_dim, **mlp_params)
         self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["linear", "cin", "mlp"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear", "cin", "mlp"])
 
     def forward(self, x):
         # Get embeddings for linear and CIN (sparse features only)
-        input_linear = self.embedding(
-            x=x, features=self.linear_features, squeeze_dim=False
-        )
+        input_linear = self.embedding(x=x, features=self.linear_features, squeeze_dim=False)
 
         # Linear part
         y_linear = self.linear(input_linear.flatten(start_dim=1))

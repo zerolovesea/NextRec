@@ -115,11 +115,7 @@ class TestShareBottom:
         )
 
         # Move data to device (exclude labels)
-        data = {
-            k: v.to(device)
-            for k, v in sample_multitask_batch_data.items()
-            if not k.startswith("label")
-        }
+        data = {k: v.to(device) for k, v in sample_multitask_batch_data.items() if not k.startswith("label")}
 
         # Forward pass
         output = run_model_inference(model, data)
@@ -146,10 +142,7 @@ class TestShareBottom:
 
         nums_task = 3
         bottom_mlp_params = {"hidden_dims": [64], "dropout": 0.0, "activation": "relu"}
-        tower_mlp_params_list = [
-            {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"}
-            for _ in range(nums_task)
-        ]
+        tower_mlp_params_list = [{"hidden_dims": [32], "dropout": 0.0, "activation": "relu"} for _ in range(nums_task)]
 
         model = ShareBottom(
             dense_features=sample_dense_features,
@@ -167,13 +160,9 @@ class TestShareBottom:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         output = run_model_inference(model, data)
 
@@ -273,11 +262,7 @@ class TestMMOE:
         )
 
         # Move data to device
-        data = {
-            k: v.to(device)
-            for k, v in sample_multitask_batch_data.items()
-            if not k.startswith("label")
-        }
+        data = {k: v.to(device) for k, v in sample_multitask_batch_data.items() if not k.startswith("label")}
 
         # Forward pass
         output = run_model_inference(model, data)
@@ -327,13 +312,9 @@ class TestMMOE:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         output = run_model_inference(model, data)
         assert_model_output_shape(output, (batch_size, 2))
@@ -442,11 +423,7 @@ class TestPLE:
         )
 
         # Move data to device
-        data = {
-            k: v.to(device)
-            for k, v in sample_multitask_batch_data.items()
-            if not k.startswith("label")
-        }
+        data = {k: v.to(device) for k, v in sample_multitask_batch_data.items() if not k.startswith("label")}
 
         # Forward pass
         output = run_model_inference(model, data)
@@ -507,13 +484,9 @@ class TestPLE:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         output = run_model_inference(model, data)
         assert_model_output_shape(output, (batch_size, 2))
@@ -591,11 +564,7 @@ class TestPEPNet:
             device=device,
         )
 
-        data = {
-            k: v.to(device)
-            for k, v in sample_multitask_batch_data.items()
-            if not k.startswith("label")
-        }
+        data = {k: v.to(device) for k, v in sample_multitask_batch_data.items() if not k.startswith("label")}
 
         output = run_model_inference(model, data)
 
@@ -681,11 +650,7 @@ class TestESMM:
         )
 
         # Move data to device
-        data = {
-            k: v.to(device)
-            for k, v in sample_multitask_batch_data.items()
-            if not k.startswith("label")
-        }
+        data = {k: v.to(device) for k, v in sample_multitask_batch_data.items() if not k.startswith("label")}
 
         # Forward pass
         output = run_model_inference(model, data)
@@ -700,9 +665,7 @@ class TestESMM:
         ctcvr_output = output[:, 1]
 
         # Allow small numerical errors
-        assert torch.all(
-            ctcvr_output <= ctr_output + 1e-5
-        ), "CTCVR should be less than or equal to CTR"
+        assert torch.all(ctcvr_output <= ctr_output + 1e-5), "CTCVR should be less than or equal to CTR"
 
         logger.info("ESMM forward pass successful")
 
@@ -738,20 +701,14 @@ class TestESMM:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         # Get intermediate representations by accessing towers directly
         model.eval()
         with torch.no_grad():
-            input_flat = model.embedding(
-                x=data, features=model.all_features, squeeze_dim=True
-            )
+            input_flat = model.embedding(x=data, features=model.all_features, squeeze_dim=True)
             ctr_logit = model.ctr_tower(input_flat)
             cvr_logit = model.cvr_tower(input_flat)
             ctr = torch.sigmoid(ctr_logit)
@@ -763,9 +720,7 @@ class TestESMM:
             actual_ctcvr = output[:, 1:2]
 
         # Check constraint
-        assert torch.allclose(
-            actual_ctcvr, expected_ctcvr, atol=1e-5
-        ), "CTCVR should equal CTR * CVR"
+        assert torch.allclose(actual_ctcvr, expected_ctcvr, atol=1e-5), "CTCVR should equal CTR * CVR"
 
         logger.info("ESMM CTCVR constraint test successful")
 
@@ -791,13 +746,9 @@ class TestMultiTaskModelsComparison:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         nums_task = 2
 

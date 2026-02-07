@@ -54,9 +54,7 @@ ONNX_RNN_RTOL = 2e-2
 ONNX_RNN_ATOL = 1e-2
 
 
-def _ensure_sequence_non_padding(
-    feature: SequenceFeature, tensor: torch.Tensor
-) -> torch.Tensor:
+def _ensure_sequence_non_padding(feature: SequenceFeature, tensor: torch.Tensor) -> torch.Tensor:
     vocab_size = int(feature.vocab_size)
     if vocab_size <= 1:
         return tensor
@@ -190,9 +188,7 @@ def _run_onnx_roundtrip(model: torch.nn.Module, tmp_path: Path) -> None:
     except Exception as exc:  # pragma: no cover
         pytest.xfail(f"ONNX Runtime failed to load model ({model.model_name}): {exc}")
     session_input_names = [inp.name for inp in session.get_inputs()]
-    feed = build_onnx_input_feed(
-        model.all_features, input_dict, input_names=session_input_names
-    )
+    feed = build_onnx_input_feed(model.all_features, input_dict, input_names=session_input_names)
     try:
         onnx_outputs = session.run(None, feed)
     except Exception as exc:  # pragma: no cover
@@ -235,19 +231,13 @@ def _run_onnx_dynamo_roundtrip(model: torch.nn.Module, tmp_path: Path) -> None:
     try:
         session = load_onnx_session(onnx_path)
     except Exception as exc:  # pragma: no cover
-        pytest.xfail(
-            f"ONNX Runtime failed to load dynamo model ({model.model_name}): {exc}"
-        )
+        pytest.xfail(f"ONNX Runtime failed to load dynamo model ({model.model_name}): {exc}")
     session_input_names = [inp.name for inp in session.get_inputs()]
-    feed = build_onnx_input_feed(
-        model.all_features, input_dict, input_names=session_input_names
-    )
+    feed = build_onnx_input_feed(model.all_features, input_dict, input_names=session_input_names)
     try:
         onnx_outputs = session.run(None, feed)
     except Exception as exc:  # pragma: no cover
-        pytest.xfail(
-            f"ONNX Runtime failed to run dynamo model ({model.model_name}): {exc}"
-        )
+        pytest.xfail(f"ONNX Runtime failed to run dynamo model ({model.model_name}): {exc}")
     onnx_output = _normalize_onnx_output(merge_onnx_outputs(onnx_outputs))
 
     assert onnx_output.shape == tuple(torch_output.shape)

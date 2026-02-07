@@ -49,17 +49,11 @@ model_config: model_config.yaml                        # Model architecture conf
 
 # ===== DataLoader Configuration =====
 dataloader:
-  # ----- Training DataLoader -----
-  train_batch_size: 512                                # Batch size for training
-                                                       # Larger = faster but more memory
-  train_shuffle: true                                  # Shuffle training data each epoch
-                                                       # Recommended: true
-  
-  # ----- Validation DataLoader -----
-  valid_batch_size: 512                                # Batch size for validation
-                                                       # Can be larger than train_batch_size
-  valid_shuffle: false                                 # Shuffle validation data
-                                                       # Usually false for consistent evaluation
+  # ----- DataLoader -----
+  batch_size: 512                                      # Training batch size
+                                                       # Validation uses the same batch_size
+  shuffle: true                                        # Shuffle training data each epoch
+                                                       # Validation does not shuffle
   
   # ----- Performance Settings -----
   num_workers: 4                                       # Number of parallel data loading workers
@@ -141,11 +135,6 @@ train:
   epochs: 10                                           # Number of training epochs
                                                        # One epoch = one full pass through training data
                                                        # More epochs = more training but risk overfitting
-  
-  batch_size: 512                                      # Batch size for training
-                                                       # Overrides dataloader.train_batch_size if set
-                                                       # Larger batch = faster but more memory
-                                                       # Smaller batch = more noise, may help generalization
   
   shuffle: true                                        # Shuffle training data
                                                        # Recommended: true for better convergence

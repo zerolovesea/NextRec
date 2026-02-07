@@ -2,7 +2,7 @@
 NextRec Basic Loggers
 
 Date: create on 27/10/2025
-Checkpoint: edit on 22/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -98,7 +98,11 @@ def format_kv(label: str, value: Any, width: int = 34, indent: int = 0) -> str:
     return f"{prefix}{label_text:<{width}} {value}"
 
 
-def setup_logger(session_id: str | os.PathLike | None = None):
+def setup_logger(
+    session_id: str | os.PathLike | None = None,
+    *,
+    log_name: str | None = None,
+):
     """
     Set up a logger that logs to both console and a file with ANSI formatting.
     Only console output has colors; file output is stripped of ANSI codes.
@@ -112,7 +116,7 @@ def setup_logger(session_id: str | os.PathLike | None = None):
     session = create_session(str(session_id) if session_id is not None else None)
     log_dir = session.logs_dir
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "runs_log.txt"
+    log_file = log_dir / (log_name or "runs_log.txt")
 
     console_format = "%(message)s"
     file_format = "%(asctime)s - %(levelname)s - %(message)s"
@@ -126,9 +130,7 @@ def setup_logger(session_id: str | os.PathLike | None = None):
 
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(
-        AnsiFormatter(file_format, datefmt=date_format, strip_ansi=True)
-    )
+    file_handler.setFormatter(AnsiFormatter(file_format, datefmt=date_format, strip_ansi=True))
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
@@ -178,9 +180,7 @@ class BasicLogger:
                     continue
         return formatted
 
-    def log_metrics(
-        self, metrics: dict[str, Any], step: int, split: str = "train"
-    ) -> None:
+    def log_metrics(self, metrics: dict[str, Any], step: int, split: str = "train") -> None:
         payload = self.format_metrics(metrics, split)
         payload["step"] = int(step)
         with self.log_path.open("a", encoding="utf-8") as f:
@@ -223,9 +223,7 @@ class TensorBoardLogger(MetricsLoggerBackend):
         try:
             from torch.utils.tensorboard import SummaryWriter  # type: ignore
         except ImportError:
-            logging.warning(
-                "[TrainingLogger] tensorboard not installed, disable tensorboard logging."
-            )
+            logging.warning("[TrainingLogger] tensorboard not installed, disable tensorboard logging.")
             self.enabled = False
             return
         log_dir = session.logs_dir / log_dir_name
@@ -314,9 +312,7 @@ class SwanLabLogger(MetricsLoggerBackend):
         try:
             import swanlab  # type: ignore
         except ImportError:
-            logging.warning(
-                "[SwanLabLogger] swanlab not installed, disable swanlab logging."
-            )
+            logging.warning("[SwanLabLogger] swanlab not installed, disable swanlab logging.")
             self.enabled = False
             return
         self.swanlab = swanlab
@@ -340,9 +336,7 @@ class SwanLabLogger(MetricsLoggerBackend):
         log_fn = getattr(self.swanlab, "log", None)
         if log_fn is None:
             if not self._warned_missing_log:
-                logging.warning(
-                    "[SwanLabLogger] swanlab.log not found, disable swanlab logging."
-                )
+                logging.warning("[SwanLabLogger] swanlab.log not found, disable swanlab logging.")
                 self._warned_missing_log = True
             return
         step = int(payload.get("step", 0))
@@ -369,9 +363,7 @@ class TrainingLogger(BasicLogger):
     ):
         self.session = session
         self.use_tensorboard = use_tensorboard
-        self.tensorboard_logger = TensorBoardLogger(
-            session=session, enabled=use_tensorboard
-        )
+        self.tensorboard_logger = TensorBoardLogger(session=session, enabled=use_tensorboard)
         self.use_tensorboard = self.tensorboard_logger.enabled
         self.tb_writer = self.tensorboard_logger.writer
         self.tb_dir = self.tensorboard_logger.log_dir
@@ -394,17 +386,13 @@ class TrainingLogger(BasicLogger):
 
         self.wandb_logger = None
         if use_wandb:
-            self.wandb_logger = WandbLogger(
-                session=session, enabled=use_wandb, **wandb_kwargs
-            )
+            self.wandb_logger = WandbLogger(session=session, enabled=use_wandb, **wandb_kwargs)
             if self.wandb_logger.enabled:
                 backends.append(self.wandb_logger)
 
         self.swanlab_logger = None
         if use_swanlab:
-            self.swanlab_logger = SwanLabLogger(
-                session=session, enabled=use_swanlab, **swanlab_kwargs
-            )
+            self.swanlab_logger = SwanLabLogger(session=session, enabled=use_swanlab, **swanlab_kwargs)
             if self.swanlab_logger.enabled:
                 backends.append(self.swanlab_logger)
 
@@ -417,10 +405,7 @@ class TrainingLogger(BasicLogger):
         self.use_tensorboard = self.tensorboard_logger.enabled
         self.tb_writer = self.tensorboard_logger.writer
         self.tb_dir = self.tensorboard_logger.log_dir
-        if (
-            self.tensorboard_logger.enabled
-            and self.tensorboard_logger not in self.backends
-        ):
+        if self.tensorboard_logger.enabled and self.tensorboard_logger not in self.backends:
             self.backends.append(self.tensorboard_logger)
 
     @property

@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Rendle S. Factorization machines[C]//ICDM. 2010: 995-1000.
@@ -90,9 +90,7 @@ class FM(BaseModel):
         self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["linear"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear"])
 
     def forward(self, x):
         input_fm = self.embedding(x=x, features=self.fm_features, squeeze_dim=False)

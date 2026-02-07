@@ -56,9 +56,7 @@ from nextrec.basic.features import DenseFeature, SparseFeature
 from nextrec.models.ranking.deepfm import DeepFM
 
 
-def load_dataset_sharded(
-    data_dir: str, rank: int, world_size: int, split: str = "train"
-):
+def load_dataset_sharded(data_dir: str, rank: int, world_size: int, split: str = "train"):
     """
     加载数据分片
 
@@ -91,9 +89,7 @@ def load_dataset_sharded(
 
     # 检查是否找到分片文件
     if not shard_files:
-        raise FileNotFoundError(
-            f"No {split} shards found at {data_dir}/{shard_pattern}"
-        )
+        raise FileNotFoundError(f"No {split} shards found at {data_dir}/{shard_pattern}")
 
     if rank == 0:
         print(f"[Rank 0] Found {len(shard_files)} {split} shards")
@@ -103,9 +99,7 @@ def load_dataset_sharded(
     # ==============================================================================
 
     my_shards = [f for i, f in enumerate(shard_files) if i % world_size == rank]
-    print(
-        f"[Rank {rank}] Loading {len(my_shards)} {split} shards: {[os.path.basename(f) for f in my_shards]}"
-    )
+    print(f"[Rank {rank}] Loading {len(my_shards)} {split} shards: {[os.path.basename(f) for f in my_shards]}")
 
     # ==============================================================================
     # 加载并合并分片
@@ -159,9 +153,7 @@ def main():
     valid_df = load_dataset_sharded(data_dir, rank, world_size, split="valid")
 
     if rank == 0:
-        print(
-            f"\n[Main process] Train samples (this GPU): {len(train_df)}, Valid samples (this GPU): {len(valid_df)}"
-        )
+        print(f"\n[Main process] Train samples (this GPU): {len(train_df)}, Valid samples (this GPU): {len(valid_df)}")
 
     # ==============================================================================
     # 3. 定义特征

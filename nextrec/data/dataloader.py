@@ -2,7 +2,7 @@
 Dataloader definitions
 
 Date: create on 27/10/2025
-Checkpoint: edit on 31/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -44,34 +44,22 @@ class TensorDictDataset(Dataset):
         self.labels = tensors.get("labels")
         self.ids = tensors.get("ids")
         if not self.features:
-            raise ValueError(
-                "[TensorDictDataset Error] Dataset requires at least one feature tensor."
-            )
+            raise ValueError("[TensorDictDataset Error] Dataset requires at least one feature tensor.")
         lengths = [tensor.shape[0] for tensor in self.features.values()]
         if not lengths:
             raise ValueError("[TensorDictDataset Error] Feature tensors are empty.")
         self.length = lengths[0]
         for length in lengths[1:]:
             if length != self.length:
-                raise ValueError(
-                    "[TensorDictDataset Error] All feature tensors must have the same length."
-                )
+                raise ValueError("[TensorDictDataset Error] All feature tensors must have the same length.")
 
     def __len__(self) -> int:
         return self.length
 
     def __getitem__(self, idx: int) -> dict:
         sample_features = {name: tensor[idx] for name, tensor in self.features.items()}
-        sample_labels = (
-            {name: tensor[idx] for name, tensor in self.labels.items()}
-            if self.labels
-            else None
-        )
-        sample_ids = (
-            {name: tensor[idx] for name, tensor in self.ids.items()}
-            if self.ids
-            else None
-        )
+        sample_labels = {name: tensor[idx] for name, tensor in self.labels.items()} if self.labels else None
+        sample_ids = {name: tensor[idx] for name, tensor in self.ids.items()} if self.ids else None
         return {"features": sample_features, "labels": sample_labels, "ids": sample_ids}
 
 
@@ -133,9 +121,7 @@ class FileDataset(FeatureSet, IterableDataset):
         # assign files to each worker
         file_indices_all = list(range(self.total_files))
         if shard_count > 1:
-            file_indices_all = [
-                idx for idx in file_indices_all if (idx % shard_count) == shard_rank
-            ]
+            file_indices_all = [idx for idx in file_indices_all if (idx % shard_count) == shard_rank]
 
         if not file_indices_all:
             return
@@ -143,11 +129,7 @@ class FileDataset(FeatureSet, IterableDataset):
         for file_index in file_indices_all:
             file_path = self.file_paths[file_index]
             chunk_index = 0
-            use_row_group_shard = (
-                shard_count > 1
-                and self.total_files == 1
-                and self.file_type == "parquet"
-            )
+            use_row_group_shard = shard_count > 1 and self.total_files == 1 and self.file_type == "parquet"
             if (
                 shard_count > 1
                 and self.total_files == 1
@@ -181,9 +163,7 @@ class FileDataset(FeatureSet, IterableDataset):
                     start = time.perf_counter()
                     transformed_data = self.processor.transform(chunk, return_dict=True)
                     if self.profiler is not None:
-                        self.profiler.add(
-                            "preprocess", time.perf_counter() - start
-                        )
+                        self.profiler.add("preprocess", time.perf_counter() - start)
                 else:
                     transformed_data = chunk
                 # if data=str|os.pathlike;  processor.transform(data, return_dict=False) will return file paths list
@@ -231,22 +211,11 @@ class RecDataLoader(FeatureSet):
             processor: an instance of DataProcessor, if provided, will be used to transform data before creating tensors.
         """
         self.processor = processor
-        self.set_all_features(
-            dense_features, sparse_features, sequence_features, target, id_columns
-        )
+        self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
     def create_dataloader(
         self,
-        data: (
-            dict
-            | pd.DataFrame
-            | str
-            | list[str]
-            | os.PathLike
-            | list[os.PathLike]
-            | DataLoader
-            | None
-        ),
+        data: dict | pd.DataFrame | str | list[str] | os.PathLike | list[os.PathLike] | DataLoader | None,
         batch_size: int = 32,
         shuffle: bool = True,
         streaming: bool = False,
@@ -277,11 +246,7 @@ class RecDataLoader(FeatureSet):
         if isinstance(data, DataLoader):
             return data
 
-        is_path_list = (
-            isinstance(data, list)
-            and data
-            and all(isinstance(p, (str, os.PathLike)) for p in data)
-        )
+        is_path_list = isinstance(data, list) and data and all(isinstance(p, (str, os.PathLike)) for p in data)
         if isinstance(data, (str, os.PathLike)) or is_path_list:
             return self.create_from_path(
                 path=data,
@@ -391,9 +356,7 @@ class RecDataLoader(FeatureSet):
                 else:
                     fmt = None
                 if fmt is None:
-                    raise ValueError(
-                        f"[RecDataLoader Error] Unsupported file extension: {Path(p).suffix}"
-                    )
+                    raise ValueError(f"[RecDataLoader Error] Unsupported file extension: {Path(p).suffix}")
                 file_formats.add(fmt)
 
             if len(file_formats) != 1:
@@ -446,9 +409,7 @@ class RecDataLoader(FeatureSet):
         profiler: StageTimer | None = None,
     ) -> DataLoader:
         if shuffle:
-            logging.info(
-                "[RecDataLoader Info] Shuffle is ignored in streaming mode (IterableDataset)."
-            )
+            logging.info("[RecDataLoader Info] Shuffle is ignored in streaming mode (IterableDataset).")
         if batch_size != 1:
             logging.info(
                 "[RecDataLoader Info] Streaming mode enforces batch_size=1; tune chunk_size to control memory/throughput."
@@ -498,11 +459,7 @@ def prepare_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
         raise TypeError(
             f"[RecDataLoader Error] Sequence feature '{feature.name}' expects numeric sequences; found string values."
         )
-    if (
-        column.dtype == object
-        and len(column) > 0
-        and isinstance(column[0], (list, tuple, np.ndarray))
-    ):
+    if column.dtype == object and len(column) > 0 and isinstance(column[0], (list, tuple, np.ndarray)):
         sequences = []
         for seq in column:
             if isinstance(seq, str):
@@ -518,11 +475,7 @@ def prepare_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
             max_len = max((len(seq) for seq in sequences), default=1)
         pad_value = feature.padding_idx if feature.padding_idx is not None else 0
         padded = [
-            (
-                seq[:max_len]
-                if len(seq) > max_len
-                else np.pad(seq, (0, max_len - len(seq)), constant_values=pad_value)
-            )
+            (seq[:max_len] if len(seq) > max_len else np.pad(seq, (0, max_len - len(seq)), constant_values=pad_value))
             for seq in sequences
         ]
         column = np.stack(padded)
@@ -547,9 +500,7 @@ def build_tensors_from_data(
     for feature in features:
         column = get_column_data(data, feature.name)
         if column is None:
-            raise ValueError(
-                f"[RecDataLoader Error] Feature column '{feature.name}' not found in data"
-            )
+            raise ValueError(f"[RecDataLoader Error] Feature column '{feature.name}' not found in data")
         if isinstance(feature, SequenceFeature):
             arr = prepare_sequence_column(column, feature)
             tensor = to_tensor(arr, dtype=torch.long)
@@ -567,14 +518,8 @@ def build_tensors_from_data(
             column = get_column_data(data, target_name)
             if column is None:
                 continue
-            label_tensor = to_tensor(
-                np.asarray(column, dtype=np.float32), dtype=torch.float32
-            )
-            if (
-                label_tensor.dim() == 2
-                and label_tensor.shape[0] == 1
-                and label_tensor.shape[1] > 1
-            ):
+            label_tensor = to_tensor(np.asarray(column, dtype=np.float32), dtype=torch.float32)
+            if label_tensor.dim() == 2 and label_tensor.shape[0] == 1 and label_tensor.shape[1] > 1:
                 label_tensor = label_tensor.t()
             if label_tensor.shape[1:] == (1,):
                 label_tensor = label_tensor.squeeze(1)
@@ -589,13 +534,9 @@ def build_tensors_from_data(
             if column is None:
                 column = get_column_data(data, id_col)
             if column is None:
-                raise KeyError(
-                    f"[RecDataLoader Error] ID column '{id_col}' not found in provided data."
-                )
+                raise KeyError(f"[RecDataLoader Error] ID column '{id_col}' not found in provided data.")
             # Normalize all id columns to strings for consistent downstream handling.
             id_tensors[id_col] = np.asarray(column, dtype=str)
     if not feature_tensors:
-        raise ValueError(
-            "[RecDataLoader Error] No valid tensors could be built from the provided data."
-        )
+        raise ValueError("[RecDataLoader Error] No valid tensors could be built from the provided data.")
     return {"features": feature_tensors, "labels": label_tensors, "ids": id_tensors}

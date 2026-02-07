@@ -13,9 +13,7 @@ import torch
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 
 # Configure logging for tests
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -71,12 +69,8 @@ def sample_sparse_features():
     return [
         SparseFeature(name="user_id", vocab_size=1000, embedding_dim=16),
         SparseFeature(name="item_id", vocab_size=500, embedding_dim=16),
-        SparseFeature(
-            name="category", vocab_size=50, embedding_dim=16
-        ),  # Changed to 16 for FM compatibility
-        SparseFeature(
-            name="city", vocab_size=100, embedding_dim=16
-        ),  # Changed to 16 for FM compatibility
+        SparseFeature(name="category", vocab_size=50, embedding_dim=16),  # Changed to 16 for FM compatibility
+        SparseFeature(name="city", vocab_size=100, embedding_dim=16),  # Changed to 16 for FM compatibility
     ]
 
 
@@ -108,9 +102,7 @@ def sample_sequence_features():
 
 
 @pytest.fixture(scope="function")
-def sample_batch_data(
-    batch_size, sample_dense_features, sample_sparse_features, sample_sequence_features
-):
+def sample_batch_data(batch_size, sample_dense_features, sample_sparse_features, sample_sequence_features):
     """
     Fixture: Generate sample batch data for testing
 
@@ -176,9 +168,7 @@ def sample_match_batch_data(batch_size):
 
 
 @pytest.fixture(scope="function")
-def sample_multitask_batch_data(
-    batch_size, sample_dense_features, sample_sparse_features, sample_sequence_features
-):
+def sample_multitask_batch_data(batch_size, sample_dense_features, sample_sparse_features, sample_sequence_features):
     """
     Fixture: Generate sample batch data for multi-task models
 

@@ -1,7 +1,7 @@
 """
 Date: create on 09/11/2025
 Author: Yang Zhou, zyaztec@gmail.com
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Reference:
 - [1] Zhou G, Mou N, Fan Y, et al. Deep interest evolution network for click-through rate prediction[C] // Proceedings of the AAAI conference on artificial intelligence. 2019, 33(01): 5941-5948. (https://arxiv.org/abs/1809.03672)
 
@@ -239,30 +239,18 @@ class DIEN(BaseModel):
         self.auxiliary_cache = None
 
         if len(sequence_features) == 0:
-            raise ValueError(
-                "DIEN requires at least one sequence feature for user behavior history"
-            )
+            raise ValueError("DIEN requires at least one sequence feature for user behavior history")
 
         if behavior_feature_name is None:
-            raise ValueError(
-                "DIEN requires at least one sequence feature as behavior item feature"
-            )
+            raise ValueError("DIEN requires at least one sequence feature as behavior item feature")
 
         if candidate_feature_name is None:
-            raise ValueError(
-                "DIEN requires at least one sparse_feature as candidate item feature"
-            )
+            raise ValueError("DIEN requires at least one sparse_feature as candidate item feature")
 
-        self.behavior_feature = [
-            f for f in sequence_features if f.name == behavior_feature_name
-        ][0]
-        self.candidate_feature = [
-            f for f in sparse_features if f.name == candidate_feature_name
-        ][0]
+        self.behavior_feature = [f for f in sequence_features if f.name == behavior_feature_name][0]
+        self.candidate_feature = [f for f in sparse_features if f.name == candidate_feature_name][0]
 
-        self.other_sparse_features = (
-            sparse_features[:-1] if self.candidate_feature else sparse_features
-        )
+        self.other_sparse_features = sparse_features[:-1] if self.candidate_feature else sparse_features
 
         self.neg_behavior_feature = None
 
@@ -273,18 +261,11 @@ class DIEN(BaseModel):
 
         # projection candidate feature to match GRU hidden size if needed
         self.candidate_proj = None
-        if (
-            self.candidate_feature is not None
-            and self.candidate_feature.embedding_dim != gru_hidden_size
-        ):
-            self.candidate_proj = nn.Linear(
-                self.candidate_feature.embedding_dim, gru_hidden_size
-            )
+        if self.candidate_feature is not None and self.candidate_feature.embedding_dim != gru_hidden_size:
+            self.candidate_proj = nn.Linear(self.candidate_feature.embedding_dim, gru_hidden_size)
 
         # gru for interest extraction
-        self.interest_extractor = DynamicGRU(
-            input_size=behavior_emb_dim, hidden_size=gru_hidden_size
-        )
+        self.interest_extractor = DynamicGRU(input_size=behavior_emb_dim, hidden_size=gru_hidden_size)
 
         self.attention_layer = AttentionPoolingLayer(
             embedding_dim=gru_hidden_size,
@@ -294,17 +275,13 @@ class DIEN(BaseModel):
         )
 
         # Interest Evolution Layer (AUGRU)
-        self.interest_evolution = AUGRU(
-            input_size=gru_hidden_size, hidden_size=gru_hidden_size
-        )
+        self.interest_evolution = AUGRU(input_size=gru_hidden_size, hidden_size=gru_hidden_size)
 
         # build auxiliary loss net if provided neg sampling and neg_behavior_feature_name
         # auxiliary loss uses the interest states to predict the next behavior in the sequence
         # that's the second task of DIEN
         if self.use_negsampling:
-            neg_candidates = [
-                f for f in sequence_features if f.name == neg_behavior_feature_name
-            ]
+            neg_candidates = [f for f in sequence_features if f.name == neg_behavior_feature_name]
             if len(neg_candidates) == 0:
                 raise ValueError(
                     f"use_negsampling=True requires a negative sequence feature named '{neg_behavior_feature_name}'"
@@ -323,12 +300,7 @@ class DIEN(BaseModel):
             mlp_input_dim += self.candidate_feature.embedding_dim
         mlp_input_dim += gru_hidden_size  # final interest state
         mlp_input_dim += sum([f.embedding_dim for f in self.other_sparse_features])
-        mlp_input_dim += sum(
-            [
-                (f.embedding_dim if f.embedding_dim is not None else 1) or 1
-                for f in dense_features
-            ]
-        )
+        mlp_input_dim += sum([(f.embedding_dim if f.embedding_dim is not None else 1) or 1 for f in dense_features])
 
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
         self.prediction_layer = TaskHead(task_type=self.task)
@@ -348,9 +320,7 @@ class DIEN(BaseModel):
     def forward(self, x):
         self.auxiliary_cache = None
         if self.candidate_feature:
-            candidate_emb = self.embedding.embed_dict[
-                self.candidate_feature.embedding_name
-            ](
+            candidate_emb = self.embedding.embed_dict[self.candidate_feature.embedding_name](
                 x[self.candidate_feature.name].long()
             )  # [B, emb_dim]
         else:
@@ -367,9 +337,7 @@ class DIEN(BaseModel):
             mask = (behavior_seq != 0).unsqueeze(-1)
         mask = mask.float()  # [B, seq_len, 1]
 
-        interest_states, _ = self.interest_extractor(
-            behavior_emb
-        )  # [B, seq_len, hidden_size]
+        interest_states, _ = self.interest_extractor(behavior_emb)  # [B, seq_len, hidden_size]
 
         batch_size, seq_len, hidden_size = interest_states.shape
 
@@ -411,13 +379,9 @@ class DIEN(BaseModel):
 
         if self.use_negsampling and self.training:
             if self.neg_behavior_feature is None:
-                raise ValueError(
-                    "Negative behavior feature is not configured while use_negsampling=True"
-                )
+                raise ValueError("Negative behavior feature is not configured while use_negsampling=True")
             neg_seq = x[self.neg_behavior_feature.name].long()
-            neg_behavior_emb = self.embedding.embed_dict[
-                self.neg_behavior_feature.embedding_name
-            ](neg_seq)
+            neg_behavior_emb = self.embedding.embed_dict[self.neg_behavior_feature.embedding_name](neg_seq)
             self.auxiliary_cache = {
                 "interest_states": interest_states,
                 "behavior_emb": behavior_emb,
@@ -430,9 +394,7 @@ class DIEN(BaseModel):
         other_embeddings.append(final_interest)
 
         for feat in self.other_sparse_features:
-            feat_emb = self.embedding.embed_dict[feat.embedding_name](
-                x[feat.name].long()
-            )
+            feat_emb = self.embedding.embed_dict[feat.embedding_name](x[feat.name].long())
             other_embeddings.append(feat_emb)
 
         for feat in self.dense_features:
@@ -469,12 +431,8 @@ class DIEN(BaseModel):
         pos_logits = self.auxiliary_net(pos_input)[..., 0]
         neg_logits = self.auxiliary_net(neg_input)[..., 0]
 
-        pos_loss = F.binary_cross_entropy_with_logits(
-            pos_logits, torch.ones_like(pos_logits), reduction="none"
-        )
-        neg_loss = F.binary_cross_entropy_with_logits(
-            neg_logits, torch.zeros_like(neg_logits), reduction="none"
-        )
+        pos_loss = F.binary_cross_entropy_with_logits(pos_logits, torch.ones_like(pos_logits), reduction="none")
+        neg_loss = F.binary_cross_entropy_with_logits(neg_logits, torch.zeros_like(neg_logits), reduction="none")
         aux_loss = (pos_loss + neg_loss) * aux_mask
         aux_loss = aux_loss.sum() / torch.clamp(aux_mask.sum(), min=1.0)
         return aux_loss

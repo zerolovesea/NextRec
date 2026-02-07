@@ -1,6 +1,7 @@
 """Session and experiment utilities.
 
 Date: create on 23/11/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -72,11 +73,7 @@ def create_session(experiment_id: str | Path | None = None) -> Session:
 
     log_basename = Path(exp_id).name if exp_id else exp_id
 
-    if (
-        os.getenv("PYTEST_CURRENT_TEST")
-        or os.getenv("PYTEST_RUNNING")
-        or os.getenv("NEXTREC_TEST_MODE") == "1"
-    ):
+    if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("PYTEST_RUNNING") or os.getenv("NEXTREC_TEST_MODE") == "1":
         session_path = Path(tempfile.gettempdir()) / "nextrec_logs" / exp_id
     else:
         # export NEXTREC_LOG_DIR=/data/nextrec/logs
@@ -132,11 +129,7 @@ def get_save_path(
             base_dir = candidate
             file_stem = default_name
         else:
-            base_dir = (
-                candidate.parent
-                if candidate.parent not in (Path("."), Path(""))
-                else base_dir
-            )
+            base_dir = candidate.parent if candidate.parent not in (Path("."), Path("")) else base_dir
             file_stem = candidate.name or default_name
     else:
         file_stem = default_name

@@ -2,7 +2,7 @@
 Pairwise loss functions for learning-to-rank and matching tasks.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -42,9 +42,7 @@ class HingeLoss(nn.Module):
     Hinge loss for pairwise ranking.
     """
 
-    def __init__(
-        self, margin: float = 1.0, reduction: Literal["mean", "sum", "none"] = "mean"
-    ):
+    def __init__(self, margin: float = 1.0, reduction: Literal["mean", "sum", "none"] = "mean"):
         super().__init__()
         self.margin = margin
         self.reduction = reduction
@@ -79,9 +77,7 @@ class TripletLoss(nn.Module):
         self.reduction = reduction
         self.distance = distance
 
-    def forward(
-        self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
         if self.distance == "euclidean":
             pos_dist = torch.sum((anchor - positive) ** 2, dim=-1)
             if negative.dim() == 3:

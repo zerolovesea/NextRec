@@ -3,6 +3,9 @@ Tree-based model base for NextRec.
 
 This module provides a lightweight adapter to plug tree models (xgboost/lightgbm/catboost)
 into the NextRec training/prediction pipeline.
+
+Checkpoint: edit on 07/02/2026
+Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import Any, Iterable, Literal, overload
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from nextrec.basic.features import (
     DenseFeature,
@@ -63,9 +67,7 @@ class TreeBaseModel(FeatureSet):
             self.model_params.update(kwargs)
         self.sequence_pooling = sequence_pooling
 
-        self.set_all_features(
-            dense_features, sparse_features, sequence_features, target, id_columns
-        )
+        self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
         self.task = task or self.default_task
 
         self.session_id = session_id
@@ -79,22 +81,16 @@ class TreeBaseModel(FeatureSet):
             self.session_path,
             f"{self.model_name.upper()}_best.{self.model_file_suffix}",
         )
-        self.features_config_path = os.path.join(
-            self.session_path, "features_config.pkl"
-        )
+        self.features_config_path = os.path.join(self.session_path, "features_config.pkl")
 
         self.model: Any | None = None
         self._cat_feature_indices: list[int] = []
 
     def assert_task(self) -> None:
         if self.target_columns and len(self.target_columns) > 1:
-            raise ValueError(
-                f"[{self.model_name}-init Error] tree models only support a single target column."
-            )
+            raise ValueError(f"[{self.model_name}-init Error] tree models only support a single target column.")
         if isinstance(self.task, list) and len(self.task) > 1:
-            raise ValueError(
-                f"[{self.model_name}-init Error] tree models only support a single task type."
-            )
+            raise ValueError(f"[{self.model_name}-init Error] tree models only support a single task type.")
 
     def pool_sequence(self, arr: np.ndarray, feature: SequenceFeature) -> np.ndarray:
         if arr.ndim == 1:
@@ -110,9 +106,7 @@ class TreeBaseModel(FeatureSet):
         elif self.sequence_pooling == "last":
             idx = np.where(mask, np.arange(arr.shape[1]), -1)
             last_idx = idx.max(axis=1)
-            pooled = np.array(
-                [arr[row, col] if col >= 0 else 0.0 for row, col in enumerate(last_idx)]
-            )
+            pooled = np.array([arr[row, col] if col >= 0 else 0.0 for row, col in enumerate(last_idx)])
         else:
             counts = np.maximum(mask.sum(axis=1), 1)
             pooled = (arr * mask).sum(axis=1) / counts
@@ -124,9 +118,7 @@ class TreeBaseModel(FeatureSet):
         feature_offset = 0
         for feat in self.all_features:
             if feat.name not in features:
-                raise KeyError(
-                    f"[{self.model_name}-data Error] Missing feature '{feat.name}'."
-                )
+                raise KeyError(f"[{self.model_name}-data Error] Missing feature '{feat.name}'.")
             arr = to_numpy(features[feat.name])
             if isinstance(feat, SequenceFeature):
                 arr = self.pool_sequence(arr, feat)
@@ -155,9 +147,7 @@ class TreeBaseModel(FeatureSet):
             return None
         return to_numpy(labels[first_key]).reshape(-1)
 
-    def extract_ids(
-        self, ids: dict[str, Any] | None, id_column: str | None
-    ) -> np.ndarray | None:
+    def extract_ids(self, ids: dict[str, Any] | None, id_column: str | None) -> np.ndarray | None:
         if ids is None or id_column is None:
             return None
         if id_column not in ids:
@@ -176,9 +166,7 @@ class TreeBaseModel(FeatureSet):
         id_chunks: list[np.ndarray] = []
         for batch in data_loader:
             if not isinstance(batch, dict) or "features" not in batch:
-                raise TypeError(
-                    f"[{self.model_name}-data Error] Expected batches with a 'features' dict."
-                )
+                raise TypeError(f"[{self.model_name}-data Error] Expected batches with a 'features' dict.")
             features = batch.get("features", {})
             labels = batch.get("labels")
             ids = batch.get("ids")
@@ -186,27 +174,21 @@ class TreeBaseModel(FeatureSet):
             feature_chunks.append(X_batch)
             y_batch = self.extract_labels(labels)
             if require_labels and y_batch is None:
-                raise ValueError(
-                    f"[{self.model_name}-data Error] Labels are required but missing."
-                )
+                raise ValueError(f"[{self.model_name}-data Error] Labels are required but missing.")
             if y_batch is not None:
                 label_chunks.append(y_batch)
             if include_ids and id_column:
                 id_batch = self.extract_ids(ids, id_column)
                 if id_batch is not None:
                     id_chunks.append(id_batch)
-        X_all = (
-            np.concatenate(feature_chunks, axis=0)
-            if feature_chunks
-            else np.empty((0, 0))
-        )
+        X_all = np.concatenate(feature_chunks, axis=0) if feature_chunks else np.empty((0, 0))
         y_all = np.concatenate(label_chunks, axis=0) if label_chunks else None
         ids_all = np.concatenate(id_chunks, axis=0) if id_chunks else None
         return X_all, y_all, ids_all
 
     def collect_from_table(
         self,
-        data: dict | pd.DataFrame,
+        data: dict | pd.DataFrame | pl.DataFrame,
         require_labels: bool,
         include_ids: bool,
         id_column: str | None,
@@ -215,9 +197,7 @@ class TreeBaseModel(FeatureSet):
         for feat in self.all_features:
             column = get_column_data(data, feat.name)
             if column is None:
-                raise KeyError(
-                    f"[{self.model_name}-data Error] Missing feature '{feat.name}'."
-                )
+                raise KeyError(f"[{self.model_name}-data Error] Missing feature '{feat.name}'.")
             features[feat.name] = column
         X_all = self.features_to_matrix(features)
         y_all = None
@@ -229,9 +209,7 @@ class TreeBaseModel(FeatureSet):
                     label_payload[name] = column
             y_all = self.extract_labels(label_payload or None)
             if y_all is None:
-                raise ValueError(
-                    f"[{self.model_name}-data Error] Labels are required but missing."
-                )
+                raise ValueError(f"[{self.model_name}-data Error] Labels are required but missing.")
         ids_all = None
         if include_ids and id_column:
             id_col = get_column_data(data, id_column)
@@ -251,15 +229,11 @@ class TreeBaseModel(FeatureSet):
                 f"[{self.model_name}-data Error] File paths are not supported here. "
                 "Use RecDataLoader to create a DataLoader for training."
             )
-        if isinstance(data, (pd.DataFrame, dict)):
+        if isinstance(data, (pd.DataFrame, pl.DataFrame, dict)):
             return self.collect_from_table(data, require_labels, include_ids, id_column)
         if isinstance(data, Iterable) and hasattr(data, "__iter__"):
-            return self.collect_from_dataloader(
-                data, require_labels, include_ids, id_column
-            )
-        raise TypeError(
-            f"[{self.model_name}-data Error] Unsupported data type: {type(data)}"
-        )
+            return self.collect_from_dataloader(data, require_labels, include_ids, id_column)
+        raise TypeError(f"[{self.model_name}-data Error] Unsupported data type: {type(data)}")
 
     def build_estimator(self, model_params: dict[str, Any], epochs: int | None):
         raise NotImplementedError
@@ -315,9 +289,7 @@ class TreeBaseModel(FeatureSet):
         logging.info(format_kv("Device", self.device))
 
         target_names = self.target_columns or ["label"]
-        metrics_list, task_specific_metrics, _ = configure_metrics(
-            self.task, metrics, target_names
-        )
+        metrics_list, task_specific_metrics, _ = configure_metrics(self.task, metrics, target_names)
         need_user_id = check_user_id(metrics_list, task_specific_metrics)
         id_column = user_id_column or (self.id_columns[0] if self.id_columns else None)
         include_ids = need_user_id and id_column is not None
@@ -530,6 +502,8 @@ class TreeBaseModel(FeatureSet):
                 df_to_save.to_parquet(target_path, index=False)
             else:
                 raise ValueError(f"Unsupported save format: {save_format}")
+
+            logging.info("")
             logging.info(f"Predictions saved to: {target_path}")
         return output
 
@@ -590,9 +564,7 @@ class TreeBaseModel(FeatureSet):
                 if ids is not None:
                     pred_df.insert(0, id_column, ids)
             if save_format == "csv":
-                pred_df.to_csv(
-                    target_path, mode="a", header=not header_written, index=False
-                )
+                pred_df.to_csv(target_path, mode="a", header=not header_written, index=False)
                 header_written = True
             elif save_format == "parquet":
                 try:
@@ -651,14 +623,10 @@ class TreeBaseModel(FeatureSet):
         if model_path.is_dir():
             candidates = sorted(model_path.glob(f"*.{self.model_file_suffix}"))
             if not candidates:
-                raise FileNotFoundError(
-                    f"[{self.model_name}-load Error] No model file found in {model_path}"
-                )
+                raise FileNotFoundError(f"[{self.model_name}-load Error] No model file found in {model_path}")
             model_path = candidates[-1]
         if not model_path.exists():
-            raise FileNotFoundError(
-                f"[{self.model_name}-load Error] Model file does not exist: {model_path}"
-            )
+            raise FileNotFoundError(f"[{self.model_name}-load Error] Model file does not exist: {model_path}")
         self.model = self.load_model_file(model_path)
         config_path = model_path.parent / "features_config.pkl"
         if config_path.exists():
@@ -667,9 +635,7 @@ class TreeBaseModel(FeatureSet):
             all_features = cfg.get("all_features", [])
             dense_features = [f for f in all_features if isinstance(f, DenseFeature)]
             sparse_features = [f for f in all_features if isinstance(f, SparseFeature)]
-            sequence_features = [
-                f for f in all_features if isinstance(f, SequenceFeature)
-            ]
+            sequence_features = [f for f in all_features if isinstance(f, SequenceFeature)]
             self.set_all_features(
                 dense_features=dense_features,
                 sparse_features=sparse_features,

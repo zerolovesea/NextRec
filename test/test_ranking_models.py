@@ -52,9 +52,7 @@ logger = logging.getLogger(__name__)
 class TestFMModel:
     """Test suite for FM ranking model"""
 
-    def test_fm_initialization(
-        self, sample_sparse_features, sample_sequence_features, device
-    ):
+    def test_fm_initialization(self, sample_sparse_features, sample_sequence_features, device):
         model = FM(
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,
@@ -331,13 +329,9 @@ class TestDeepFM:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         output = run_model_inference(model, data)
         assert_model_output_shape(output, (batch_size,))
@@ -361,9 +355,7 @@ class TestDIN:
         sparse_features = [
             SparseFeature(name="user_id", vocab_size=1000, embedding_dim=16),
             SparseFeature(name="gender", vocab_size=3, embedding_dim=4),
-            SparseFeature(
-                name="candidate_item", vocab_size=5000, embedding_dim=32
-            ),  # Last one is candidate
+            SparseFeature(name="candidate_item", vocab_size=5000, embedding_dim=32),  # Last one is candidate
         ]
 
         sequence_features = [
@@ -516,9 +508,7 @@ class TestDIN:
         logger.info("DIN attention mechanism test successful")
 
     @pytest.mark.parametrize("attention_activation", ["sigmoid", "relu", "tanh"])
-    def test_din_attention_activations(
-        self, din_features, device, batch_size, attention_activation
-    ):
+    def test_din_attention_activations(self, din_features, device, batch_size, attention_activation):
         """Test DIN with different attention activation functions"""
         logger.info("=" * 80)
         logger.info(f"Testing DIN with {attention_activation} attention activation")
@@ -573,11 +563,7 @@ class TestRankingModelsComparison:
             SparseFeature(name="sparse1", vocab_size=100, embedding_dim=8),
             SparseFeature(name="sparse2", vocab_size=100, embedding_dim=8),
         ]
-        sequence_features = [
-            SequenceFeature(
-                name="seq1", vocab_size=100, max_len=10, embedding_dim=8, padding_idx=0
-            )
-        ]
+        sequence_features = [SequenceFeature(name="seq1", vocab_size=100, max_len=10, embedding_dim=8, padding_idx=0)]
 
         # Data
         data = {
@@ -682,13 +668,9 @@ class TestRankingModelsComparison:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         # Get output from original model
         output1 = run_model_inference(model1, data)
@@ -715,9 +697,7 @@ class TestRankingModelsComparison:
         output2 = run_model_inference(model2, data)
 
         # Outputs should be identical
-        assert torch.allclose(
-            output1, output2, atol=1e-6
-        ), "Loaded model should produce identical outputs"
+        assert torch.allclose(output1, output2, atol=1e-6), "Loaded model should produce identical outputs"
 
         logger.info("Model save and load test successful")
 
@@ -822,13 +802,9 @@ class TestAutoInt:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         output = run_model_inference(model, data)
         assert_model_output_shape(output, (batch_size,))
@@ -1004,13 +980,9 @@ class TestDCN:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         output = run_model_inference(model, data)
         assert_model_output_shape(output, (batch_size,))
@@ -1045,13 +1017,9 @@ class TestDCN:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         output = run_model_inference(model, data)
         assert_model_output_shape(output, (batch_size,))
@@ -1157,13 +1125,9 @@ class TestxDeepFM:
         for feat in sample_dense_features:
             data[feat.name] = torch.randn(batch_size, 1).to(device)
         for feat in sample_sparse_features:
-            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(
-                device
-            )
+            data[feat.name] = torch.randint(1, feat.vocab_size, (batch_size,)).to(device)
         for feat in sample_sequence_features:
-            data[feat.name] = torch.randint(
-                0, feat.vocab_size, (batch_size, feat.max_len)
-            ).to(device)
+            data[feat.name] = torch.randint(0, feat.vocab_size, (batch_size, feat.max_len)).to(device)
 
         output = run_model_inference(model, data)
         assert_model_output_shape(output, (batch_size,))
@@ -1233,9 +1197,7 @@ class TestDIEN:
 
         count_parameters(model)
 
-    def test_dien_forward_pass(
-        self, dien_features, device, batch_size, set_random_seed
-    ):
+    def test_dien_forward_pass(self, dien_features, device, batch_size, set_random_seed):
         """Test DIEN forward pass with GRU and attention"""
         logger.info("=" * 80)
         logger.info("Testing DIEN forward pass")
@@ -1273,9 +1235,7 @@ class TestDIEN:
 
         logger.info("DIEN forward pass successful")
 
-    def test_dien_neg_sampling_aux_loss(
-        self, dien_features, device, batch_size, set_random_seed
-    ):
+    def test_dien_neg_sampling_aux_loss(self, dien_features, device, batch_size, set_random_seed):
         """Test DIEN negative sampling path with auxiliary loss"""
         dense_features, sparse_features, base_sequence_features = dien_features
 
@@ -1310,12 +1270,8 @@ class TestDIEN:
             "user_id": torch.randint(1, 1000, (batch_size,)).to(device),
             "gender": torch.randint(1, 3, (batch_size,)).to(device),
             "candidate_item": torch.randint(1, 5000, (batch_size,)).to(device),
-            "behavior_sequence": torch.randint(1, 5000, (batch_size, 30)).to(
-                device
-            ),  # avoid all padding
-            "neg_behavior_sequence": torch.randint(1, 5000, (batch_size, 30)).to(
-                device
-            ),
+            "behavior_sequence": torch.randint(1, 5000, (batch_size, 30)).to(device),  # avoid all padding
+            "neg_behavior_sequence": torch.randint(1, 5000, (batch_size, 30)).to(device),
         }
 
         model.train()
@@ -1378,9 +1334,7 @@ class TestFiBiNET:
 class TestAFM:
     """Test suite for AFM"""
 
-    def test_afm_initialization(
-        self, sample_sparse_features, sample_sequence_features, device
-    ):
+    def test_afm_initialization(self, sample_sparse_features, sample_sequence_features, device):
         model = AFM(
             dense_features=[],
             sparse_features=sample_sparse_features,
@@ -1417,9 +1371,7 @@ class TestAFM:
 class TestFFM:
     """Test suite for FFM"""
 
-    def test_ffm_initialization(
-        self, sample_sparse_features, sample_sequence_features, device
-    ):
+    def test_ffm_initialization(self, sample_sparse_features, sample_sequence_features, device):
         model = FFM(
             sparse_features=sample_sparse_features,
             sequence_features=sample_sequence_features,

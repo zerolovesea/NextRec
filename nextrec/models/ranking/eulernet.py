@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Zhao Z, Zhang H, Tang H, et al. EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula. (SIGIR 2021)
@@ -104,17 +104,13 @@ class EulerInteractionLayer(nn.Module):
             self.bn = None
             self.ln = None
 
-    def forward(
-        self, r: torch.Tensor, p: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, r: torch.Tensor, p: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         r, p: [B, m, d]
         return r_out, p_out: [B, n, d]
         """
         B, m, d = r.shape
-        assert (
-            m == self.m and d == self.d
-        ), f"Expected [B,{self.m},{self.d}] got {r.shape}"
+        assert m == self.m and d == self.d, f"Expected [B,{self.m},{self.d}] got {r.shape}"
 
         # Euler Transformation: rectangular -> polar
         lam = torch.sqrt(r * r + p * p + self.eps)  # [B,m,d]
@@ -124,12 +120,8 @@ class EulerInteractionLayer(nn.Module):
         # Generalized Multi-order Transformation
         # psi_k = sum_j alpha_{k,j} * theta_j + delta_k
         # l_k   = exp(sum_j alpha_{k,j} * log(lam_j) + delta'_k)
-        psi = (
-            torch.einsum("bmd,nmd->bnd", theta, self.alpha) + self.delta_phase
-        )  # [B,n,d]
-        log_l = (
-            torch.einsum("bmd,nmd->bnd", log_lam, self.alpha) + self.delta_logmod
-        )  # [B,n,d]
+        psi = torch.einsum("bmd,nmd->bnd", theta, self.alpha) + self.delta_phase  # [B,n,d]
+        log_l = torch.einsum("bmd,nmd->bnd", log_lam, self.alpha) + self.delta_logmod  # [B,n,d]
         l = torch.exp(log_l)  # [B,n,d]
 
         # Inverse Euler Transformation
@@ -227,26 +219,18 @@ class EulerNet(BaseModel):
 
         self.linear_features = dense_features + sparse_features + sequence_features
         self.interaction_features = (
-            [f for f in dense_features if f.use_projection]
-            + sparse_features
-            + sequence_features
+            [f for f in dense_features if f.use_projection] + sparse_features + sequence_features
         )
 
         if len(self.interaction_features) < 2:
-            raise ValueError(
-                "EulerNet requires at least two embedded features for interactions."
-            )
+            raise ValueError("EulerNet requires at least two embedded features for interactions.")
 
         self.embedding = EmbeddingLayer(features=self.all_features)
 
         self.num_fields = len(self.interaction_features)
         self.embedding_dim = self.interaction_features[0].embedding_dim
-        if any(
-            f.embedding_dim != self.embedding_dim for f in self.interaction_features
-        ):
-            raise ValueError(
-                "All interaction features must share the same embedding_dim in EulerNet."
-            )
+        if any(f.embedding_dim != self.embedding_dim for f in self.interaction_features):
+            raise ValueError("All interaction features must share the same embedding_dim in EulerNet.")
 
         self.num_layers = num_layers
         self.num_orders = num_orders
@@ -268,9 +252,7 @@ class EulerNet(BaseModel):
 
         if self.use_linear:
             if len(self.linear_features) == 0:
-                raise ValueError(
-                    "EulerNet linear term requires at least one input feature."
-                )
+                raise ValueError("EulerNet linear term requires at least one input feature.")
             linear_dim = self.embedding.get_input_dim(self.linear_features)
             if linear_dim <= 0:
                 raise ValueError("EulerNet linear input_dim must be positive.")
@@ -283,20 +265,14 @@ class EulerNet(BaseModel):
         modules = ["mapping", "layers", "w", "w_im"]
         if self.use_linear:
             modules.append("linear")
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=modules
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=modules)
 
     def forward(self, x):
-        field_emb = self.embedding(
-            x=x, features=self.interaction_features, squeeze_dim=False
-        )
+        field_emb = self.embedding(x=x, features=self.interaction_features, squeeze_dim=False)
         y_euler = self.euler_forward(field_emb)
 
         if self.use_linear and self.linear is not None:
-            linear_input = self.embedding(
-                x=x, features=self.linear_features, squeeze_dim=True
-            )
+            linear_input = self.embedding(x=x, features=self.linear_features, squeeze_dim=True)
             y_euler = y_euler + self.linear(linear_input)
 
         return self.prediction_layer(y_euler)

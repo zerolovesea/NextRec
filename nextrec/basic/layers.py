@@ -2,7 +2,7 @@
 Layer implementations used across NextRec.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 25/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -97,12 +97,8 @@ class PredictionLayer(nn.Module):
             elif task_type == "regression":
                 outputs.append(task_logits)
             else:
-                raise ValueError(
-                    f"[PredictionLayer Error]: Unsupported task_type '{task_type}'."
-                )
-        result = torch.cat(
-            outputs, dim=-1
-        )  # single: (N,1), multi-task/multi-class: (N,total_dim)
+                raise ValueError(f"[PredictionLayer Error]: Unsupported task_type '{task_type}'.")
+        result = torch.cat(outputs, dim=-1)  # single: (N,1), multi-task/multi-class: (N,total_dim)
         return result
 
 
@@ -132,9 +128,7 @@ class EmbeddingLayer(nn.Module):
                             freeze=feature.freeze_pretrained,
                             padding_idx=feature.padding_idx,
                         )
-                        embedding.weight.requires_grad = (
-                            feature.trainable and not feature.freeze_pretrained
-                        )
+                        embedding.weight.requires_grad = feature.trainable and not feature.freeze_pretrained
                     else:
                         embedding = nn.Embedding(
                             num_embeddings=feature.vocab_size,
@@ -159,11 +153,7 @@ class EmbeddingLayer(nn.Module):
                     continue  # skip if already created
 
                 input_dim = feature.input_dim
-                out_dim = (
-                    feature.embedding_dim
-                    if feature.embedding_dim is not None
-                    else input_dim
-                )
+                out_dim = feature.embedding_dim if feature.embedding_dim is not None else input_dim
 
                 dense_linear = nn.Linear(input_dim, out_dim, bias=True)
                 nn.init.xavier_uniform_(dense_linear.weight)
@@ -171,9 +161,7 @@ class EmbeddingLayer(nn.Module):
                 self.dense_transforms[feature.name] = dense_linear
                 self.dense_input_dims[feature.name] = input_dim
             else:
-                raise TypeError(
-                    f"[EmbeddingLayer Error]: Unsupported feature type: {type(feature)}"
-                )
+                raise TypeError(f"[EmbeddingLayer Error]: Unsupported feature type: {type(feature)}")
             if isinstance(feature, SequenceFeature):
                 if feature.name in self.sequence_poolings:
                     continue
@@ -190,17 +178,11 @@ class EmbeddingLayer(nn.Module):
                         raise ValueError(
                             f"[EmbeddingLayer Error]: self_attention requires embedding_dim divisible by 4, got {feature.embedding_dim}."
                         )
-                    pooling_layer = SelfAttentionPooling(
-                        feature.embedding_dim, num_heads=4, dropout=0.0
-                    )
+                    pooling_layer = SelfAttentionPooling(feature.embedding_dim, num_heads=4, dropout=0.0)
                 else:
-                    raise ValueError(
-                        f"[EmbeddingLayer Error]: Unknown combiner for {feature.name}: {feature.combiner}"
-                    )
+                    raise ValueError(f"[EmbeddingLayer Error]: Unknown combiner for {feature.name}: {feature.combiner}")
                 self.sequence_poolings[feature.name] = pooling_layer
-        self.output_dim = (
-            self.compute_output_dim()
-        )  # output dimension of the embedding layer
+        self.output_dim = self.compute_output_dim()  # output dimension of the embedding layer
 
     def forward(
         self,
@@ -238,9 +220,7 @@ class EmbeddingLayer(nn.Module):
             if dense_embeds:
                 pieces.append(torch.cat(dense_embeds, dim=1))
             if not pieces:
-                raise ValueError(
-                    "[EmbeddingLayer Error]: No input features found for EmbeddingLayer."
-                )
+                raise ValueError("[EmbeddingLayer Error]: No input features found for EmbeddingLayer.")
             return pieces[0] if len(pieces) == 1 else torch.cat(pieces, dim=1)
 
         # squeeze_dim=False requires embeddings with identical last dimension
@@ -267,13 +247,9 @@ class EmbeddingLayer(nn.Module):
             )
         return torch.cat(output_embeddings, dim=1)
 
-    def project_dense(
-        self, feature: DenseFeature, x: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+    def project_dense(self, feature: DenseFeature, x: dict[str, torch.Tensor]) -> torch.Tensor:
         if feature.name not in x:
-            raise KeyError(
-                f"[EmbeddingLayer Error]:Dense feature '{feature.name}' is missing from input."
-            )
+            raise KeyError(f"[EmbeddingLayer Error]:Dense feature '{feature.name}' is missing from input.")
         value = x[feature.name].float()
         if value.dim() == 1:
             value = value.unsqueeze(-1)  # [B, 1]
@@ -355,9 +331,7 @@ class ConcatPooling(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(
-        self, x: torch.Tensor, mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         pooled = x.flatten(start_dim=1, end_dim=2)
         return pooled
 
@@ -366,9 +340,7 @@ class AveragePooling(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(
-        self, x: torch.Tensor, mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         # mask: matrix with 0/1 values for padding positions
         if mask is None:
             pooled = torch.mean(x, dim=1)
@@ -384,9 +356,7 @@ class SumPooling(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(
-        self, x: torch.Tensor, mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         if mask is None:
             pooled = torch.sum(x, dim=1)
         else:
@@ -413,18 +383,12 @@ class DotProductAttentionPooling(nn.Module):
         self.query = nn.Parameter(torch.empty(embedding_dim))
         nn.init.xavier_uniform_(self.query.view(1, -1))
 
-    def forward(
-        self, x: torch.Tensor, mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         if x.dim() != 3:
-            raise ValueError(
-                f"[DotProductAttentionPooling Error]: x must be [B,L,D], got {x.shape}"
-            )
+            raise ValueError(f"[DotProductAttentionPooling Error]: x must be [B,L,D], got {x.shape}")
         B, L, D = x.shape
         if D != self.embedding_dim:
-            raise ValueError(
-                f"[DotProductAttentionPooling Error]: embedding_dim mismatch: {D} vs {self.embedding_dim}"
-            )
+            raise ValueError(f"[DotProductAttentionPooling Error]: embedding_dim mismatch: {D} vs {self.embedding_dim}")
 
         q = self.query.view(1, 1, D)  # [1,1,D]
         scores = (x * q).sum(dim=-1)  # [B,L]
@@ -438,15 +402,11 @@ class DotProductAttentionPooling(nn.Module):
                 elif mask.size(-1) == 1:
                     mask_ = mask.squeeze(-1)  # [B,L]
                 else:
-                    raise ValueError(
-                        f"[DotProductAttentionPooling Error]: bad mask shape: {mask.shape}"
-                    )
+                    raise ValueError(f"[DotProductAttentionPooling Error]: bad mask shape: {mask.shape}")
             elif mask.dim() == 2:
                 mask_ = mask
             else:
-                raise ValueError(
-                    f"[DotProductAttentionPooling Error]: bad mask dim: {mask.dim()}"
-                )
+                raise ValueError(f"[DotProductAttentionPooling Error]: bad mask dim: {mask.dim()}")
 
             mask_ = mask_.to(dtype=torch.bool)
             scores = scores.masked_fill(~mask_, float("-inf"))  # mask padding positions
@@ -512,22 +472,14 @@ class SelfAttentionPooling(nn.Module):
             else:
                 self.layer_norm_2 = None
 
-        self.pool = DotProductAttentionPooling(
-            embedding_dim=embedding_dim, scale=True, dropout=dropout
-        )
+        self.pool = DotProductAttentionPooling(embedding_dim=embedding_dim, scale=True, dropout=dropout)
 
-    def forward(
-        self, x: torch.Tensor, mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         if x.dim() != 3:
-            raise ValueError(
-                f"[SelfAttentionPooling Error]: x must be [B,L,D], got {x.shape}"
-            )
+            raise ValueError(f"[SelfAttentionPooling Error]: x must be [B,L,D], got {x.shape}")
         B, L, D = x.shape
         if D != self.embedding_dim:
-            raise ValueError(
-                f"[SelfAttentionPooling Error]: embedding_dim mismatch: {D} vs {self.embedding_dim}"
-            )
+            raise ValueError(f"[SelfAttentionPooling Error]: embedding_dim mismatch: {D} vs {self.embedding_dim}")
 
         key_padding_mask = None
         if mask is not None:
@@ -537,20 +489,14 @@ class SelfAttentionPooling(nn.Module):
                 elif mask.size(-1) == 1:
                     mask_ = mask.squeeze(-1)  # [B,L]
                 else:
-                    raise ValueError(
-                        f"[SelfAttentionPooling Error]: bad mask shape: {mask.shape}"
-                    )
+                    raise ValueError(f"[SelfAttentionPooling Error]: bad mask shape: {mask.shape}")
             elif mask.dim() == 2:
                 mask_ = mask
             else:
-                raise ValueError(
-                    f"[SelfAttentionPooling Error]: bad mask dim: {mask.dim()}"
-                )
+                raise ValueError(f"[SelfAttentionPooling Error]: bad mask dim: {mask.dim()}")
             key_padding_mask = ~mask_.to(dtype=torch.bool)  # True = padding
 
-        attn_out, _ = self.mha(
-            x, x, x, key_padding_mask=key_padding_mask, need_weights=False
-        )
+        attn_out, _ = self.mha(x, x, x, key_padding_mask=key_padding_mask, need_weights=False)
         if self.use_residual:
             x = x + self.dropout(attn_out)
         else:
@@ -711,9 +657,7 @@ class BiLinearInteractionLayer(nn.Module):
         self,
         input_dim: int,
         num_fields: int,
-        bilinear_type: Literal[
-            "field_all", "field_each", "field_interaction"
-        ] = "field_interaction",
+        bilinear_type: Literal["field_all", "field_each", "field_interaction"] = "field_interaction",
     ):
         super(BiLinearInteractionLayer, self).__init__()
         self.bilinear_type = bilinear_type
@@ -725,10 +669,7 @@ class BiLinearInteractionLayer(nn.Module):
             )
         elif self.bilinear_type == "field_interaction":
             self.bilinear_layer = nn.ModuleList(
-                [
-                    nn.Linear(input_dim, input_dim, bias=False)
-                    for i, j in combinations(range(num_fields), 2)
-                ]
+                [nn.Linear(input_dim, input_dim, bias=False) for i, j in combinations(range(num_fields), 2)]
             )
         else:
             raise NotImplementedError()
@@ -736,10 +677,7 @@ class BiLinearInteractionLayer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         feature_emb = torch.split(x, 1, dim=1)
         if self.bilinear_type == "field_all":
-            bilinear_list = [
-                self.bilinear_layer(v_i) * v_j
-                for v_i, v_j in combinations(feature_emb, 2)
-            ]
+            bilinear_list = [self.bilinear_layer(v_i) * v_j for v_i, v_j in combinations(feature_emb, 2)]
         elif self.bilinear_type == "field_each":
             bilinear_list = [self.bilinear_layer[i](feature_emb[i]) * feature_emb[j] for i, j in combinations(range(len(feature_emb)), 2)]  # type: ignore[assignment]
         elif self.bilinear_type == "field_interaction":
@@ -787,18 +725,10 @@ class MultiHeadSelfAttention(nn.Module):
         self.use_residual = use_residual
         self.dropout_rate = dropout
 
-        self.q_proj = nn.Linear(
-            embedding_dim, embedding_dim, bias=False
-        )  # Query projection
-        self.k_proj = nn.Linear(
-            embedding_dim, embedding_dim, bias=False
-        )  # Key projection
-        self.v_proj = nn.Linear(
-            embedding_dim, embedding_dim, bias=False
-        )  # Value projection
-        self.out_proj = nn.Linear(
-            embedding_dim, embedding_dim, bias=False
-        )  # Output projection
+        self.q_proj = nn.Linear(embedding_dim, embedding_dim, bias=False)  # Query projection
+        self.k_proj = nn.Linear(embedding_dim, embedding_dim, bias=False)  # Key projection
+        self.v_proj = nn.Linear(embedding_dim, embedding_dim, bias=False)  # Value projection
+        self.out_proj = nn.Linear(embedding_dim, embedding_dim, bias=False)  # Output projection
 
         if use_layer_norm:
             self.layer_norm = nn.LayerNorm(embedding_dim)
@@ -809,9 +739,7 @@ class MultiHeadSelfAttention(nn.Module):
         # Check if Flash Attention is available
         self.use_flash_attention = hasattr(F, "scaled_dot_product_attention")
 
-    def forward(
-        self, x: torch.Tensor, attention_mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
         # x: [Batch, Length, Dim]
         B, L, D = x.shape
 
@@ -819,9 +747,7 @@ class MultiHeadSelfAttention(nn.Module):
         k = self.k_proj(x)
         v = self.v_proj(x)
 
-        q = q.view(B, L, self.num_heads, self.head_dim).transpose(
-            1, 2
-        )  # [Batch, Heads, Length, head_dim]
+        q = q.view(B, L, self.num_heads, self.head_dim).transpose(1, 2)  # [Batch, Heads, Length, head_dim]
         k = k.view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
 
@@ -914,9 +840,7 @@ class AttentionPoolingLayer(nn.Module):
         batch_size, sequence_length, embedding_dim = keys.shape
         if mask is None:
             if keys_length is None:
-                mask = torch.ones(
-                    (batch_size, sequence_length), device=keys.device, dtype=keys.dtype
-                )
+                mask = torch.ones((batch_size, sequence_length), device=keys.device, dtype=keys.dtype)
             else:
                 device = keys.device
                 seq_range = torch.arange(sequence_length, device=device).unsqueeze(0)
@@ -924,9 +848,7 @@ class AttentionPoolingLayer(nn.Module):
         else:
             mask = mask.to(keys.dtype).reshape(batch_size, -1)
             if mask.shape[1] != sequence_length:
-                raise ValueError(
-                    f"[AttentionPoolingLayer Error]: Unsupported mask shape: {mask.shape}"
-                )
+                raise ValueError(f"[AttentionPoolingLayer Error]: Unsupported mask shape: {mask.shape}")
         mask = mask.unsqueeze(-1)
         # Expand query to (B, L, D)
         query_expanded = query.unsqueeze(1).expand(-1, sequence_length, -1)

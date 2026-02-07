@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 18/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Ying H, Zhuang F, Zhang F, et al. Sequential recommender system based on hierarchical attention networks[C] //IJCAI. 2018: 3926-3932.
@@ -116,9 +116,7 @@ class SDM(BaseMatchModel):
                     hidden_size=self.rnn_hidden_size,
                     num_layers=rnn_params["num_layers"],
                     batch_first=True,
-                    dropout=(
-                        rnn_params["dropout"] if rnn_params["num_layers"] > 1 else 0.0
-                    ),
+                    dropout=(rnn_params["dropout"] if rnn_params["num_layers"] > 1 else 0.0),
                 )
             elif rnn_type == "LSTM":
                 self.rnn = nn.LSTM(
@@ -126,9 +124,7 @@ class SDM(BaseMatchModel):
                     hidden_size=self.rnn_hidden_size,
                     num_layers=rnn_params["num_layers"],
                     batch_first=True,
-                    dropout=(
-                        rnn_params["dropout"] if rnn_params["num_layers"] > 1 else 0.0
-                    ),
+                    dropout=(rnn_params["dropout"] if rnn_params["num_layers"] > 1 else 0.0),
                 )
             else:
                 raise ValueError(f"Unknown RNN type: {rnn_type}")
@@ -173,9 +169,7 @@ class SDM(BaseMatchModel):
             else:
                 self.item_dnn = None
 
-        self.register_regularization_weights(
-            embedding_attr="user_embedding", include_modules=["rnn", "user_dnn"]
-        )
+        self.register_regularization_weights(embedding_attr="user_embedding", include_modules=["rnn", "user_dnn"])
         self.register_regularization_weights(
             embedding_attr="item_embedding",
             include_modules=["item_dnn"] if self.item_dnn else [],
@@ -189,9 +183,7 @@ class SDM(BaseMatchModel):
         seq_emb = embed(seq_input.long())  # [batch_size, seq_len, seq_emb_dim]
 
         if self.rnn_type == "GRU":
-            rnn_output, hidden = self.rnn(
-                seq_emb
-            )  # hidden: [num_layers, batch, hidden_size]
+            rnn_output, hidden = self.rnn(seq_emb)  # hidden: [num_layers, batch, hidden_size]
         elif self.rnn_type == "LSTM":
             rnn_output, (hidden, cell) = self.rnn(seq_emb)
 
@@ -205,17 +197,13 @@ class SDM(BaseMatchModel):
             features_list.append(long_term)
 
         if self.use_short_term:
-            mask = (
-                seq_input != seq_feature.padding_idx
-            ).float()  # [batch_size, seq_len]
+            mask = (seq_input != seq_feature.padding_idx).float()  # [batch_size, seq_len]
             seq_lengths = mask.sum(dim=1).long() - 1  # [batch_size]
             seq_lengths = torch.clamp(seq_lengths, min=0)
 
             batch_size = seq_emb.size(0)
             batch_indices = torch.arange(batch_size, device=seq_emb.device)
-            short_term = seq_emb[
-                batch_indices, seq_lengths, :
-            ]  # [batch_size, seq_emb_dim]
+            short_term = seq_emb[batch_indices, seq_lengths, :]  # [batch_size, seq_emb_dim]
             features_list.append(short_term)
 
         if self.user_dense_features:
@@ -246,11 +234,7 @@ class SDM(BaseMatchModel):
 
     def item_tower(self, item_input: dict) -> torch.Tensor:
         """Item tower"""
-        all_item_features = (
-            self.item_dense_features
-            + self.item_sparse_features
-            + self.item_sequence_features
-        )
+        all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
         item_emb = self.item_embedding(item_input, all_item_features, squeeze_dim=True)
 
         if self.item_dnn is not None:

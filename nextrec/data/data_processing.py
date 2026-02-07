@@ -2,7 +2,7 @@
 Data processing utilities for NextRec
 
 Date: create on 03/12/2025
-Checkpoint: edit on 25/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -101,9 +101,7 @@ def build_eval_candidates(
     users = df_all[user_col].unique()
     all_items = item_features[item_col].unique()
     rows = []
-    user_hist_items = {
-        u: df_all[df_all[user_col] == u][item_col].unique() for u in users
-    }
+    user_hist_items = {u: df_all[df_all[user_col] == u][item_col].unique() for u in users}
 
     for u in users:
         df_user = df_all[df_all[user_col] == u]
@@ -112,9 +110,7 @@ def build_eval_candidates(
             continue
         pos_items = pos_items[:num_pos_per_user]
         seen_items = set(user_hist_items[u])
-        neg_pool = np.setdiff1d(
-            all_items, np.fromiter(seen_items, dtype=all_items.dtype)
-        )
+        neg_pool = np.setdiff1d(all_items, np.fromiter(seen_items, dtype=all_items.dtype))
         if len(neg_pool) == 0:
             continue
         for pos in pos_items:
@@ -132,9 +128,7 @@ def build_eval_candidates(
     return eval_df
 
 
-def get_user_ids(
-    data: Any, id_columns: list[str] | str | None = None
-) -> np.ndarray | None:
+def get_user_ids(data: Any, id_columns: list[str] | str | None = None) -> np.ndarray | None:
     """
     Extract user IDs from various data structures.
 
@@ -145,11 +139,7 @@ def get_user_ids(
     Returns:
         np.ndarray | None: User IDs as numpy array, or None if not found
     """
-    id_columns = (
-        id_columns
-        if isinstance(id_columns, list)
-        else [id_columns] if isinstance(id_columns, str) else []
-    )
+    id_columns = id_columns if isinstance(id_columns, list) else [id_columns] if isinstance(id_columns, str) else []
     if not id_columns:
         return None
 
@@ -162,11 +152,7 @@ def get_user_ids(
         ids_container = data.get("ids")
         if isinstance(ids_container, dict) and main_id in ids_container:
             val = ids_container[main_id]
-            val = (
-                val.detach().cpu().numpy()
-                if isinstance(val, torch.Tensor)
-                else np.asarray(val)
-            )
+            val = val.detach().cpu().numpy() if isinstance(val, torch.Tensor) else np.asarray(val)
             return val.reshape(val.shape[0])
         if main_id in data:
             arr = np.asarray(data[main_id])

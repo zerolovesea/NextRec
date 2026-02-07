@@ -66,9 +66,7 @@ class Catboost(TreeBaseModel):
         model.load_model(str(path))
         return model
 
-    def _prepare_catboost_data(
-        self, X: Any, cat_features: list[int]
-    ) -> tuple[Any, list[int]]:
+    def _prepare_catboost_data(self, X: Any, cat_features: list[int]) -> tuple[Any, list[int]]:
         if not cat_features:
             return X, cat_features
         if isinstance(X, np.ndarray) and np.issubdtype(X.dtype, np.floating):
@@ -83,8 +81,7 @@ class Catboost(TreeBaseModel):
                             if pd.isna(value)
                             else (
                                 str(int(value))
-                                if isinstance(value, (float, np.floating))
-                                and value.is_integer()
+                                if isinstance(value, (float, np.floating)) and value.is_integer()
                                 else str(value)
                             )
                         )

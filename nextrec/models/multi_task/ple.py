@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Tang H, Liu J, Zhao M, Gong X. Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations. In: Proceedings of the 14th ACM Conference on Recommender Systems (RecSys ’20), 2020, pp. 269–278.
@@ -82,14 +82,10 @@ class CGCLayer(nn.Module):
         specific_params_list = [params.copy() for params in specific_expert_mlp_params]
 
         self.output_dim = get_mlp_output_dim(shared_expert_mlp_params, input_dim)
-        specific_dims = [
-            get_mlp_output_dim(params, input_dim) for params in specific_params_list
-        ]
+        specific_dims = [get_mlp_output_dim(params, input_dim) for params in specific_params_list]
         dims_set = set(specific_dims + [self.output_dim])
         if len(dims_set) != 1:
-            raise ValueError(
-                f"Shared/specific expert output dims must match, got {dims_set}"
-            )
+            raise ValueError(f"Shared/specific expert output dims must match, got {dims_set}")
 
         # experts
         self.shared_experts = nn.ModuleList(
@@ -139,9 +135,7 @@ class CGCLayer(nn.Module):
         self, task_inputs: list[torch.Tensor], shared_input: torch.Tensor
     ) -> tuple[list[torch.Tensor], torch.Tensor]:
         if len(task_inputs) != self.nums_task:
-            raise ValueError(
-                f"Expected {self.nums_task} task inputs, got {len(task_inputs)}"
-            )
+            raise ValueError(f"Expected {self.nums_task} task inputs, got {len(task_inputs)}")
 
         shared_outputs = [expert(shared_input) for expert in self.shared_experts]
         shared_stack = torch.stack(shared_outputs, dim=0)  # [num_shared, B, D]
@@ -211,9 +205,7 @@ class PLE(BaseModel):
 
         shared_expert_mlp_params = shared_expert_mlp_params or {}
         if specific_expert_mlp_params is None:
-            raise ValueError(
-                "specific_expert_mlp_params must be a list of dicts, one per task."
-            )
+            raise ValueError("specific_expert_mlp_params must be a list of dicts, one per task.")
         tower_mlp_params_list = tower_mlp_params_list or []
 
         super(PLE, self).__init__(
@@ -246,10 +238,7 @@ class PLE(BaseModel):
         # input_dim = emb_dim_total + dense_input_dim
 
         # Get expert output dimension
-        if (
-            "hidden_dims" in shared_expert_mlp_params
-            and len(shared_expert_mlp_params["hidden_dims"]) > 0
-        ):
+        if "hidden_dims" in shared_expert_mlp_params and len(shared_expert_mlp_params["hidden_dims"]) > 0:
             expert_output_dim = shared_expert_mlp_params["hidden_dims"][-1]
         else:
             expert_output_dim = input_dim
@@ -275,13 +264,9 @@ class PLE(BaseModel):
         for tower_mlp_params in tower_mlp_params_list:
             tower = MLP(input_dim=expert_output_dim, output_dim=1, **tower_mlp_params)
             self.towers.append(tower)
-        self.prediction_layer = TaskHead(
-            task_type=self.task, task_dims=[1] * self.nums_task
-        )
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         # Register regularization weights
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["cgc_layers", "towers"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["cgc_layers", "towers"])
 
     def forward(self, x):
         # Get all embeddings and flatten

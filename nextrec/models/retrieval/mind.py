@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 18/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Li C, Liu Z, Wu M, et al. Multi-interest network with dynamic routing for recommendation at Tmall[C] //Proceedings of the 28th ACM international conference on information and knowledge management. 2019: 2615-2623.
@@ -26,15 +26,9 @@ class MultiInterestSA(nn.Module):
         self.interest_num = interest_num
         if hidden_dim is None:
             self.hidden_dim = self.embedding_dim * 4
-        self.W1 = torch.nn.Parameter(
-            torch.rand(self.embedding_dim, self.hidden_dim), requires_grad=True
-        )
-        self.W2 = torch.nn.Parameter(
-            torch.rand(self.hidden_dim, self.interest_num), requires_grad=True
-        )
-        self.W3 = torch.nn.Parameter(
-            torch.rand(self.embedding_dim, self.embedding_dim), requires_grad=True
-        )
+        self.W1 = torch.nn.Parameter(torch.rand(self.embedding_dim, self.hidden_dim), requires_grad=True)
+        self.W2 = torch.nn.Parameter(torch.rand(self.hidden_dim, self.interest_num), requires_grad=True)
+        self.W3 = torch.nn.Parameter(torch.rand(self.embedding_dim, self.embedding_dim), requires_grad=True)
 
     def forward(self, seq_emb, mask=None):
         H = torch.einsum("bse, ed -> bsd", seq_emb, self.W1).tanh()
@@ -69,15 +63,11 @@ class CapsuleNetwork(nn.Module):
 
         self.relu_layer = relu_layer
         self.stop_grad = True
-        self.relu = nn.Sequential(
-            nn.Linear(self.embedding_dim, self.embedding_dim, bias=False), nn.ReLU()
-        )
+        self.relu = nn.Sequential(nn.Linear(self.embedding_dim, self.embedding_dim, bias=False), nn.ReLU())
         if self.bilinear_type == 0:  # MIND
             self.linear = nn.Linear(self.embedding_dim, self.embedding_dim, bias=False)
         elif self.bilinear_type == 1:
-            self.linear = nn.Linear(
-                self.embedding_dim, self.embedding_dim * self.interest_num, bias=False
-            )
+            self.linear = nn.Linear(self.embedding_dim, self.embedding_dim * self.interest_num, bias=False)
         else:
             self.w = nn.Parameter(
                 torch.Tensor(
@@ -99,13 +89,9 @@ class CapsuleNetwork(nn.Module):
             u = torch.unsqueeze(item_eb, dim=2)
             item_eb_hat = torch.sum(self.w[:, : self.seq_len, :, :] * u, dim=3)
 
-        item_eb_hat = torch.reshape(
-            item_eb_hat, (-1, self.seq_len, self.interest_num, self.embedding_dim)
-        )
+        item_eb_hat = torch.reshape(item_eb_hat, (-1, self.seq_len, self.interest_num, self.embedding_dim))
         item_eb_hat = torch.transpose(item_eb_hat, 1, 2).contiguous()
-        item_eb_hat = torch.reshape(
-            item_eb_hat, (-1, self.interest_num, self.seq_len, self.embedding_dim)
-        )
+        item_eb_hat = torch.reshape(item_eb_hat, (-1, self.interest_num, self.seq_len, self.embedding_dim))
 
         if self.stop_grad:
             item_eb_hat_iter = item_eb_hat.detach()
@@ -134,15 +120,11 @@ class CapsuleNetwork(nn.Module):
             paddings = torch.zeros_like(atten_mask, dtype=torch.float)
 
             capsule_softmax_weight = F.softmax(capsule_weight, dim=-1)
-            capsule_softmax_weight = torch.where(
-                torch.eq(atten_mask, 0), paddings, capsule_softmax_weight
-            )
+            capsule_softmax_weight = torch.where(torch.eq(atten_mask, 0), paddings, capsule_softmax_weight)
             capsule_softmax_weight = torch.unsqueeze(capsule_softmax_weight, 2)
 
             if i < 2:
-                interest_capsule = torch.matmul(
-                    capsule_softmax_weight, item_eb_hat_iter
-                )
+                interest_capsule = torch.matmul(capsule_softmax_weight, item_eb_hat_iter)
                 cap_norm = torch.sum(torch.square(interest_capsule), -1, True)
                 scalar_factor = cap_norm / (1 + cap_norm) / torch.sqrt(cap_norm + 1e-9)
                 interest_capsule = scalar_factor * interest_capsule
@@ -151,9 +133,7 @@ class CapsuleNetwork(nn.Module):
                     item_eb_hat_iter,
                     torch.transpose(interest_capsule, 2, 3).contiguous(),
                 )
-                delta_weight = torch.reshape(
-                    delta_weight, (-1, self.interest_num, self.seq_len)
-                )
+                delta_weight = torch.reshape(delta_weight, (-1, self.interest_num, self.seq_len))
                 capsule_weight = capsule_weight + delta_weight
             else:
                 interest_capsule = torch.matmul(capsule_softmax_weight, item_eb_hat)
@@ -161,9 +141,7 @@ class CapsuleNetwork(nn.Module):
                 scalar_factor = cap_norm / (1 + cap_norm) / torch.sqrt(cap_norm + 1e-9)
                 interest_capsule = scalar_factor * interest_capsule
 
-        interest_capsule = torch.reshape(
-            interest_capsule, (-1, self.interest_num, self.embedding_dim)
-        )
+        interest_capsule = torch.reshape(interest_capsule, (-1, self.interest_num, self.embedding_dim))
 
         if self.relu_layer:
             interest_capsule = self.relu(interest_capsule)
@@ -246,11 +224,7 @@ class MIND(BaseMatchModel):
             if not user_sequence_features or len(user_sequence_features) == 0:
                 raise ValueError("MIND requires at least one user sequence feature")
 
-            seq_max_len = (
-                user_sequence_features[0].max_len
-                if user_sequence_features[0].max_len
-                else 50
-            )
+            seq_max_len = user_sequence_features[0].max_len if user_sequence_features[0].max_len else 50
             seq_embedding_dim = user_sequence_features[0].embedding_dim
 
             # Capsule Network for multi-interest extraction
@@ -264,9 +238,7 @@ class MIND(BaseMatchModel):
             )
 
             if seq_embedding_dim != embedding_dim:
-                self.interest_projection = nn.Linear(
-                    seq_embedding_dim, embedding_dim, bias=False
-                )
+                self.interest_projection = nn.Linear(seq_embedding_dim, embedding_dim, bias=False)
                 nn.init.xavier_uniform_(self.interest_projection.weight)
             else:
                 self.interest_projection = None
@@ -297,9 +269,7 @@ class MIND(BaseMatchModel):
             else:
                 self.item_dnn = None
 
-        self.register_regularization_weights(
-            embedding_attr="user_embedding", include_modules=["capsule_network"]
-        )
+        self.register_regularization_weights(embedding_attr="user_embedding", include_modules=["capsule_network"])
         self.register_regularization_weights(
             embedding_attr="item_embedding",
             include_modules=["item_dnn"] if self.item_dnn else [],
@@ -320,14 +290,10 @@ class MIND(BaseMatchModel):
 
         mask = (seq_input != seq_feature.padding_idx).float()  # [batch_size, seq_len]
 
-        multi_interests = self.capsule_network(
-            seq_emb, mask
-        )  # [batch_size, num_interests, seq_embedding_dim]
+        multi_interests = self.capsule_network(seq_emb, mask)  # [batch_size, num_interests, seq_embedding_dim]
 
         if self.interest_projection is not None:
-            multi_interests = self.interest_projection(
-                multi_interests
-            )  # [batch_size, num_interests, embedding_dim]
+            multi_interests = self.interest_projection(multi_interests)  # [batch_size, num_interests, embedding_dim]
 
         # L2 normalization
         multi_interests = F.normalize(multi_interests, p=2, dim=-1)
@@ -336,11 +302,7 @@ class MIND(BaseMatchModel):
 
     def item_tower(self, item_input: dict) -> torch.Tensor:
         """Item tower"""
-        all_item_features = (
-            self.item_dense_features
-            + self.item_sparse_features
-            + self.item_sequence_features
-        )
+        all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
         item_emb = self.item_embedding(item_input, all_item_features, squeeze_dim=True)
 
         if self.item_dnn is not None:
@@ -351,9 +313,7 @@ class MIND(BaseMatchModel):
 
         return item_emb
 
-    def compute_similarity(
-        self, user_emb: torch.Tensor, item_emb: torch.Tensor
-    ) -> torch.Tensor:
+    def compute_similarity(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
         item_emb_expanded = item_emb.unsqueeze(1)
 
         if self.similarity_metric == "dot":

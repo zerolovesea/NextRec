@@ -1,7 +1,7 @@
 """
 [Info: this version is not released yet, i need to more research on source code and paper]
 Date: create on 01/12/2025
-Checkpoint: edit on 11/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Meta AI. Generative Recommenders (HSTU encoder) — https://github.com/meta-recsys/generative-recommenders
@@ -80,11 +80,7 @@ def relative_position_bucket(
     large_val = (
         max_exact
         + (
-            (
-                torch.log(n.float() / max_exact + 1e-6)
-                / math.log(max_distance / max_exact)
-            )
-            * (num_buckets - max_exact)
+            (torch.log(n.float() / max_exact + 1e-6) / math.log(max_distance / max_exact)) * (num_buckets - max_exact)
         ).long()
     )
     large_val = torch.clamp(large_val, max=num_buckets - 1)
@@ -148,9 +144,7 @@ class HSTUPointwiseAttention(nn.Module):
     ):
         super().__init__()
         if hidden_dim % num_heads != 0:
-            raise ValueError(
-                f"[HSTUPointwiseAttention Error] hidden_dim({hidden_dim}) % num_heads({num_heads}) != 0"
-            )
+            raise ValueError(f"[HSTUPointwiseAttention Error] hidden_dim({hidden_dim}) % num_heads({num_heads}) != 0")
 
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
@@ -329,29 +323,19 @@ class HSTU(BaseModel):
         dense_l2_reg: float = 0.0,
         **kwargs,
     ):
-        raise NotImplementedError(
-            "[HSTU Error] NextRec no longer supports multiclass tasks; HSTU is disabled."
-        )
+        raise NotImplementedError("[HSTU Error] NextRec no longer supports multiclass tasks; HSTU is disabled.")
         if not sequence_features:
-            raise ValueError(
-                "[HSTU Error] HSTU requires at least one SequenceFeature (user behavior history)."
-            )
+            raise ValueError("[HSTU Error] HSTU requires at least one SequenceFeature (user behavior history).")
 
-        self.item_history_feature = select_features(
-            sequence_features, [item_history], "item_history"
-        )[0]
+        self.item_history_feature = select_features(sequence_features, [item_history], "item_history")[0]
 
-        self.hidden_dim = hidden_dim or max(
-            int(self.item_history_feature.embedding_dim or 0), 32
-        )
+        self.hidden_dim = hidden_dim or max(int(self.item_history_feature.embedding_dim or 0), 32)
         # Make hidden_dim divisible by num_heads
         if self.hidden_dim % num_heads != 0:
             self.hidden_dim = num_heads * math.ceil(self.hidden_dim / num_heads)
 
         self.padding_idx = (
-            self.item_history_feature.padding_idx
-            if self.item_history_feature.padding_idx is not None
-            else 0
+            self.item_history_feature.padding_idx if self.item_history_feature.padding_idx is not None else 0
         )
         self.vocab_size = self.item_history_feature.vocab_size
         self.max_seq_len = max_seq_len
@@ -370,14 +354,8 @@ class HSTU(BaseModel):
         )
 
         # Optional contextual encoders (user/item attributes, real-time context, etc.)
-        self.context_features = [
-            feat
-            for feat in self.all_features
-            if feat.name != self.item_history_feature.name
-        ]
-        self.context_embedding = (
-            EmbeddingLayer(self.context_features) if self.context_features else None
-        )
+        self.context_features = [feat for feat in self.all_features if feat.name != self.item_history_feature.name]
+        self.context_embedding = EmbeddingLayer(self.context_features) if self.context_features else None
         self.context_proj = (
             nn.Linear(self.context_embedding.output_dim, self.hidden_dim)
             if self.context_embedding is not None
@@ -410,9 +388,7 @@ class HSTU(BaseModel):
             ]
         )
 
-        self.final_norm = (
-            RMSNorm(self.hidden_dim) if use_rms_norm else nn.LayerNorm(self.hidden_dim)
-        )
+        self.final_norm = RMSNorm(self.hidden_dim) if use_rms_norm else nn.LayerNorm(self.hidden_dim)
         self.lm_head = nn.Linear(self.hidden_dim, self.vocab_size, bias=False)
         if tie_embeddings:
             self.lm_head.weight = self.token_embedding.weight
@@ -469,14 +445,10 @@ class HSTU(BaseModel):
 
         # For sequences with no valid tokens, we use position 0's hidden state
         # In production, these sequences should be filtered out before inference
-        last_hidden = hidden_states[
-            torch.arange(B, device=device), last_index
-        ]  # [B, D]
+        last_hidden = hidden_states[torch.arange(B, device=device), last_index]  # [B, D]
 
         if self.context_embedding is not None and self.context_proj is not None:
-            context_repr = self.context_embedding(
-                x, self.context_features, squeeze_dim=True
-            )  # [B, D_ctx]
+            context_repr = self.context_embedding(x, self.context_features, squeeze_dim=True)  # [B, D_ctx]
             context_repr = self.context_proj(context_repr)  # [B, D]
             if self.context_dropout is not None:
                 context_repr = self.context_dropout(context_repr)
@@ -491,8 +463,6 @@ class HSTU(BaseModel):
         y_true: [B] or [B, 1], the id of the next item.
         """
         if y_true is None:
-            raise ValueError(
-                "[HSTU-compute_loss] Training requires y_true (next item id)."
-            )
+            raise ValueError("[HSTU-compute_loss] Training requires y_true (next item id).")
         labels = y_true.view(-1).long()
         return self.loss_fn[0](y_pred, labels)

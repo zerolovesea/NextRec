@@ -2,7 +2,7 @@
 Pointwise loss functions, including imbalance-aware variants.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 29/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -18,16 +18,12 @@ class CosineContrastiveLoss(nn.Module):
     Contrastive loss using cosine similarity for positive/negative pairs.
     """
 
-    def __init__(
-        self, margin: float = 0.5, reduction: Literal["mean", "sum", "none"] = "mean"
-    ):
+    def __init__(self, margin: float = 0.5, reduction: Literal["mean", "sum", "none"] = "mean"):
         super().__init__()
         self.margin = margin
         self.reduction = reduction
 
-    def forward(
-        self, user_emb: torch.Tensor, item_emb: torch.Tensor, labels: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, user_emb: torch.Tensor, item_emb: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         labels = labels.float()
         similarity = F.cosine_similarity(user_emb, item_emb, dim=-1)
         pos_loss = torch.clamp(self.margin - similarity, min=0) * labels
@@ -87,9 +83,7 @@ class WeightedBCELoss(nn.Module):
         current_pos_weight = current_pos_weight.to(inputs.dtype)
 
         if self.logits:
-            loss = F.binary_cross_entropy_with_logits(
-                inputs, labels, pos_weight=current_pos_weight, reduction="none"
-            )
+            loss = F.binary_cross_entropy_with_logits(inputs, labels, pos_weight=current_pos_weight, reduction="none")
         else:
             probs = torch.clamp(inputs, min=1e-6, max=1 - 1e-6)
             base_loss = F.binary_cross_entropy(probs, labels, reduction="none")
@@ -126,9 +120,7 @@ class FocalLoss(nn.Module):
         if inputs.dim() > 1 and inputs.size(1) > 1:
             log_probs = F.log_softmax(inputs, dim=1)
             probs = log_probs.exp()
-            targets_one_hot = F.one_hot(
-                targets.long(), num_classes=inputs.size(1)
-            ).float()
+            targets_one_hot = F.one_hot(targets.long(), num_classes=inputs.size(1)).float()
 
             alpha = self.get_alpha(inputs)
             alpha_factor = targets_one_hot * alpha
@@ -137,9 +129,7 @@ class FocalLoss(nn.Module):
         else:
             targets = targets.float()
             if self.logits:
-                ce_loss = F.binary_cross_entropy_with_logits(
-                    inputs, targets, reduction="none"
-                )
+                ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
                 probs = torch.sigmoid(inputs)
             else:
                 ce_loss = F.binary_cross_entropy(inputs, targets, reduction="none")
@@ -160,20 +150,14 @@ class FocalLoss(nn.Module):
             return torch.ones_like(inputs)
         if isinstance(self.alpha, torch.Tensor):
             return self.alpha.to(inputs.device)
-        alpha_tensor = torch.tensor(
-            self.alpha, device=inputs.device, dtype=inputs.dtype
-        )
+        alpha_tensor = torch.tensor(self.alpha, device=inputs.device, dtype=inputs.dtype)
         return alpha_tensor
 
-    def get_binary_alpha(
-        self, targets: torch.Tensor, device: torch.device
-    ) -> torch.Tensor:
+    def get_binary_alpha(self, targets: torch.Tensor, device: torch.device) -> torch.Tensor:
         if self.alpha is None:
             return torch.ones_like(targets)
         if isinstance(self.alpha, (float, int)):
-            return torch.where(targets == 1, self.alpha, 1 - float(self.alpha)).to(
-                device
-            )
+            return torch.where(targets == 1, self.alpha, 1 - float(self.alpha)).to(device)
         alpha_tensor = torch.tensor(self.alpha, device=device, dtype=targets.dtype)
         return torch.where(targets == 1, alpha_tensor, 1 - alpha_tensor)
 
@@ -201,9 +185,7 @@ class ClassBalancedFocalLoss(nn.Module):
         self.register_buffer("class_weights", weights)
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        focal = FocalLoss(
-            gamma=self.gamma, alpha=self.class_weights, reduction="none", logits=True
-        )
+        focal = FocalLoss(gamma=self.gamma, alpha=self.class_weights, reduction="none", logits=True)
         loss = focal(inputs, targets)
         if self.reduction == "mean":
             return loss.mean()

@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Misra I, Shrivastava A, Gupta A, Hebert M. Cross-Stitch Networks for Multi-Task Learning. Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR 2016), 2016, pp. 3994–4003.
@@ -35,9 +35,7 @@ class CrossStitchLayer(nn.Module):
             raise ValueError("CrossStitchLayer requires at least 2 inputs.")
         self.input_dims = list(input_dims)
         if len(set(self.input_dims)) != 1:
-            raise ValueError(
-                "CrossStitchLayer expects all input dims to be equal to align channels."
-            )
+            raise ValueError("CrossStitchLayer expects all input dims to be equal to align channels.")
         self.num_tasks = len(self.input_dims)
         self.unit_dim = self.input_dims[0]
         identity = torch.eye(self.num_tasks).unsqueeze(-1)
@@ -46,9 +44,7 @@ class CrossStitchLayer(nn.Module):
 
     def forward(self, inputs: list[torch.Tensor]) -> list[torch.Tensor]:
         if len(inputs) != len(self.input_dims):
-            raise ValueError(
-                f"CrossStitchLayer expects {len(self.input_dims)} inputs, got {len(inputs)}"
-            )
+            raise ValueError(f"CrossStitchLayer expects {len(self.input_dims)} inputs, got {len(inputs)}")
         stacked = torch.stack(inputs, dim=1)
         mixed = torch.einsum("b s d, t s d -> b t d", stacked, self.cross_stitch_weight)
         return [mixed[:, task_idx, :] for task_idx in range(self.num_tasks)]
@@ -182,9 +178,7 @@ class CrossStitch(BaseModel):
                 ]
             )
             self.task_layers.append(layer_tasks)
-            self.cross_stitch_layers.append(
-                CrossStitchLayer(input_dims=[hidden_dim] * self.nums_task)
-            )
+            self.cross_stitch_layers.append(CrossStitchLayer(input_dims=[hidden_dim] * self.nums_task))
             prev_dim = hidden_dim
 
         self.towers = nn.ModuleList()
@@ -202,9 +196,7 @@ class CrossStitch(BaseModel):
                 )
             self.towers.append(tower)
 
-        self.prediction_layer = TaskHead(
-            task_type=self.task, task_dims=[1] * self.nums_task
-        )
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         self.register_regularization_weights(
             embedding_attr="embedding",
             include_modules=["shared_layer", "task_layers", "towers"],
@@ -216,9 +208,7 @@ class CrossStitch(BaseModel):
 
         for layer_idx in range(len(self.task_layers)):
             for task_idx in range(self.nums_task):
-                task_reps[task_idx] = self.task_layers[layer_idx][task_idx](
-                    task_reps[task_idx]
-                )
+                task_reps[task_idx] = self.task_layers[layer_idx][task_idx](task_reps[task_idx])
             task_reps = self.cross_stitch_layers[layer_idx](task_reps)
 
         task_outputs = []

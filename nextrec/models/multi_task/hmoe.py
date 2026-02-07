@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 [1] Zhao Z, Liu Y, Jin R, Zhu X, He X. HMOE: Improving Multi-Scenario Learning to Rank in E-commerce by Exploiting Task Relationships in the Label Space. Proceedings of the 29th ACM International Conference on Information & Knowledge Management (CIKM ’20), 2020, pp. 2069–2078.
 URL: https://dl.acm.org/doi/10.1145/3340531.3412713
@@ -92,18 +92,12 @@ class HMOE(BaseModel):
         input_dim = self.embedding.input_dim
 
         self.experts = nn.ModuleList(
-            [
-                MLP(input_dim=input_dim, output_dim=None, **expert_mlp_params)
-                for _ in range(num_experts)
-            ]
+            [MLP(input_dim=input_dim, output_dim=None, **expert_mlp_params) for _ in range(num_experts)]
         )
         expert_output_dim = get_mlp_output_dim(expert_mlp_params, input_dim)
 
         self.gates = nn.ModuleList(
-            [
-                MLP(input_dim=input_dim, output_dim=num_experts, **gate_mlp_params)
-                for _ in range(self.nums_task)
-            ]
+            [MLP(input_dim=input_dim, output_dim=num_experts, **gate_mlp_params) for _ in range(self.nums_task)]
         )
         self.grad_norm_shared_modules = [
             "embedding",
@@ -113,24 +107,15 @@ class HMOE(BaseModel):
         ]
 
         tower_params = [params.copy() for params in tower_mlp_params_list]
-        tower_output_dims = [
-            get_mlp_output_dim(params, expert_output_dim) for params in tower_params
-        ]
+        tower_output_dims = [get_mlp_output_dim(params, expert_output_dim) for params in tower_params]
         if len(set(tower_output_dims)) != 1:
-            raise ValueError(
-                f"All tower output dims must match, got {tower_output_dims}."
-            )
+            raise ValueError(f"All tower output dims must match, got {tower_output_dims}.")
         tower_output_dim = tower_output_dims[0]
 
         self.towers = nn.ModuleList(
-            [
-                MLP(input_dim=expert_output_dim, output_dim=None, **params)
-                for params in tower_params
-            ]
+            [MLP(input_dim=expert_output_dim, output_dim=None, **params) for params in tower_params]
         )
-        self.tower_logits = nn.ModuleList(
-            [nn.Linear(tower_output_dim, 1, bias=False) for _ in range(self.nums_task)]
-        )
+        self.tower_logits = nn.ModuleList([nn.Linear(tower_output_dim, 1, bias=False) for _ in range(self.nums_task)])
 
         if task_weight_mlp_params is None:
             raise ValueError("task_weight_mlp_params must be a list of dicts.")
@@ -139,19 +124,12 @@ class HMOE(BaseModel):
                 "Length of task_weight_mlp_params "
                 f"({len(task_weight_mlp_params)}) must match number of tasks ({self.nums_task})."
             )
-        task_weight_mlp_params_list = [
-            params.copy() for params in task_weight_mlp_params
-        ]
+        task_weight_mlp_params_list = [params.copy() for params in task_weight_mlp_params]
         self.task_weights = nn.ModuleList(
-            [
-                MLP(input_dim=input_dim, output_dim=self.nums_task, **params)
-                for params in task_weight_mlp_params_list
-            ]
+            [MLP(input_dim=input_dim, output_dim=self.nums_task, **params) for params in task_weight_mlp_params_list]
         )
 
-        self.prediction_layer = TaskHead(
-            task_type=self.task, task_dims=[1] * self.nums_task
-        )
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
 
         self.register_regularization_weights(
             embedding_attr="embedding",
@@ -178,24 +156,17 @@ class HMOE(BaseModel):
             gated_output = torch.sum(gate_weights * expert_outputs_t, dim=1)
             tower_features.append(self.towers[task_idx](gated_output))
 
-        task_weight_probs = [
-            torch.softmax(task_weight(input_flat), dim=1)
-            for task_weight in self.task_weights
-        ]
+        task_weight_probs = [torch.softmax(task_weight(input_flat), dim=1) for task_weight in self.task_weights]
 
         task_logits = []
         for task_idx in range(self.nums_task):
-            task_feat = (
-                task_weight_probs[task_idx][:, task_idx].view(-1, 1)
-                * tower_features[task_idx]
-            )
+            task_feat = task_weight_probs[task_idx][:, task_idx].view(-1, 1) * tower_features[task_idx]
             for other_idx in range(self.nums_task):
                 if other_idx == task_idx:
                     continue
                 task_feat = (
                     task_feat
-                    + task_weight_probs[task_idx][:, other_idx].view(-1, 1)
-                    * tower_features[other_idx].detach()
+                    + task_weight_probs[task_idx][:, other_idx].view(-1, 1) * tower_features[other_idx].detach()
                 )
             task_logits.append(self.tower_logits[task_idx](task_feat))
 

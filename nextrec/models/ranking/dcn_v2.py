@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] R. Wang et al. DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems. KDD 2021.
@@ -58,15 +58,8 @@ class CrossNetV2(nn.Module):
     def __init__(self, input_dim: int, num_layers: int):
         super().__init__()
         self.num_layers = num_layers
-        self.w = torch.nn.ModuleList(
-            [
-                torch.nn.Linear(input_dim, input_dim, bias=False)
-                for _ in range(num_layers)
-            ]
-        )
-        self.b = torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)]
-        )
+        self.w = torch.nn.ModuleList([torch.nn.Linear(input_dim, input_dim, bias=False) for _ in range(num_layers)])
+        self.b = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x0 = x
@@ -91,40 +84,26 @@ class CrossNetMix(nn.Module):
 
         self.u_list = nn.ParameterList(
             [
-                nn.Parameter(
-                    nn.init.xavier_normal_(
-                        torch.empty(num_experts, input_dim, low_rank)
-                    )
-                )
+                nn.Parameter(nn.init.xavier_normal_(torch.empty(num_experts, input_dim, low_rank)))
                 for _ in range(num_layers)
             ]
         )
         self.v_list = nn.ParameterList(
             [
-                nn.Parameter(
-                    nn.init.xavier_normal_(
-                        torch.empty(num_experts, input_dim, low_rank)
-                    )
-                )
+                nn.Parameter(nn.init.xavier_normal_(torch.empty(num_experts, input_dim, low_rank)))
                 for _ in range(num_layers)
             ]
         )
         self.c_list = nn.ParameterList(
             [
-                nn.Parameter(
-                    nn.init.xavier_normal_(torch.empty(num_experts, low_rank, low_rank))
-                )
+                nn.Parameter(nn.init.xavier_normal_(torch.empty(num_experts, low_rank, low_rank)))
                 for _ in range(num_layers)
             ]
         )
 
-        self.gating = nn.ModuleList(
-            [nn.Linear(input_dim, 1, bias=False) for _ in range(num_experts)]
-        )
+        self.gating = nn.ModuleList([nn.Linear(input_dim, 1, bias=False) for _ in range(num_experts)])
 
-        self.bias = nn.ParameterList(
-            [nn.Parameter(torch.zeros(input_dim, 1)) for _ in range(num_layers)]
-        )
+        self.bias = nn.ParameterList([nn.Parameter(torch.zeros(input_dim, 1)) for _ in range(num_layers)])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (bs, in_features)
@@ -139,9 +118,7 @@ class CrossNetMix(nn.Module):
 
             for expert_id in range(self.num_experts):
                 # Gating
-                gating_score_experts.append(
-                    self.gating[expert_id](gating_input)
-                )  # (bs, 1)
+                gating_score_experts.append(self.gating[expert_id](gating_input))  # (bs, 1)
 
                 # Low-rank cross: U C V^T x_l
                 V = self.v_list[i][expert_id]  # (in_features, low_rank)
@@ -162,17 +139,11 @@ class CrossNetMix(nn.Module):
                 output_of_experts.append(dot_.squeeze(2))  # (bs, in_features)
 
             # (3) Mixture of experts
-            output_of_experts = torch.stack(
-                output_of_experts, dim=2
-            )  # (bs, in_features, num_experts)
-            gating_score_experts = torch.stack(
-                gating_score_experts, dim=1
-            )  # (bs, num_experts, 1)
+            output_of_experts = torch.stack(output_of_experts, dim=2)  # (bs, in_features, num_experts)
+            gating_score_experts = torch.stack(gating_score_experts, dim=1)  # (bs, num_experts, 1)
             gating_score_experts = gating_score_experts.softmax(dim=1)
 
-            moe_out = torch.matmul(
-                output_of_experts, gating_score_experts
-            )  # (bs, in_features, 1)
+            moe_out = torch.matmul(output_of_experts, gating_score_experts)  # (bs, in_features, 1)
             x_l = moe_out + x_l  # residual
 
         return x_l.squeeze(-1)  # (bs, in_features)
@@ -241,14 +212,10 @@ class DCNv2(BaseModel):
             dnn_params.setdefault("output_dim", None)
             self.mlp = MLP(input_dim=input_dim, **dnn_params)
             deep_dim = self.mlp.output_dim
-            final_input_dim = (
-                input_dim + deep_dim if architecture == "parallel" else deep_dim
-            )
+            final_input_dim = input_dim + deep_dim if architecture == "parallel" else deep_dim
         else:
             if architecture == "stacked":
-                raise ValueError(
-                    "Stacked architecture requires mlp_params (deep tower)."
-                )
+                raise ValueError("Stacked architecture requires mlp_params (deep tower).")
             self.use_dnn = False
             self.mlp = None
             final_input_dim = input_dim

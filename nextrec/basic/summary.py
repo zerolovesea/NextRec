@@ -2,7 +2,7 @@
 Summary utilities for BaseModel.
 
 Date: create on 03/12/2025
-Checkpoint: edit on 29/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -75,9 +75,7 @@ class SummarySet:
 
         return summary or None
 
-    def build_data_summary(
-        self, data: Any, data_loader: DataLoader | None, sample_key: str
-    ):
+    def build_data_summary(self, data: Any, data_loader: DataLoader | None, sample_key: str):
 
         dataset = data_loader.dataset if data_loader is not None else None
 
@@ -135,9 +133,7 @@ class SummarySet:
                         "p75": np.nanpercentile(values, 75),
                         "max": np.nanmax(values),
                     }
-                    stat_text = ", ".join(
-                        f"{key}={value:.6g}" for key, value in stats.items()
-                    )
+                    stat_text = ", ".join(f"{key}={value:.6g}" for key, value in stats.items())
                     label_distributions[target_name] = {
                         "task": task_type,
                         "lines": [("stats", stat_text)],
@@ -151,9 +147,9 @@ class SummarySet:
                     for label_value, count in zip(uniques, counts):
                         if isinstance(label_value, (int, np.integer)):
                             label_str = f"{int(label_value)}"
-                        elif isinstance(
-                            label_value, (float, np.floating)
-                        ) and np.isclose(label_value, int(label_value)):
+                        elif isinstance(label_value, (float, np.floating)) and np.isclose(
+                            label_value, int(label_value)
+                        ):
                             label_str = f"{int(label_value)}"
                         else:
                             label_str = f"{label_value}"
@@ -169,18 +165,14 @@ class SummarySet:
 
         return summary or None
 
-    def build_train_data_summary(
-        self, train_data: Any, train_loader: DataLoader | None
-    ):
+    def build_train_data_summary(self, train_data: Any, train_loader: DataLoader | None):
         return self.build_data_summary(
             data=train_data,
             data_loader=train_loader,
             sample_key="train_samples",
         )
 
-    def build_valid_data_summary(
-        self, valid_data: Any, valid_loader: DataLoader | None
-    ):
+    def build_valid_data_summary(self, valid_data: Any, valid_loader: DataLoader | None):
         return self.build_data_summary(
             data=valid_data,
             data_loader=valid_loader,
@@ -233,34 +225,24 @@ class SummarySet:
             if self.dense_features:
                 logger.info(f"Dense Features ({len(self.dense_features)}):")
                 for i, feat in enumerate(self.dense_features, 1):
-                    embed_dim = (
-                        feat.embedding_dim if hasattr(feat, "embedding_dim") else 1
-                    )
+                    embed_dim = feat.embedding_dim if hasattr(feat, "embedding_dim") else 1
                     logger.info(f"  {i}. {feat.name:20s}")
 
             if self.sparse_features:
                 logger.info(f"\nSparse Features ({len(self.sparse_features)}):")
 
                 max_name_len = max(len(feat.name) for feat in self.sparse_features)
-                max_embed_name_len = max(
-                    len(feat.embedding_name) for feat in self.sparse_features
-                )
+                max_embed_name_len = max(len(feat.embedding_name) for feat in self.sparse_features)
                 name_width = max(max_name_len, 10) + 2
                 embed_name_width = max(max_embed_name_len, 15) + 2
 
                 logger.info(
                     f"  {'#':<4} {'Name':<{name_width}} {'Vocab Size':>12} {'Embed Name':>{embed_name_width}} {'Embed Dim':>10}"
                 )
-                logger.info(
-                    f"  {'-'*4} {'-'*name_width} {'-'*12} {'-'*embed_name_width} {'-'*10}"
-                )
+                logger.info(f"  {'-'*4} {'-'*name_width} {'-'*12} {'-'*embed_name_width} {'-'*10}")
                 for i, feat in enumerate(self.sparse_features, 1):
-                    vocab_size = (
-                        feat.vocab_size if hasattr(feat, "vocab_size") else "N/A"
-                    )
-                    embed_dim = (
-                        feat.embedding_dim if hasattr(feat, "embedding_dim") else "N/A"
-                    )
+                    vocab_size = feat.vocab_size if hasattr(feat, "vocab_size") else "N/A"
+                    embed_dim = feat.embedding_dim if hasattr(feat, "embedding_dim") else "N/A"
                     logger.info(
                         f"  {i:<4} {feat.name:<{name_width}} {str(vocab_size):>12} {feat.embedding_name:>{embed_name_width}} {str(embed_dim):>10}"
                     )
@@ -269,25 +251,17 @@ class SummarySet:
                 logger.info(f"\nSequence Features ({len(self.sequence_features)}):")
 
                 max_name_len = max(len(feat.name) for feat in self.sequence_features)
-                max_embed_name_len = max(
-                    len(feat.embedding_name) for feat in self.sequence_features
-                )
+                max_embed_name_len = max(len(feat.embedding_name) for feat in self.sequence_features)
                 name_width = max(max_name_len, 10) + 2
                 embed_name_width = max(max_embed_name_len, 15) + 2
 
                 logger.info(
                     f"  {'#':<4} {'Name':<{name_width}} {'Vocab Size':>12} {'Embed Name':>{embed_name_width}} {'Embed Dim':>10} {'Max Len':>10}"
                 )
-                logger.info(
-                    f"  {'-'*4} {'-'*name_width} {'-'*12} {'-'*embed_name_width} {'-'*10} {'-'*10}"
-                )
+                logger.info(f"  {'-'*4} {'-'*name_width} {'-'*12} {'-'*embed_name_width} {'-'*10} {'-'*10}")
                 for i, feat in enumerate(self.sequence_features, 1):
-                    vocab_size = (
-                        feat.vocab_size if hasattr(feat, "vocab_size") else "N/A"
-                    )
-                    embed_dim = (
-                        feat.embedding_dim if hasattr(feat, "embedding_dim") else "N/A"
-                    )
+                    vocab_size = feat.vocab_size if hasattr(feat, "vocab_size") else "N/A"
+                    embed_dim = feat.embedding_dim if hasattr(feat, "embedding_dim") else "N/A"
                     max_len = feat.max_len if hasattr(feat, "max_len") else "N/A"
                     logger.info(
                         f"  {i:<4} {feat.name:<{name_width}} {str(vocab_size):>12} {feat.embedding_name:>{embed_name_width}} {str(embed_dim):>10} {str(max_len):>10}"
@@ -304,9 +278,7 @@ class SummarySet:
             logger.info("")
 
             total_params = sum(p.numel() for p in self.parameters())
-            trainable_params = sum(
-                p.numel() for p in self.parameters() if p.requires_grad
-            )
+            trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
             non_trainable_params = total_params - trainable_params
 
             logger.info(f"Total Parameters:        {total_params:,}")
@@ -348,9 +320,7 @@ class SummarySet:
             loss_params_summary: list[str] = []
             loss_fn = getattr(self, "loss_fn", None)
             if loss_fn is not None:
-                loss_modules = (
-                    list(loss_fn) if isinstance(loss_fn, (list, tuple)) else [loss_fn]
-                )
+                loss_modules = list(loss_fn) if isinstance(loss_fn, (list, tuple)) else [loss_fn]
                 loss_config = getattr(self, "loss_config", None)
                 if isinstance(loss_config, list):
                     loss_names = loss_config
@@ -369,9 +339,7 @@ class SummarySet:
 
                 for idx, loss_module in enumerate(loss_modules):
                     params: dict[str, Any] = {}
-                    explicit = (
-                        explicit_params[idx] if idx < len(explicit_params) else None
-                    )
+                    explicit = explicit_params[idx] if idx < len(explicit_params) else None
                     if explicit:
                         params.update(explicit)
                     try:
@@ -387,10 +355,7 @@ class SummarySet:
                                 if callable(value):
                                     continue
                                 params.setdefault(name, value)
-                            elif (
-                                param.default is not inspect._empty
-                                and param.default is not None
-                            ):
+                            elif param.default is not inspect._empty and param.default is not None:
                                 params.setdefault(name, param.default)
                     if not params:
                         continue
@@ -435,9 +400,7 @@ class SummarySet:
             logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")
             logger.info(f"  Note:                  {self.note}")
 
-        if "Data Summary" in selected_sections and (
-            self.train_data_summary or self.valid_data_summary
-        ):
+        if "Data Summary" in selected_sections and (self.train_data_summary or self.valid_data_summary):
             logger.info("")
             logger.info(colorize("Data Summary", color="cyan", bold=True))
             logger.info(colorize("-" * 80, color="cyan"))
@@ -474,6 +437,4 @@ class SummarySet:
                     ):
                         if key in dataloader_info:
                             field_label = key.replace("_", " ").title()
-                            logger.info(
-                                format_kv(field_label, dataloader_info[key], indent=2)
-                            )
+                            logger.info(format_kv(field_label, dataloader_info[key], indent=2))

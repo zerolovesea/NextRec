@@ -63,9 +63,7 @@ from nextrec.data.batch_utils import batch_to_dict
 from nextrec.utils.console import progress
 
 
-def kmeans(
-    data: torch.Tensor, n_clusters: int, kmeans_iters: int
-) -> tuple[torch.Tensor, torch.Tensor]:
+def kmeans(data: torch.Tensor, n_clusters: int, kmeans_iters: int) -> tuple[torch.Tensor, torch.Tensor]:
 
     km = KMeans(n_clusters=n_clusters, max_iter=kmeans_iters, n_init="auto")
 
@@ -80,9 +78,7 @@ class BalancedKmeans(nn.Module):
     Ensures clusters have approximately equal number of samples.
     """
 
-    def __init__(
-        self, num_clusters: int, kmeans_iters: int, tolerance: float, device: str
-    ):
+    def __init__(self, num_clusters: int, kmeans_iters: int, tolerance: float, device: str):
         super().__init__()
         self.num_clusters = num_clusters
         self.kmeans_iters = kmeans_iters
@@ -92,17 +88,13 @@ class BalancedKmeans(nn.Module):
 
     def compute_distances(self, data: torch.Tensor) -> torch.Tensor:
         if self.codebook is None:
-            raise RuntimeError(
-                "Codebook is not initialized before computing distances."
-            )
+            raise RuntimeError("Codebook is not initialized before computing distances.")
         return torch.cdist(data, self.codebook)
 
     def assign_clusters(self, dist: torch.Tensor) -> torch.Tensor:
         samples_cnt = dist.shape[0]
         samples_labels = torch.empty(samples_cnt, dtype=torch.long, device=self.device)
-        clusters_cnt = torch.zeros(
-            self.num_clusters, dtype=torch.long, device=self.device
-        )
+        clusters_cnt = torch.zeros(self.num_clusters, dtype=torch.long, device=self.device)
 
         max_per_cluster = math.ceil(samples_cnt / self.num_clusters)
 
@@ -125,9 +117,7 @@ class BalancedKmeans(nn.Module):
 
         return samples_labels
 
-    def update_codebook(
-        self, data: torch.Tensor, samples_labels: torch.Tensor
-    ) -> torch.Tensor:
+    def update_codebook(self, data: torch.Tensor, samples_labels: torch.Tensor) -> torch.Tensor:
         new_codebook = []
         for i in range(self.num_clusters):
             cluster_data = data[samples_labels == i]
@@ -184,9 +174,7 @@ class RQEncoder(nn.Module):
         in_dim = input_dim
 
         for out_dim in hidden_dims:
-            stage = nn.Sequential(
-                nn.Linear(in_dim, out_dim), nn.BatchNorm1d(out_dim), nn.ReLU()
-            )
+            stage = nn.Sequential(nn.Linear(in_dim, out_dim), nn.BatchNorm1d(out_dim), nn.ReLU())
             self.stages.append(stage)
             in_dim = out_dim
 
@@ -208,9 +196,7 @@ class RQDecoder(nn.Module):
         in_dim = latent_dim
 
         for out_dim in hidden_dims:
-            stage = nn.Sequential(
-                nn.Linear(in_dim, out_dim), nn.BatchNorm1d(out_dim), nn.ReLU()
-            )
+            stage = nn.Sequential(nn.Linear(in_dim, out_dim), nn.BatchNorm1d(out_dim), nn.ReLU())
             self.stages.append(stage)
             in_dim = out_dim
 
@@ -430,9 +416,7 @@ class RQ(nn.Module):
             vq = self.vq(i)  # get VQ module for current level
             q, ids = vq(r_in)  # q: quantized embedding, ids: semantic IDs
 
-            q_st = (
-                r_in + (q - r_in).detach()
-            )  # **IMPORTANT** straight-through estimator, stop grad on r_in side
+            q_st = r_in + (q - r_in).detach()  # **IMPORTANT** straight-through estimator, stop grad on r_in side
             z_q = z_q + q_st  # accumulate quantized embeddings
             r = r - q_st  # update residual
 
@@ -448,9 +432,7 @@ class RQ(nn.Module):
         # semantic_ids: [N, num_codebooks] discrete codebook indices
         return zq_list, r_in_list, q_list, semantic_ids
 
-    def rqvae_loss(
-        self, r_in_list: list[torch.Tensor], q_list: list[torch.Tensor]
-    ) -> torch.Tensor:
+    def rqvae_loss(self, r_in_list: list[torch.Tensor], q_list: list[torch.Tensor]) -> torch.Tensor:
         losses = []
         for r_in, q in zip(r_in_list, q_list):
             # codebook loss: move codebook towards encoder output (stop grad on encoder side)
@@ -463,9 +445,7 @@ class RQ(nn.Module):
 
         return torch.stack(losses).sum()
 
-    def forward(
-        self, data: torch.Tensor
-    ) -> tuple[list[torch.Tensor], torch.Tensor, torch.Tensor]:
+    def forward(self, data: torch.Tensor) -> tuple[list[torch.Tensor], torch.Tensor, torch.Tensor]:
 
         zq_list, r_in_list, q_list, semantic_ids = self.quantize(data)
         rq_loss = self.rqvae_loss(r_in_list, q_list)
@@ -519,9 +499,7 @@ class RQVAE(BaseModel):
         )
 
         self.encoder = RQEncoder(input_dim, hidden_dims, latent_dim).to(self.device)
-        self.decoder = RQDecoder(latent_dim, hidden_dims[::-1], input_dim).to(
-            self.device
-        )
+        self.decoder = RQDecoder(latent_dim, hidden_dims[::-1], input_dim).to(self.device)
         self.rq = RQ(
             num_codebooks,
             codebook_size,
@@ -580,9 +558,7 @@ class RQVAE(BaseModel):
         X_input, _ = self.get_input(batch_dict, require_labels=False)
 
         if not self.all_features:
-            raise ValueError(
-                "[RQVAE] dense_features are required to use fit/predict helpers."
-            )
+            raise ValueError("[RQVAE] dense_features are required to use fit/predict helpers.")
         tensors: list[torch.Tensor] = []
         for name in self.feature_names:
             if name not in X_input:
@@ -594,9 +570,7 @@ class RQVAE(BaseModel):
             raise ValueError("[RQVAE] No feature tensors found in batch.")
         init_embedding = tensors[0] if len(tensors) == 1 else torch.cat(tensors, dim=-1)
         if init_embedding.shape[-1] != self.input_dim:
-            raise ValueError(
-                f"[RQVAE] Input dim mismatch: expected {self.input_dim}, got {init_embedding.shape[-1]}."
-            )
+            raise ValueError(f"[RQVAE] Input dim mismatch: expected {self.input_dim}, got {init_embedding.shape[-1]}.")
 
         return init_embedding
 

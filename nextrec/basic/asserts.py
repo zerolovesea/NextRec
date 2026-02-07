@@ -2,7 +2,7 @@
 Assert function definitions for NextRec models.
 
 Date: create on 01/01/2026
-Checkpoint: edit on 01/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -31,9 +31,7 @@ def assert_task(
 
     # case 2: task is list
     if not isinstance(task, list):
-        raise TypeError(
-            f"{model_name} requires task to be a string or a list of strings."
-        )
+        raise TypeError(f"{model_name} requires task to be a string or a list of strings.")
 
     # list but length == 1
     if len(task) == 1:
@@ -46,6 +44,4 @@ def assert_task(
 
     # multi-task: length must match nums_task
     if len(task) != nums_task:
-        raise ValueError(
-            f"{model_name} requires task length {nums_task}, got {len(task)}."
-        )
+        raise ValueError(f"{model_name} requires task length {nums_task}, got {len(task)}.")

@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Chang J, Zhang C, Hui Y, Leng D, Niu Y, Song Y, Gai K. PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information. In: Proceedings of the 29th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’23), 2023.
@@ -101,9 +101,7 @@ class PPNet(nn.Module):
 
         if isinstance(mlp_params["activation"], list):
             if len(mlp_params["activation"]) != len(hidden_units):
-                raise ValueError(
-                    "hidden_activations length must match hidden_units length."
-                )
+                raise ValueError("hidden_activations length must match hidden_units length.")
             activation_list = mlp_params["activation"]
         else:
             activation_list = [mlp_params["activation"]] * len(hidden_units)
@@ -113,9 +111,7 @@ class PPNet(nn.Module):
 
         layer_units = [input_dim] + hidden_units
         for idx in range(len(layer_units) - 1):
-            dense_layers: list[nn.Module] = [
-                nn.Linear(layer_units[idx], layer_units[idx + 1], bias=use_bias)
-            ]
+            dense_layers: list[nn.Module] = [nn.Linear(layer_units[idx], layer_units[idx + 1], bias=use_bias)]
             if norm_type == "batch_norm":
                 dense_layers.append(nn.BatchNorm1d(layer_units[idx + 1]))
             dense_layers.append(activation_layer(activation_list[idx]))
@@ -246,15 +242,9 @@ class PEPNet(BaseModel):
         if not self.scene_feature_names:
             raise ValueError("PepNet requires at least one scene feature name.")
 
-        self.domain_features = select_features(
-            self.all_features, self.scene_feature_names, "domain_features"
-        )
-        self.user_features = select_features(
-            self.all_features, self.user_feature_names, "user_features"
-        )
-        self.item_features = select_features(
-            self.all_features, self.item_feature_names, "item_features"
-        )
+        self.domain_features = select_features(self.all_features, self.scene_feature_names, "domain_features")
+        self.user_features = select_features(self.all_features, self.user_feature_names, "user_features")
+        self.item_features = select_features(self.all_features, self.item_feature_names, "item_features")
 
         if not self.all_features:
             raise ValueError("PepNet requires at least one input feature.")
@@ -262,16 +252,8 @@ class PEPNet(BaseModel):
         self.embedding = EmbeddingLayer(features=self.all_features)
         input_dim = self.embedding.get_input_dim(self.all_features)
         domain_dim = self.embedding.get_input_dim(self.domain_features)
-        user_dim = (
-            self.embedding.get_input_dim(self.user_features)
-            if self.user_features
-            else 0
-        )
-        item_dim = (
-            self.embedding.get_input_dim(self.item_features)
-            if self.item_features
-            else 0
-        )
+        user_dim = self.embedding.get_input_dim(self.user_features) if self.user_features else 0
+        item_dim = self.embedding.get_input_dim(self.item_features) if self.item_features else 0
         task_dim = domain_dim + user_dim + item_dim
 
         # EPNet: shared feature-level gate (paper's EPNet).
@@ -300,33 +282,19 @@ class PEPNet(BaseModel):
             ]
         )
 
-        self.prediction_layer = TaskHead(
-            task_type=self.task, task_dims=[1] * self.nums_task
-        )
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         self.grad_norm_shared_modules = ["embedding", "epnet"]
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["epnet", "ppnet_blocks"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["epnet", "ppnet_blocks"])
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         dnn_input = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
-        domain_emb = self.embedding(
-            x=x, features=self.domain_features, squeeze_dim=True
-        ).detach()
+        domain_emb = self.embedding(x=x, features=self.domain_features, squeeze_dim=True).detach()
 
         task_parts = [domain_emb]
         if self.user_features:
-            task_parts.append(
-                self.embedding(
-                    x=x, features=self.user_features, squeeze_dim=True
-                ).detach()
-            )
+            task_parts.append(self.embedding(x=x, features=self.user_features, squeeze_dim=True).detach())
         if self.item_features:
-            task_parts.append(
-                self.embedding(
-                    x=x, features=self.item_features, squeeze_dim=True
-                ).detach()
-            )
+            task_parts.append(self.embedding(x=x, features=self.item_features, squeeze_dim=True).detach())
         task_sf_emb = torch.cat(task_parts, dim=-1)
 
         gate_input = torch.cat([dnn_input.detach(), domain_emb], dim=-1)

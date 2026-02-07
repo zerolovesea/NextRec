@@ -2,7 +2,7 @@
 Embedding utilities for NextRec
 
 Date: create on 13/11/2025
-Checkpoint: edit on 06/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -21,9 +21,7 @@ def get_auto_embedding_dim(num_classes: int) -> int:
 
 
 # encode multi-modal item contents into dense embeddings
-def encode_multimodel_content(
-    texts: list[str], model_name: str, device: str, batch_size: int = 32
-) -> torch.Tensor:
+def encode_multimodel_content(texts: list[str], model_name: str, device: str, batch_size: int = 32) -> torch.Tensor:
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     encoder = AutoModel.from_pretrained(model_name).to(device)
     encoder.eval()

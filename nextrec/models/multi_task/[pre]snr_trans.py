@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026 - prerelease version: still need to align with the source paper
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Ma J, Zhao Z, Chen J, Li A, Hong L, Chi EH. SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space. Proceedings of the 33rd AAAI Conference on Artificial Intelligence (AAAI 2019), 2019, pp. 216-223.
@@ -55,22 +55,14 @@ class SNRTransGate(nn.Module):
 
     def forward(self, inputs: list[torch.Tensor]) -> list[torch.Tensor]:
         if len(inputs) != self.num_inputs:
-            raise ValueError(
-                f"SNRTransGate expects {self.num_inputs} inputs, got {len(inputs)}"
-            )
+            raise ValueError(f"SNRTransGate expects {self.num_inputs} inputs, got {len(inputs)}")
 
-        s = torch.sigmoid(
-            torch.log(self.u)
-            - torch.log(1 - self.u)
-            + torch.log(self.alpha) / self.beta
-        )
+        s = torch.sigmoid(torch.log(self.u) - torch.log(1 - self.u) + torch.log(self.alpha) / self.beta)
         s_ = s * (self.epsilon - self.gamma) + self.gamma
         z = torch.clamp(s_, min=0.0, max=1.0)
 
         x_stack = torch.stack(inputs, dim=1)  # [B, num_inputs, units]
-        transformed = torch.einsum(
-            "bnu,onuv->bonv", x_stack, self.trans_matrix
-        )  # [B, num_outputs, num_inputs, units]
+        transformed = torch.einsum("bnu,onuv->bonv", x_stack, self.trans_matrix)  # [B, num_outputs, num_inputs, units]
         weighted = transformed * z.unsqueeze(0).unsqueeze(-1)
         outputs = weighted.sum(dim=2)  # [B, num_outputs, units]
         return [outputs[:, i, :] for i in range(self.num_outputs)]
@@ -173,11 +165,7 @@ class SNRTrans(BaseModel):
                 ]
             )
             self.expert_layers.append(layer_experts)
-            output_dim = (
-                self.nums_task
-                if idx == len(expert_hidden_dims) - 1
-                else self.num_experts
-            )
+            output_dim = self.nums_task if idx == len(expert_hidden_dims) - 1 else self.num_experts
             self.gates.append(
                 SNRTransGate(
                     num_inputs=self.num_experts,
@@ -188,14 +176,9 @@ class SNRTrans(BaseModel):
             prev_dim = hidden_dim
 
         self.towers = nn.ModuleList(
-            [
-                MLP(input_dim=expert_hidden_dims[-1], output_dim=1, **params)
-                for params in tower_params
-            ]
+            [MLP(input_dim=expert_hidden_dims[-1], output_dim=1, **params) for params in tower_params]
         )
-        self.prediction_layer = TaskHead(
-            task_type=self.task, task_dims=[1] * self.nums_task
-        )
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         self.grad_norm_shared_modules = ["embedding", "expert_layers", "gates"]
         self.register_regularization_weights(
             embedding_attr="embedding",
@@ -206,9 +189,7 @@ class SNRTrans(BaseModel):
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
 
         gate_outputs: list[torch.Tensor] | None = None
-        for layer_idx, (layer_experts, gate) in enumerate(
-            zip(self.expert_layers, self.gates)
-        ):
+        for layer_idx, (layer_experts, gate) in enumerate(zip(self.expert_layers, self.gates)):
             expert_outputs = []
             if layer_idx == 0:
                 expert_inputs = [input_flat] * self.num_experts

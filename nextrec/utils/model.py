@@ -2,7 +2,7 @@
 Model-related utilities for NextRec
 
 Date: create on 03/12/2025
-Checkpoint: edit on 31/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -47,8 +47,7 @@ def select_features(
     missing = [name for name in names if name not in feature_map]
     if missing:
         raise ValueError(
-            f"{param_name} contains unknown feature names {missing}. "
-            f"Available features: {list(feature_map)}"
+            f"{param_name} contains unknown feature names {missing}. " f"Available features: {list(feature_map)}"
         )
 
     return [feature_map[name] for name in names]
@@ -89,9 +88,7 @@ def get_loss_list(
     return loss_list
 
 
-def prepare_ranking_targets(
-    y_pred: torch.Tensor, y_true: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+def prepare_ranking_targets(y_pred: torch.Tensor, y_true: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     if y_pred.dim() == 1:
         y_pred = y_pred.view(-1, 1)
     if y_true.dim() == 1:
@@ -101,29 +98,19 @@ def prepare_ranking_targets(
     return y_pred, y_true
 
 
-def split_pos_neg_scores(
-    scores: torch.Tensor, labels: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+def split_pos_neg_scores(scores: torch.Tensor, labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     if scores.dim() != 2 or labels.dim() != 2:
-        raise ValueError(
-            "[Ranking Error] pairwise/listwise training requires 2D scores and labels."
-        )
+        raise ValueError("[Ranking Error] pairwise/listwise training requires 2D scores and labels.")
     list_size = scores.size(1)
     if list_size < 2:
-        raise ValueError(
-            "[Ranking Error] pairwise/listwise training requires list_size >= 2."
-        )
+        raise ValueError("[Ranking Error] pairwise/listwise training requires list_size >= 2.")
     pos_mask = labels > 0
     pos_counts = pos_mask.sum(dim=1)
     neg_counts = list_size - pos_counts
     if not torch.all(pos_counts == 1).item():
-        raise ValueError(
-            "[Ranking Error] pairwise/listwise with pos/neg split requires exactly one positive per row."
-        )
+        raise ValueError("[Ranking Error] pairwise/listwise with pos/neg split requires exactly one positive per row.")
     if not torch.all(neg_counts == list_size - 1).item():
-        raise ValueError(
-            "[Ranking Error] pairwise/listwise with pos/neg split requires at least one negative per row."
-        )
+        raise ValueError("[Ranking Error] pairwise/listwise with pos/neg split requires at least one negative per row.")
     pos_scores = scores[pos_mask].view(-1)
     neg_scores = scores[~pos_mask].view(scores.size(0), list_size - 1)
     return pos_scores, neg_scores
@@ -141,9 +128,7 @@ def compute_ranking_loss(
         if isinstance(loss_fn, (BPRLoss, HingeLoss, SampledSoftmaxLoss)):
             loss = loss_fn(pos_scores, neg_scores)
         elif isinstance(loss_fn, TripletLoss):
-            raise ValueError(
-                "[Ranking Error] TripletLoss expects embeddings, not scalar scores."
-            )
+            raise ValueError("[Ranking Error] TripletLoss expects embeddings, not scalar scores.")
         else:
             loss = loss_fn(pos_scores, neg_scores)
     elif training_mode == "listwise":

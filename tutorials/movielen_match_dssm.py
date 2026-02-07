@@ -109,7 +109,7 @@ for col in user_dense_cols:
 
 print("fit transform will cost some time...")
 # 在数据上拟合并转换(编码和归一化)
-df = processor.fit_transform(df, return_dict=False)
+df = processor.fit_transform(df, return_dict=False).to_pandas()
 
 print("\nTransformed head:")
 print(df.head())
@@ -137,9 +137,7 @@ df_train_all = df[df["user_id"].isin(train_users)].reset_index(drop=True)
 df_valid_all = df[df["user_id"].isin(valid_users)].reset_index(drop=True)
 
 print(f"\nTrain users: {len(train_users)}, Valid users: {len(valid_users)}")
-print(
-    f"Train interactions: {len(df_train_all)}, Valid interactions: {len(df_valid_all)}"
-)
+print(f"Train interactions: {len(df_train_all)}, Valid interactions: {len(df_valid_all)}")
 
 # Pairwise 训练模式仅使用正样本(in-batch negative sampling)
 train_df = df_train_all[df_train_all["label"] == 1].reset_index(drop=True)
@@ -150,9 +148,7 @@ print(f"Train positives for contrastive learning: {len(train_df)}")
 # ==============================================================================
 
 # 定义用户特征列和物品特征列
-user_feature_cols = (
-    ["user_id"] + [c for c in user_sparse_cols if c != "user_id"] + user_dense_cols
-)
+user_feature_cols = ["user_id"] + [c for c in user_sparse_cols if c != "user_id"] + user_dense_cols
 item_feature_cols = ["item_id"] + [c for c in item_sparse_cols if c != "item_id"]
 
 # 提取唯一的用户特征和物品特征
@@ -190,9 +186,7 @@ user_sparse_features = [
     if col != "user_id"
 ]
 # user_id 使用较大的 embedding 维度(32)
-user_sparse_features.append(
-    SparseFeature("user_id", vocab_size=int(df["user_id"].max()) + 1, embedding_dim=32)
-)
+user_sparse_features.append(SparseFeature("user_id", vocab_size=int(df["user_id"].max()) + 1, embedding_dim=32))
 
 # 定义物品稀疏特征
 # 除 item_id 外使用较小的 embedding 维度(4)
@@ -202,9 +196,7 @@ item_sparse_features = [
     if col != "item_id"
 ]
 # item_id 使用较大的 embedding 维度(32)
-item_sparse_features.append(
-    SparseFeature("item_id", vocab_size=int(df["item_id"].max()) + 1, embedding_dim=32)
-)
+item_sparse_features.append(SparseFeature("item_id", vocab_size=int(df["item_id"].max()) + 1, embedding_dim=32))
 
 # ==============================================================================
 # 7. 模型构建
