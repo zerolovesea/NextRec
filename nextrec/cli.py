@@ -631,7 +631,7 @@ def predict_model(predict_config_path: str) -> None:
     # Set default thread limits for various libraries to avoid oversubscription.
     # in case multiple users are sharing the same machine and running multiple processes in parallel.
     # feel bad for my shitbox, jeje
-    if streaming and num_processes > 1 and num_workers_cfg != 0:
+    if streaming and num_processes > 1:
         _THREAD_DEFAULTS = {
             "OMP_NUM_THREADS": "1",
             "MKL_NUM_THREADS": "1",
