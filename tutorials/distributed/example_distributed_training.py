@@ -94,17 +94,15 @@ def main():
     # 2. 生成合成数据
     # ==============================================================================
 
-    df, dense_features, sparse_features, sequence_features = (
-        generate_distributed_ranking_data(
-            num_samples=100000,  # 样本总数
-            num_users=10000,  # 用户数量
-            num_items=5000,  # 物品数量
-            num_categories=20,  # 类别数量
-            num_cities=100,  # 城市数量
-            max_seq_len=50,  # 序列最大长度
-            embedding_dim=32,  # embedding 维度
-            seed=42,  # 随机种子
-        )
+    df, dense_features, sparse_features, sequence_features = generate_distributed_ranking_data(
+        num_samples=100000,  # 样本总数
+        num_users=10000,  # 用户数量
+        num_items=5000,  # 物品数量
+        num_categories=20,  # 类别数量
+        num_cities=100,  # 城市数量
+        max_seq_len=50,  # 序列最大长度
+        embedding_dim=32,  # embedding 维度
+        seed=42,  # 随机种子
     )
 
     # ==============================================================================
@@ -213,9 +211,7 @@ def main():
         # predict() 不使用分布式操作,可以只在 rank 0 调用
         print("Prediction Example")
         sample_df = valid_df.head(10)
-        predictions = model.predict(
-            data=sample_df, batch_size=10, return_dataframe=True
-        )
+        predictions = model.predict(data=sample_df, batch_size=10, return_dataframe=True)
         print(predictions)
 
     # ==============================================================================

@@ -1,6 +1,6 @@
 """
 Date: create on 19/12/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Juan Y, Zhuang Y, Chin W-S, et al. Field-aware Factorization Machines for CTR Prediction[C]//RecSys. 2016: 43-50.
@@ -82,15 +82,11 @@ class FFM(BaseModel):
 
         self.fm_features = sparse_features + sequence_features
         if len(self.fm_features) < 2:
-            raise ValueError(
-                "FFM requires at least two sparse/sequence features to build field-aware interactions."
-            )
+            raise ValueError("FFM requires at least two sparse/sequence features to build field-aware interactions.")
 
         self.embedding_dim = self.fm_features[0].embedding_dim
         if any(f.embedding_dim != self.embedding_dim for f in self.fm_features):
-            raise ValueError(
-                "All FFM features must share the same embedding_dim for field-aware interactions."
-            )
+            raise ValueError("All FFM features must share the same embedding_dim for field-aware interactions.")
         for feature in self.fm_features:
             if isinstance(feature, SequenceFeature) and feature.combiner == "concat":
                 raise ValueError(
@@ -120,37 +116,25 @@ class FFM(BaseModel):
         # Optional dense linear term
         self.dense_features = list(dense_features)
         dense_input_dim = sum([f.input_dim for f in self.dense_features])
-        self.linear_dense = (
-            nn.Linear(dense_input_dim, 1, bias=True) if dense_input_dim > 0 else None
-        )
+        self.linear_dense = nn.Linear(dense_input_dim, 1, bias=True) if dense_input_dim > 0 else None
 
         self.prediction_layer = TaskHead(task_type=self.task)
         self.input_mask = InputMask()
         self.mean_pool = AveragePooling()
         self.sum_pool = SumPooling()
 
-        self.embedding_params.extend(
-            emb.weight for emb in self.field_aware_embeddings.values()
-        )
-        self.embedding_params.extend(
-            emb.weight for emb in self.first_order_embeddings.values()
-        )
-        self.register_regularization_weights(
-            embedding_attr="field_aware_embeddings", include_modules=["linear_dense"]
-        )
+        self.embedding_params.extend(emb.weight for emb in self.field_aware_embeddings.values())
+        self.embedding_params.extend(emb.weight for emb in self.first_order_embeddings.values())
+        self.register_regularization_weights(embedding_attr="field_aware_embeddings", include_modules=["linear_dense"])
 
-    def field_aware_key(
-        self, src_feature: SparseFeature | SequenceFeature, target_field
-    ) -> str:
+    def field_aware_key(self, src_feature: SparseFeature | SequenceFeature, target_field) -> str:
         return f"{src_feature.embedding_name}__to__{target_field.name}"
 
     def build_embedding(self, feature: SparseFeature | SequenceFeature) -> nn.Embedding:
         if feature.pretrained_weight is not None:
             weight = feature.pretrained_weight
             if weight is None:
-                raise ValueError(
-                    f"[FFM Error]: Pretrained weight for '{feature.embedding_name}' is None."
-                )
+                raise ValueError(f"[FFM Error]: Pretrained weight for '{feature.embedding_name}' is None.")
             if weight.shape != (feature.vocab_size, feature.embedding_dim):
                 raise ValueError(
                     f"[FFM Error]: Pretrained weight for '{feature.embedding_name}' has shape {weight.shape}, expected ({feature.vocab_size}, {feature.embedding_dim})."
@@ -160,9 +144,7 @@ class FFM(BaseModel):
                 freeze=feature.freeze_pretrained,
                 padding_idx=feature.padding_idx,
             )
-            embedding.weight.requires_grad = (
-                feature.trainable and not feature.freeze_pretrained
-            )
+            embedding.weight.requires_grad = feature.trainable and not feature.freeze_pretrained
         else:
             embedding = nn.Embedding(
                 num_embeddings=feature.vocab_size,
@@ -209,9 +191,7 @@ class FFM(BaseModel):
 
         # First-order dense part
         if self.linear_dense is not None:
-            dense_inputs = [
-                x[f.name].float().view(batch_size, -1) for f in self.dense_features
-            ]
+            dense_inputs = [x[f.name].float().view(batch_size, -1) for f in self.dense_features]
             dense_stack = torch.cat(dense_inputs, dim=1) if dense_inputs else None
             if dense_stack is not None:
                 y_linear = y_linear + self.linear_dense(dense_stack)
@@ -231,9 +211,7 @@ class FFM(BaseModel):
                 term = (seq_weight * mask).sum(dim=1, keepdim=True)  # [B, 1]
             first_order_terms.append(term)
         if first_order_terms:
-            y_linear = y_linear + torch.sum(
-                torch.stack(first_order_terms, dim=1), dim=1
-            )
+            y_linear = y_linear + torch.sum(torch.stack(first_order_terms, dim=1), dim=1)
 
         # Field-aware interactions
         y_interaction = torch.zeros(batch_size, 1, device=device)
@@ -244,9 +222,7 @@ class FFM(BaseModel):
                 feature_j = self.fm_features[j]
                 v_i_fj = self.embed_for_field(feature_i, feature_j, x)
                 v_j_fi = self.embed_for_field(feature_j, feature_i, x)
-                y_interaction = y_interaction + torch.sum(
-                    v_i_fj * v_j_fi, dim=1, keepdim=True
-                )
+                y_interaction = y_interaction + torch.sum(v_i_fj * v_j_fi, dim=1, keepdim=True)
 
         y = y_linear + y_interaction
         return self.prediction_layer(y)

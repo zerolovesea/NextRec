@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Ma X, Zhao L, Huang G, Wang Z, Hu Z, Zhu X, Gai K. Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate. In: Proceedings of the 41st International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR ’18), 2018, pp. 1137–1140.
@@ -84,9 +84,7 @@ class ESMM(BaseModel):
         target = target or ["ctr", "ctcvr"]
 
         if len(target) != 2:
-            raise ValueError(
-                f"ESMM requires exactly 2 targets (ctr and ctcvr), got {len(target)}"
-            )
+            raise ValueError(f"ESMM requires exactly 2 targets (ctr and ctcvr), got {len(target)}")
 
         self.nums_task = len(target)
 
@@ -110,9 +108,7 @@ class ESMM(BaseModel):
         self.grad_norm_shared_modules = ["embedding"]
         self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1, 1])
         # Register regularization weights
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["ctr_tower", "cvr_tower"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["ctr_tower", "cvr_tower"])
 
     def forward(self, x):
         # Get all embeddings and flatten

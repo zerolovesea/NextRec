@@ -51,9 +51,7 @@ class TestRelativePositionBucket:
 
         num_buckets = 32
         rel_pos = torch.tensor([[-50, -100, -200]])
-        buckets = relative_position_bucket(
-            rel_pos, num_buckets=num_buckets, max_distance=128
-        )
+        buckets = relative_position_bucket(rel_pos, num_buckets=num_buckets, max_distance=128)
 
         # Large distances should be in [16, 31] range
         assert torch.all(buckets >= 16)
@@ -162,9 +160,7 @@ class TestHSTUPointwiseAttention:
         num_heads = 8
         seq_len = 20
 
-        attn = HSTUPointwiseAttention(hidden_dim=hidden_dim, num_heads=num_heads).to(
-            device
-        )
+        attn = HSTUPointwiseAttention(hidden_dim=hidden_dim, num_heads=num_heads).to(device)
         x = torch.randn(batch_size, seq_len, hidden_dim).to(device)
 
         output = attn(x)
@@ -183,23 +179,17 @@ class TestHSTUPointwiseAttention:
         num_heads = 8
         seq_len = 20
 
-        attn = HSTUPointwiseAttention(hidden_dim=hidden_dim, num_heads=num_heads).to(
-            device
-        )
+        attn = HSTUPointwiseAttention(hidden_dim=hidden_dim, num_heads=num_heads).to(device)
         x = torch.randn(batch_size, seq_len, hidden_dim).to(device)
 
         # Create causal mask
-        attention_mask = torch.triu(
-            torch.full((seq_len, seq_len), float("-inf"), device=device), diagonal=1
-        )
+        attention_mask = torch.triu(torch.full((seq_len, seq_len), float("-inf"), device=device), diagonal=1)
 
         # Create padding mask (last 5 tokens are padding)
         key_padding_mask = torch.zeros(batch_size, seq_len, dtype=torch.bool).to(device)
         key_padding_mask[:, -5:] = True
 
-        output = attn(
-            x, attention_mask=attention_mask, key_padding_mask=key_padding_mask
-        )
+        output = attn(x, attention_mask=attention_mask, key_padding_mask=key_padding_mask)
 
         assert output.shape == (batch_size, seq_len, hidden_dim)
         assert_no_nan_or_inf(output, "Masked attention output")
@@ -215,9 +205,7 @@ class TestHSTUPointwiseAttention:
         num_heads = 8
         seq_len = 20
 
-        attn = HSTUPointwiseAttention(hidden_dim=hidden_dim, num_heads=num_heads).to(
-            device
-        )
+        attn = HSTUPointwiseAttention(hidden_dim=hidden_dim, num_heads=num_heads).to(device)
         x = torch.randn(batch_size, seq_len, hidden_dim).to(device)
 
         # Create RAB
@@ -287,9 +275,7 @@ class TestHSTULayer:
         num_heads = 8
         seq_len = 20
 
-        layer = HSTULayer(hidden_dim=hidden_dim, num_heads=num_heads, dropout=0.0).to(
-            device
-        )
+        layer = HSTULayer(hidden_dim=hidden_dim, num_heads=num_heads, dropout=0.0).to(device)
         x = torch.randn(batch_size, seq_len, hidden_dim).to(device)
 
         output = layer(x)

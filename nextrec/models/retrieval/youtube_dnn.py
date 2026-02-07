@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 18/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Covington P, Adams J, Sargin E. Deep neural networks for youtube recommendations[C] //Proceedings of the 10th ACM conference on recommender systems. 2016: 191-198.
@@ -129,22 +129,14 @@ class YoutubeDNN(BaseMatchModel):
 
             self.item_dnn = MLP(input_dim=item_input_dim, **item_mlp_params)
 
-        self.register_regularization_weights(
-            embedding_attr="user_embedding", include_modules=["user_dnn"]
-        )
-        self.register_regularization_weights(
-            embedding_attr="item_embedding", include_modules=["item_dnn"]
-        )
+        self.register_regularization_weights(embedding_attr="user_embedding", include_modules=["user_dnn"])
+        self.register_regularization_weights(embedding_attr="item_embedding", include_modules=["item_dnn"])
 
     def user_tower(self, user_input: dict) -> torch.Tensor:
         """
         User tower to encode historical behavior sequences and user features.
         """
-        all_user_features = (
-            self.user_dense_features
-            + self.user_sparse_features
-            + self.user_sequence_features
-        )
+        all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
         user_emb = self.user_embedding(user_input, all_user_features, squeeze_dim=True)
         user_emb = self.user_dnn(user_emb)
 
@@ -155,11 +147,7 @@ class YoutubeDNN(BaseMatchModel):
 
     def item_tower(self, item_input: dict) -> torch.Tensor:
         """Item tower"""
-        all_item_features = (
-            self.item_dense_features
-            + self.item_sparse_features
-            + self.item_sequence_features
-        )
+        all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
         item_emb = self.item_embedding(item_input, all_item_features, squeeze_dim=True)
         item_emb = self.item_dnn(item_emb)
 

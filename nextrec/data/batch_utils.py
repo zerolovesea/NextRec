@@ -2,6 +2,7 @@
 Batch collation utilities for NextRec
 
 Date: create on 03/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -31,11 +32,7 @@ def stack_section(batch: list[dict], section: Literal["features", "labels", "ids
         return None
     merged: dict = {}
     for name in entries[0]:  # type: ignore
-        tensors = [
-            item[section][name]
-            for item in batch
-            if item.get(section) is not None and name in item[section]
-        ]
+        tensors = [item[section][name] for item in batch if item.get(section) is not None and name in item[section]]
         tensor_sample = tensors[0]
         if isinstance(tensor_sample, torch.Tensor):
             merged[name] = torch.stack(tensors, dim=0)

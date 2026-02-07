@@ -4,7 +4,7 @@ Data utilities for NextRec.
 This module provides file I/O helpers and synthetic data generation.
 
 Date: create on 19/12/2025
-Checkpoint: edit on 29/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -41,9 +41,7 @@ def resolve_file_paths(path: str) -> tuple[list[str], str]:
         else:
             file_format = None
         if file_format is None:
-            raise ValueError(
-                f"Unsupported file extension: {path_obj.suffix}. Supported formats: csv, parquet."
-            )
+            raise ValueError(f"Unsupported file extension: {path_obj.suffix}. Supported formats: csv, parquet.")
         return [str(path_obj)], file_format
 
     if path_obj.is_dir():
@@ -69,9 +67,7 @@ def resolve_file_paths(path: str) -> tuple[list[str], str]:
             )
 
         if not format_groups:
-            raise ValueError(
-                f"No supported data files found in directory: {path}. Supported formats: csv, parquet."
-            )
+            raise ValueError(f"No supported data files found in directory: {path}. Supported formats: csv, parquet.")
 
         file_type = list(format_groups.keys())[0]
         file_paths = format_groups[file_type]
@@ -89,9 +85,7 @@ def read_table(path: str | Path, data_format: str | None = None) -> pd.DataFrame
     elif data_path.is_dir():
         _, fmt = resolve_file_paths(str(data_path))
     else:
-        raise ValueError(
-            f"Cannot determine format for {data_path}. Please specify data_format parameter."
-        )
+        raise ValueError(f"Cannot determine format for {data_path}. Please specify data_format parameter.")
 
     if data_path.is_dir():
         file_paths, _ = resolve_file_paths(str(data_path))
@@ -156,18 +150,12 @@ def iter_file_chunks(
         use_shards = max(int(shard_count), 1) > 1
         if use_shards:
             shard_rank = int(shard_rank) % int(shard_count)
-            row_groups = [
-                idx
-                for idx in range(parquet_file.num_row_groups)
-                if (idx % int(shard_count)) == shard_rank
-            ]
+            row_groups = [idx for idx in range(parquet_file.num_row_groups) if (idx % int(shard_count)) == shard_rank]
             if not row_groups:
                 return
         else:
             row_groups = None
-        batch_iter = iter(
-            parquet_file.iter_batches(batch_size=chunk_size, row_groups=row_groups)
-        )
+        batch_iter = iter(parquet_file.iter_batches(batch_size=chunk_size, row_groups=row_groups))
         while True:
             start = time.perf_counter()
             try:
@@ -177,6 +165,42 @@ def iter_file_chunks(
             if profiler is not None:
                 profiler.add("data_read", time.perf_counter() - start)
             yield pl.from_arrow(batch)
+
+
+def count_rows(
+    path: str | Path,
+    data_format: str | None = None,
+) -> int | None:
+
+    data_path = Path(path)
+    if data_format and data_format != "auto":
+        fmt = data_format
+    else:
+        _, fmt = resolve_file_paths(str(data_path))
+
+    if data_path.is_dir():
+        file_paths, _ = resolve_file_paths(str(data_path))
+    else:
+        file_paths = [str(data_path)]
+
+    if fmt == "parquet":
+        total = 0
+        for file_path in file_paths:
+            parquet_file = pq.ParquetFile(file_path)
+            metadata = parquet_file.metadata
+            if metadata is None:
+                return None
+            total += int(metadata.num_rows)
+        return total
+
+    if fmt == "csv":
+        total = 0
+        for file_path in file_paths:
+            df = pl.scan_csv(file_path).select(pl.len()).collect()
+            total += int(df.item(0, 0))
+        return total
+
+    return None
 
 
 def read_yaml(path: str | Path):
@@ -286,9 +310,7 @@ def generate_ranking_data(
 
     # Create feature definitions
     # Use input_dim for dense features to be compatible with both simple and complex scenarios
-    dense_features = [
-        DenseFeature(name=f"dense_{i}", input_dim=1) for i in range(n_dense)
-    ]
+    dense_features = [DenseFeature(name=f"dense_{i}", input_dim=1) for i in range(n_dense)]
 
     # Create sparse features
     sparse_features = [
@@ -337,11 +359,7 @@ def generate_ranking_data(
         if i == 0:
             # First sequence shares embedding with item_id
             embedding_name = "item_emb"
-        elif (
-            custom_sparse_features
-            and "category" in custom_sparse_features
-            and seq_name == "hist_categories"
-        ):
+        elif custom_sparse_features and "category" in custom_sparse_features and seq_name == "hist_categories":
             # hist_categories shares embedding with category
             embedding_name = "category_emb"
         else:
@@ -393,9 +411,7 @@ def generate_match_data(
     data["user_city"] = np.random.randint(0, city_vocab_size, n_samples)
 
     for i in range(3):
-        data[f"user_feature_{i}"] = np.random.randint(
-            1, user_feature_vocab_size, n_samples
-        )
+        data[f"user_feature_{i}"] = np.random.randint(1, user_feature_vocab_size, n_samples)
 
     # User behavior sequences
     user_hist_items = []
@@ -420,9 +436,7 @@ def generate_match_data(
     data["item_brand"] = np.random.randint(1, brand_vocab_size, n_samples)
 
     for i in range(3):
-        data[f"item_feature_{i}"] = np.random.randint(
-            1, item_feature_vocab_size, n_samples
-        )
+        data[f"item_feature_{i}"] = np.random.randint(1, item_feature_vocab_size, n_samples)
 
     # Generate labels with some correlation to features
     label_probs = 1 / (
@@ -450,9 +464,7 @@ def generate_match_data(
 
     # User sparse features
     user_sparse_features = [
-        SparseFeature(
-            name="user_id", vocab_size=user_vocab_size, embedding_dim=user_embedding_dim
-        ),
+        SparseFeature(name="user_id", vocab_size=user_vocab_size, embedding_dim=user_embedding_dim),
         SparseFeature(name="user_gender", vocab_size=2, embedding_dim=8),
         SparseFeature(name="user_city", vocab_size=city_vocab_size, embedding_dim=16),
     ]
@@ -490,12 +502,8 @@ def generate_match_data(
 
     # Item sparse features
     item_sparse_features = [
-        SparseFeature(
-            name="item_id", vocab_size=item_vocab_size, embedding_dim=item_embedding_dim
-        ),
-        SparseFeature(
-            name="item_category", vocab_size=category_vocab_size, embedding_dim=16
-        ),
+        SparseFeature(name="item_id", vocab_size=item_vocab_size, embedding_dim=item_embedding_dim),
+        SparseFeature(name="item_category", vocab_size=category_vocab_size, embedding_dim=16),
         SparseFeature(name="item_brand", vocab_size=brand_vocab_size, embedding_dim=16),
     ]
     item_sparse_features.extend(
@@ -607,18 +615,14 @@ def generate_multitask_data(
     print(f"Click rate: {data['click'].mean():.4f}")
     print(f"Conversion rate (overall): {data['conversion'].mean():.4f}")
     if data["click"].sum() > 0:
-        print(
-            f"Conversion rate (given click): {data['conversion'][data['click'] == 1].mean():.4f}"
-        )
+        print(f"Conversion rate (given click): {data['conversion'][data['click'] == 1].mean():.4f}")
     print(f"CTCVR rate: {data['ctcvr'].mean():.4f}")
 
     # Import here to avoid circular import
     from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 
     # Create feature definitions
-    dense_features = [
-        DenseFeature(name=f"dense_{i}", input_dim=1) for i in range(n_dense)
-    ]
+    dense_features = [DenseFeature(name=f"dense_{i}", input_dim=1) for i in range(n_dense)]
 
     # Create sparse features
     sparse_features = [

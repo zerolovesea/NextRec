@@ -21,9 +21,7 @@ class _DummyModel(BaseModel):
 def test_register_regularization_weights_supports_nn_embedding_and_dedup():
     model = _DummyModel(device="cpu")
 
-    model.register_regularization_weights(
-        embedding_attr="token_embedding", include_modules=["mlp"]
-    )
+    model.register_regularization_weights(embedding_attr="token_embedding", include_modules=["mlp"])
 
     assert any(
         param is model.token_embedding.weight for param in model.embedding_params
@@ -33,9 +31,7 @@ def test_register_regularization_weights_supports_nn_embedding_and_dedup():
     assert any(param is model.mlp[0].weight for param in model.regularization_weights)
     assert any(param is model.mlp[2].weight for param in model.regularization_weights)
 
-    model.register_regularization_weights(
-        embedding_attr="token_embedding", include_modules=["mlp"]
-    )
+    model.register_regularization_weights(embedding_attr="token_embedding", include_modules=["mlp"])
 
     assert len(model.embedding_params) == 1
     assert len(model.regularization_weights) == 2

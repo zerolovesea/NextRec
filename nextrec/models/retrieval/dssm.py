@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 18/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Huang P S, He X, Gao J, et al. Learning deep structured semantic models for web search using clickthrough data[C] //Proceedings of the 22nd ACM international conference on Information & Knowledge Management. 2013: 2333-2338.
@@ -132,12 +132,8 @@ class DSSM(BaseMatchModel):
             # Item MLP
             self.item_dnn = MLP(input_dim=item_input_dim, **item_mlp_params)
 
-        self.register_regularization_weights(
-            embedding_attr="user_embedding", include_modules=["user_dnn"]
-        )
-        self.register_regularization_weights(
-            embedding_attr="item_embedding", include_modules=["item_dnn"]
-        )
+        self.register_regularization_weights(embedding_attr="user_embedding", include_modules=["user_dnn"])
+        self.register_regularization_weights(embedding_attr="item_embedding", include_modules=["item_dnn"])
 
     def user_tower(self, user_input: dict) -> torch.Tensor:
         """
@@ -149,11 +145,7 @@ class DSSM(BaseMatchModel):
         Returns:
             user_emb: [batch_size, embedding_dim]
         """
-        all_user_features = (
-            self.user_dense_features
-            + self.user_sparse_features
-            + self.user_sequence_features
-        )
+        all_user_features = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
         user_emb = self.user_embedding(user_input, all_user_features, squeeze_dim=True)
 
         user_emb = self.user_dnn(user_emb)
@@ -174,11 +166,7 @@ class DSSM(BaseMatchModel):
         Returns:
             item_emb: [batch_size, embedding_dim] or [batch_size, num_items, embedding_dim]
         """
-        all_item_features = (
-            self.item_dense_features
-            + self.item_sparse_features
-            + self.item_sequence_features
-        )
+        all_item_features = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
         item_emb = self.item_embedding(item_input, all_item_features, squeeze_dim=True)
 
         item_emb = self.item_dnn(item_emb)

@@ -159,9 +159,7 @@ class TestFM:
         logger.info("=" * 80)
 
         # Simple case with 2 fields
-        x = torch.tensor(
-            [[[1.0, 2.0], [3.0, 4.0]]]  # batch_size=1, num_fields=2, embedding_dim=2
-        )
+        x = torch.tensor([[[1.0, 2.0], [3.0, 4.0]]])  # batch_size=1, num_fields=2, embedding_dim=2
 
         fm = FM()
         output = fm(x)
@@ -407,9 +405,7 @@ class TestEmbeddingLayer:
 
         assert output.shape == (batch_size, 1, 16)
         assert not torch.isnan(output).any()
-        assert "sequence_poolings.history_dot.query" in dict(
-            embedding_layer.named_parameters()
-        )
+        assert "sequence_poolings.history_dot.query" in dict(embedding_layer.named_parameters())
 
         logger.info("EmbeddingLayer dot_attention test successful")
 
@@ -438,9 +434,7 @@ class TestEmbeddingLayer:
 
         assert output.shape == (batch_size, 1, 16)
         assert not torch.isnan(output).any()
-        assert "sequence_poolings.history_self.mha.in_proj_weight" in dict(
-            embedding_layer.named_parameters()
-        )
+        assert "sequence_poolings.history_self.mha.in_proj_weight" in dict(embedding_layer.named_parameters())
 
         logger.info("EmbeddingLayer self_attention test successful")
 
@@ -454,9 +448,7 @@ class TestMultiHeadSelfAttention:
         logger.info("Testing MultiHeadSelfAttention initialization")
         logger.info("=" * 80)
 
-        attention = MultiHeadSelfAttention(
-            embedding_dim=64, num_heads=4, dropout=0.1, use_residual=True
-        )
+        attention = MultiHeadSelfAttention(embedding_dim=64, num_heads=4, dropout=0.1, use_residual=True)
 
         assert attention is not None
 
@@ -472,9 +464,7 @@ class TestMultiHeadSelfAttention:
         seq_len = 10
         embedding_dim = 64
 
-        attention = MultiHeadSelfAttention(
-            embedding_dim=embedding_dim, num_heads=4, dropout=0.0, use_residual=True
-        )
+        attention = MultiHeadSelfAttention(embedding_dim=embedding_dim, num_heads=4, dropout=0.0, use_residual=True)
 
         # Input: [batch_size, seq_len, embedding_dim]
         x = torch.randn(batch_size, seq_len, embedding_dim)
@@ -493,9 +483,7 @@ class TestMultiHeadSelfAttention:
         logger.info("=" * 80)
 
         embedding_dim = 64
-        attention = MultiHeadSelfAttention(
-            embedding_dim=embedding_dim, num_heads=num_heads, dropout=0.0
-        )
+        attention = MultiHeadSelfAttention(embedding_dim=embedding_dim, num_heads=num_heads, dropout=0.0)
 
         x = torch.randn(16, 10, embedding_dim)
         output = attention(x)
@@ -514,9 +502,7 @@ class TestMultiHeadSelfAttention:
         seq_len = 12
         embedding_dim = 64
 
-        attention = MultiHeadSelfAttention(
-            embedding_dim=embedding_dim, num_heads=4, dropout=0.0, use_residual=True
-        )
+        attention = MultiHeadSelfAttention(embedding_dim=embedding_dim, num_heads=4, dropout=0.0, use_residual=True)
 
         x = torch.randn(batch_size, seq_len, embedding_dim)
         # Create a mask: first 8 positions are valid, rest are padding
@@ -568,9 +554,7 @@ class TestMultiHeadSelfAttention:
         seq_len = 10
         embedding_dim = 64
 
-        attention = MultiHeadSelfAttention(
-            embedding_dim=embedding_dim, num_heads=4, dropout=0.0, use_residual=False
-        )
+        attention = MultiHeadSelfAttention(embedding_dim=embedding_dim, num_heads=4, dropout=0.0, use_residual=False)
 
         x = torch.randn(batch_size, seq_len, embedding_dim)
 
@@ -689,9 +673,7 @@ class TestPredictionLayer:
 
     def test_prediction_layer_return_logits(self):
         """PredictionLayer can be configured to skip final activation"""
-        pred_layer = PredictionLayer(
-            task_type="binary", return_logits=True, use_bias=False
-        )
+        pred_layer = PredictionLayer(task_type="binary", return_logits=True, use_bias=False)
 
         x = torch.randn(10, 1)
         output = pred_layer(x)

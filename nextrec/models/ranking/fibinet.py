@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Huang T, Zhang Z, Zhang B, et al. FiBiNET: Combining feature importance and bilinear feature interaction for click-through rate prediction[C]//RecSys. 2019: 169-177.
@@ -72,12 +72,8 @@ class FiBiNET(BaseModel):
         target: str | list[str] | None = None,
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
-        interaction_combo: Literal[
-            "01", "11", "10", "00"
-        ] = "11",  # "0": Hadamard, "1": Bilinear
-        bilinear_type: Literal[
-            "field_all", "field_each", "field_interaction"
-        ] = "field_interaction",
+        interaction_combo: Literal["01", "11", "10", "00"] = "11",  # "0": Hadamard, "1": Bilinear
+        bilinear_type: Literal["field_all", "field_each", "field_interaction"] = "field_interaction",
         senet_reduction: int = 3,
         **kwargs,
     ):
@@ -100,32 +96,22 @@ class FiBiNET(BaseModel):
         self.interaction_features = sparse_features + sequence_features
 
         if len(self.interaction_features) < 2:
-            raise ValueError(
-                "FiBiNET requires at least two sparse/sequence features for interactions."
-            )
+            raise ValueError("FiBiNET requires at least two sparse/sequence features for interactions.")
 
         self.embedding = EmbeddingLayer(features=self.all_features)
 
         self.num_fields = len(self.interaction_features)
         self.embedding_dim = self.interaction_features[0].embedding_dim
-        if any(
-            f.embedding_dim != self.embedding_dim for f in self.interaction_features
-        ):
-            raise ValueError(
-                "All interaction features must share the same embedding_dim in FiBiNET."
-            )
+        if any(f.embedding_dim != self.embedding_dim for f in self.interaction_features):
+            raise ValueError("All interaction features must share the same embedding_dim in FiBiNET.")
 
-        self.senet = SENETLayer(
-            num_fields=self.num_fields, reduction_ratio=senet_reduction
-        )
+        self.senet = SENETLayer(num_fields=self.num_fields, reduction_ratio=senet_reduction)
 
         self.interaction_combo = interaction_combo
 
         # E interaction layers: original embeddings
         if interaction_combo[0] == "0":  # Hadamard
-            self.interaction_E = HadamardInteractionLayer(
-                num_fields=self.num_fields
-            )  # [B, num_pairs, D]
+            self.interaction_E = HadamardInteractionLayer(num_fields=self.num_fields)  # [B, num_pairs, D]
         elif interaction_combo[0] == "1":  # Bilinear
             self.interaction_E = BiLinearInteractionLayer(
                 input_dim=self.embedding_dim,
@@ -168,23 +154,17 @@ class FiBiNET(BaseModel):
         )
 
     def forward(self, x):
-        input_linear = self.embedding(
-            x=x, features=self.linear_features, squeeze_dim=True
-        )
+        input_linear = self.embedding(x=x, features=self.linear_features, squeeze_dim=True)
         y_linear = self.linear(input_linear)
 
-        field_emb = self.embedding(
-            x=x, features=self.interaction_features, squeeze_dim=False
-        )
+        field_emb = self.embedding(x=x, features=self.interaction_features, squeeze_dim=False)
         senet_emb = self.senet(field_emb)
 
         out_E = self.interaction_E(field_emb)  # [B, num_pairs, D]
 
         out_V = self.interaction_V(senet_emb)  # [B, num_pairs, D]
 
-        deep_input = torch.cat(
-            [out_E.flatten(start_dim=1), out_V.flatten(start_dim=1)], dim=1
-        )
+        deep_input = torch.cat([out_E.flatten(start_dim=1), out_V.flatten(start_dim=1)], dim=1)
 
         y_deep = self.mlp(deep_input)
 

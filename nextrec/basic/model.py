@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 01/02/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -51,7 +51,13 @@ from nextrec.basic.features import (
 )
 from nextrec.basic.heads import RetrievalHead
 from nextrec.basic.loggers import TrainingLogger, colorize, format_kv, setup_logger
-from nextrec.basic.metrics import check_user_id, configure_metrics, evaluate_metrics
+from nextrec.basic.metrics import (
+    check_user_id,
+    compute_confusion_matrix,
+    configure_metrics,
+    evaluate_metrics,
+    resolve_thresholds,
+)
 from nextrec.basic.summary import SummarySet
 from nextrec.basic.session import create_session, get_save_path
 from nextrec.data.batch_utils import batch_to_dict, collate_fn
@@ -69,7 +75,7 @@ from nextrec.loss.listwise import InfoNCELoss, SampledSoftmaxLoss
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.utils.loss import get_loss_fn
 from nextrec.loss.grad_norm import get_grad_norm_shared_params
-from nextrec.utils.console import display_metrics_table, progress
+from nextrec.utils.console import display_metrics_table, progress, render_confusion_block
 from nextrec.utils.timing import StageTimer
 from nextrec.utils.torch_utils import (
     add_distributed_sampler,
@@ -186,15 +192,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.checkpoint_path = os.path.join(
             self.session_path, self.model_name.upper() + "_checkpoint.pt"
         )  # e.g., pwd/session_id/DeepFM_checkpoint.pt
-        self.best_path = os.path.join(
-            self.session_path, self.model_name.upper() + "_best.pt"
-        )
-        self.features_config_path = os.path.join(
-            self.session_path, "features_config.pkl"
-        )
-        self.set_all_features(
-            dense_features, sparse_features, sequence_features, target, id_columns
-        )
+        self.best_path = os.path.join(self.session_path, self.model_name.upper() + "_best.pt")
+        self.features_config_path = os.path.join(self.session_path, "features_config.pkl")
+        self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
         self.task = cast(TaskTypeName | list[TaskTypeName], task or self.default_task)
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
@@ -244,11 +244,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         embedding_layer = getattr(self, embedding_attr, None)
         embed_dict = getattr(embedding_layer, "embed_dict", None)
         if embed_dict is not None:
-            embedding_params = [
-                embed.weight
-                for embed in embed_dict.values()
-                if hasattr(embed, "weight")
-            ]
+            embedding_params = [embed.weight for embed in embed_dict.values() if hasattr(embed, "weight")]
         else:
             weight = getattr(embedding_layer, "weight", None)
             embedding_params = [weight] if isinstance(weight, torch.Tensor) else []
@@ -269,11 +265,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         )
         existing_reg_ids = {id(param) for param in self.regularization_weights}
         for name, module in self.named_modules():
-            if (
-                module is self
-                or embedding_attr in name
-                or isinstance(module, skip_types)
-            ):
+            if module is self or embedding_attr in name or isinstance(module, skip_types):
                 continue
             if include_modules and not any(inc in name for inc in include_modules):
                 continue
@@ -291,22 +283,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         reg_loss = torch.tensor(0.0, device=self.device)
 
         if self.embedding_l1_reg > 0:
-            reg_loss += self.embedding_l1_reg * sum(
-                param.abs().sum() for param in self.embedding_params
-            )
+            reg_loss += self.embedding_l1_reg * sum(param.abs().sum() for param in self.embedding_params)
         if self.embedding_l2_reg > 0:
-            reg_loss += self.embedding_l2_reg * sum(
-                (param**2).sum() for param in self.embedding_params
-            )
+            reg_loss += self.embedding_l2_reg * sum((param**2).sum() for param in self.embedding_params)
 
         if self.dense_l1_reg > 0:
-            reg_loss += self.dense_l1_reg * sum(
-                param.abs().sum() for param in self.regularization_weights
-            )
+            reg_loss += self.dense_l1_reg * sum(param.abs().sum() for param in self.regularization_weights)
         if self.dense_l2_reg > 0:
-            reg_loss += self.dense_l2_reg * sum(
-                (param**2).sum() for param in self.regularization_weights
-            )
+            reg_loss += self.dense_l2_reg * sum((param**2).sum() for param in self.regularization_weights)
         return reg_loss
 
     # todo: support build pairwise/listwise label in input
@@ -330,25 +314,17 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         X_input = {}
         for feature in self.all_features:
             if feature.name not in feature_source:
-                raise KeyError(
-                    f"[BaseModel-input Error] Feature '{feature.name}' not found in input data."
-                )
+                raise KeyError(f"[BaseModel-input Error] Feature '{feature.name}' not found in input data.")
             feature_data = get_column_data(feature_source, feature.name)
             X_input[feature.name] = to_tensor(
                 feature_data,
-                dtype=(
-                    torch.float32 if isinstance(feature, DenseFeature) else torch.long
-                ),
+                dtype=(torch.float32 if isinstance(feature, DenseFeature) else torch.long),
                 device=self.device,
             )
         y = None
         # if need labels: training or eval with labels
         if len(self.target_columns) > 0 and (
-            require_labels
-            or (
-                label_source
-                and any(name in label_source for name in self.target_columns)
-            )
+            require_labels or (label_source and any(name in label_source for name in self.target_columns))
         ):
             target_tensors = []
             for target_name in self.target_columns:
@@ -361,13 +337,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 target_data = get_column_data(label_source, target_name)
                 if target_data is None:
                     if require_labels:
-                        raise ValueError(
-                            f"[BaseModel-input Error] Target column '{target_name}' contains no data."
-                        )
+                        raise ValueError(f"[BaseModel-input Error] Target column '{target_name}' contains no data.")
                     continue
-                target_tensor = to_tensor(
-                    target_data, dtype=torch.float32, device=self.device
-                )
+                target_tensor = to_tensor(target_data, dtype=torch.float32, device=self.device)
                 target_tensor = target_tensor.reshape(
                     target_tensor.size(0), -1
                 )  # always reshape to (batch_size, num_targets)
@@ -377,9 +349,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 if y.shape[1] == 1:  # no need to do that again
                     y = y.reshape(-1)
             elif require_labels:
-                raise ValueError(
-                    "[BaseModel-input Error] Labels are required but none were found in the input batch."
-                )
+                raise ValueError("[BaseModel-input Error] Labels are required but none were found in the input batch.")
         return X_input, y
 
     def handle_valid_split(
@@ -400,9 +370,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             valid_split_data: Validation data dict/dataframe split from training data.
         """
         if not (0 < valid_split < 1):
-            raise ValueError(
-                f"[BaseModel-validation Error] valid_split must be between 0 and 1, got {valid_split}"
-            )
+            raise ValueError(f"[BaseModel-validation Error] valid_split must be between 0 and 1, got {valid_split}")
         if isinstance(train_data, pd.DataFrame):
             total_length = len(train_data)
         elif isinstance(train_data, dict):
@@ -426,21 +394,15 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             train_split_data = train_data.iloc[train_indices].reset_index(drop=True)
             valid_split_data = train_data.iloc[valid_indices].reset_index(drop=True)
         else:
-            train_split_data = {
-                k: np.asarray(v)[train_indices] for k, v in train_data.items()
-            }
-            valid_split_data = {
-                k: np.asarray(v)[valid_indices] for k, v in train_data.items()
-            }
+            train_split_data = {k: np.asarray(v)[train_indices] for k, v in train_data.items()}
+            valid_split_data = {k: np.asarray(v)[valid_indices] for k, v in train_data.items()}
         train_loader = self.prepare_data_loader(
             train_split_data,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
         )
-        logging.info(
-            f"Split data: {len(train_indices)} training samples, {len(valid_indices)} validation samples"
-        )
+        logging.info(f"Split data: {len(train_indices)} training samples, {len(valid_indices)} validation samples")
         return train_loader, valid_split_data
 
     def compile(
@@ -483,9 +445,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.optimizer_params = optimizer_params or {}
         self.scheduler_params = scheduler_params or {}
 
-        self.optimizer_name = (
-            optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
-        )
+        self.optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
         self.optimizer_fn = get_optimizer(
             optimizer=optimizer,
             params=self.parameters(),
@@ -498,45 +458,27 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             self.scheduler_name = scheduler
         else:
             self.scheduler_name = getattr(scheduler, "__name__", scheduler.__class__.__name__)  # type: ignore
-        self.scheduler_fn = (
-            get_scheduler(scheduler, self.optimizer_fn, **self.scheduler_params)
-            if scheduler
-            else None
-        )
+        self.scheduler_fn = get_scheduler(scheduler, self.optimizer_fn, **self.scheduler_params) if scheduler else None
 
         self.loss_config = loss_list if self.nums_task > 1 else loss_list[0]
         if isinstance(self.loss_params, dict):
             loss_params_list = [self.loss_params] * self.nums_task
         else:
-            loss_params_list = [
-                self.loss_params[i] if i < len(self.loss_params) else {}
-                for i in range(self.nums_task)
-            ]
-        self.loss_fn = [
-            get_loss_fn(loss=loss_list[i], **loss_params_list[i])
-            for i in range(self.nums_task)
-        ]
+            loss_params_list = [self.loss_params[i] if i < len(self.loss_params) else {} for i in range(self.nums_task)]
+        self.loss_fn = [get_loss_fn(loss=loss_list[i], **loss_params_list[i]) for i in range(self.nums_task)]
 
         # loss weighting (grad norm or fixed weights)
         self.grad_norm = None
         self.grad_norm_shared_params = None
         is_grad_norm = (
-            loss_weights == "grad_norm"
-            or isinstance(loss_weights, dict)
-            and loss_weights.get("method") == "grad_norm"
+            loss_weights == "grad_norm" or isinstance(loss_weights, dict) and loss_weights.get("method") == "grad_norm"
         )
         if is_grad_norm:
             if self.nums_task == 1:
-                raise ValueError(
-                    "[BaseModel-compile Error] GradNorm requires multi-task setup."
-                )
-            grad_norm_params = (
-                dict(loss_weights) if isinstance(loss_weights, dict) else {}
-            )
+                raise ValueError("[BaseModel-compile Error] GradNorm requires multi-task setup.")
+            grad_norm_params = dict(loss_weights) if isinstance(loss_weights, dict) else {}
             grad_norm_params.pop("method", None)
-            self.grad_norm = GradNormLossWeighting(
-                nums_task=self.nums_task, device=self.device, **grad_norm_params
-            )
+            self.grad_norm = GradNormLossWeighting(nums_task=self.nums_task, device=self.device, **grad_norm_params)
             self.loss_weights = None
         elif loss_weights is None:
             self.loss_weights = None
@@ -568,9 +510,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         Compute the loss between predictions and ground truth labels, with loss weighting and ignore_label handling
         """
         if y_true is None:
-            raise ValueError(
-                "[BaseModel-compute_loss Error] Ground truth labels (y_true) are required."
-            )
+            raise ValueError("[BaseModel-compute_loss Error] Ground truth labels (y_true) are required.")
 
         # single-task
         if self.nums_task == 1:
@@ -595,9 +535,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
             mode = self.training_modes[0]
 
-            task_dim = (
-                self.task_dims[0] if hasattr(self, "task_dims") else y_pred.shape[1]  # type: ignore
-            )
+            task_dim = self.task_dims[0] if hasattr(self, "task_dims") else y_pred.shape[1]  # type: ignore
             if mode in {"pairwise", "listwise"}:
                 loss = compute_ranking_loss(
                     training_mode=mode,
@@ -655,14 +593,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 self.grad_norm_shared_params = get_grad_norm_shared_params(
                     self, getattr(self, "grad_norm_shared_modules", None)
                 )
-            return self.grad_norm.compute_weighted_loss(
-                task_losses, self.grad_norm_shared_params
-            )
+            return self.grad_norm.compute_weighted_loss(task_losses, self.grad_norm_shared_params)
         if isinstance(self.loss_weights, (list, tuple)):
-            task_losses = [
-                task_loss * self.loss_weights[i]
-                for i, task_loss in enumerate(task_losses)
-            ]
+            task_losses = [task_loss * self.loss_weights[i] for i, task_loss in enumerate(task_losses)]
         return torch.stack(task_losses).sum()
 
     def prepare_data_loader(
@@ -699,9 +632,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             id_columns=self.id_columns,
         )
         if tensors is None:
-            raise ValueError(
-                "[BaseModel-prepare_data_loader Error] No data available to create DataLoader."
-            )
+            raise ValueError("[BaseModel-prepare_data_loader Error] No data available to create DataLoader.")
         dataset = TensorDictDataset(tensors)
         loader_kwargs = {}
         if num_workers > 0 and prefetch_factor is not None:
@@ -745,9 +676,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         auto_ddp_sampler: bool = True,
         log_interval: int = 1,
         note: str | None = None,
-        summary_sections: (
-            list[Literal["feature", "model", "train", "data"]] | None
-        ) = None,
+        summary_sections: list[Literal["feature", "model", "train", "data"]] | None = None,
     ):
         """
         Train the model.
@@ -785,9 +714,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             - All ranks must call evaluate() together because it performs collective ops.
         """
         device_id = self.local_rank if self.device.type == "cuda" else None
-        init_process_group(
-            self.distributed, self.rank, self.world_size, device_id=device_id
-        )
+        init_process_group(self.distributed, self.rank, self.world_size, device_id=device_id)
         self.to(self.device)
 
         assert_task(self.task, len(self.target_columns), model_name=self.model_name)
@@ -802,12 +729,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 loss_params={},
             )
 
-        if (
-            self.distributed
-            and dist.is_available()
-            and dist.is_initialized()
-            and self.ddp_model is None
-        ):
+        if self.distributed and dist.is_available() and dist.is_initialized() and self.ddp_model is None:
             device_ids = (
                 [self.local_rank] if self.device.type == "cuda" else None
             )  # device_ids means which device to use in ddp
@@ -825,23 +747,17 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 ),
             )
 
-        if (
-            not self.logger_initialized and self.is_main_process
-        ):  # only main process initializes logger
+        if not self.logger_initialized and self.is_main_process:  # only main process initializes logger
             setup_logger(session_id=self.session_id)
             self.logger_initialized = True
-        self.metrics, self.task_specific_metrics, self.best_metrics_mode = (
-            configure_metrics(
-                task=self.task, metrics=metrics, target_names=self.target_columns
-            )
+        self.metrics, self.task_specific_metrics, self.best_metrics_mode = configure_metrics(
+            task=self.task, metrics=metrics, target_names=self.target_columns
         )  # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
 
         self.early_stop_patience = early_stop_patience
         self.early_stop_monitor_task = early_stop_monitor_task
         # max samples to keep for training metrics, in case of large training set
-        self.metrics_sample_limit = (
-            None if metrics_sample_limit is None else int(metrics_sample_limit)
-        )
+        self.metrics_sample_limit = None if metrics_sample_limit is None else int(metrics_sample_limit)
         self.note = note
 
         training_config = {}
@@ -883,16 +799,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             if not is_tty:
                 if use_wandb and wandb_api:
                     if wandb is None:
-                        logging.warning(
-                            "[BaseModel-fit] wandb not installed, skip wandb login."
-                        )
+                        logging.warning("[BaseModel-fit] wandb not installed, skip wandb login.")
                     else:
                         wandb.login(key=wandb_api)
                 if use_swanlab and swanlab_api:
                     if swanlab is None:
-                        logging.warning(
-                            "[BaseModel-fit] swanlab not installed, skip swanlab login."
-                        )
+                        logging.warning("[BaseModel-fit] swanlab not installed, skip swanlab login.")
                     else:
                         swanlab.login(api_key=swanlab_api)
 
@@ -941,9 +853,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             checkpoint_monitor = "loss"
             checkpoint_mode = "min"
 
-        if self.early_stop_patience > 0 and not any(
-            isinstance(cb, EarlyStopper) for cb in existing_callbacks
-        ):
+        if self.early_stop_patience > 0 and not any(isinstance(cb, EarlyStopper) for cb in existing_callbacks):
             self.callbacks.append(
                 EarlyStopper(
                     monitor=monitor_metric,
@@ -956,9 +866,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         has_validation = valid_data is not None or valid_split is not None
 
-        if self.is_main_process and not any(
-            isinstance(cb, CheckpointSaver) for cb in existing_callbacks
-        ):
+        if self.is_main_process and not any(isinstance(cb, CheckpointSaver) for cb in existing_callbacks):
             self.callbacks.append(
                 CheckpointSaver(
                     best_path=self.best_path,
@@ -981,12 +889,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             )
 
         self.callbacks.set_model(self)
-        self.callbacks.set_params(
-            {"epochs": epochs, "batch_size": batch_size, "metrics": self.metrics}
-        )
-        self.best_metric = (
-            float("-inf") if self.best_metrics_mode == "max" else float("inf")
-        )
+        self.callbacks.set_params({"epochs": epochs, "batch_size": batch_size, "metrics": self.metrics})
+        self.best_metric = float("-inf") if self.best_metrics_mode == "max" else float("inf")
 
         self.needs_user_ids = check_user_id(
             self.metrics, self.task_specific_metrics
@@ -994,12 +898,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.epoch_index = 0
         self.stop_training = False
         self.best_checkpoint_path = self.best_path
-        use_ddp_sampler = (
-            auto_ddp_sampler
-            and self.distributed
-            and dist.is_available()
-            and dist.is_initialized()
-        )
+        use_ddp_sampler = auto_ddp_sampler and self.distributed and dist.is_available() and dist.is_initialized()
 
         if not auto_ddp_sampler and self.distributed and self.is_main_process:
             logging.info(
@@ -1080,12 +979,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 train_loader = loader
 
         # If split-based loader was built without sampler, attach here when enabled
-        if (
-            self.distributed
-            and auto_ddp_sampler
-            and isinstance(train_loader, DataLoader)
-            and train_sampler is None
-        ):
+        if self.distributed and auto_ddp_sampler and isinstance(train_loader, DataLoader) and train_sampler is None:
             raise NotImplementedError(
                 "[BaseModel-fit Error] auto_ddp_sampler with pre-defined DataLoader is not supported yet."
             )
@@ -1113,15 +1007,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             )
 
         if self.is_main_process:
-            self.train_data_summary = (
-                None
-                if is_streaming
-                else self.build_train_data_summary(train_data, train_loader)
-            )
+            self.train_data_summary = None if is_streaming else self.build_train_data_summary(train_data, train_loader)
             self.valid_data_summary = (
-                None
-                if valid_loader is None
-                else self.build_valid_data_summary(valid_data, valid_loader)
+                None if valid_loader is None else self.build_valid_data_summary(valid_data, valid_loader)
             )
             self.summary(summary_sections)
             logging.info("")
@@ -1135,9 +1023,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 host = socket.gethostname()
                 tb_cmd = f"tensorboard --logdir {tb_dir} --port 6006"
                 ssh_hint = f"ssh -L 6006:localhost:6006 {user}@{host}"
-                logging.info(
-                    colorize(f"TensorBoard logs saved to: {tb_dir}", color="cyan")
-                )
+                logging.info(colorize(f"TensorBoard logs saved to: {tb_dir}", color="cyan"))
                 logging.info(colorize("To view logs, run:", color="cyan"))
                 logging.info(colorize(f"    {tb_cmd}", color="cyan"))
                 logging.info(colorize("Then SSH port forward:", color="cyan"))
@@ -1173,13 +1059,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 train_loader.sampler.set_epoch(epoch)
 
             if not isinstance(train_loader, DataLoader):
-                raise TypeError(
-                    f"Expected DataLoader for training, got {type(train_loader)}"
-                )
+                raise TypeError(f"Expected DataLoader for training, got {type(train_loader)}")
             train_result = self.train_epoch(train_loader, is_streaming=is_streaming)
-            if isinstance(
-                train_result, tuple
-            ):  # [avg_loss, metrics_dict], e.g., (0.5, {'auc': 0.75, 'logloss': 0.45})
+            if isinstance(train_result, tuple):  # [avg_loss, metrics_dict], e.g., (0.5, {'auc': 0.75, 'logloss': 0.45})
                 train_loss, train_metrics = train_result
             else:
                 train_loss = train_result
@@ -1187,11 +1069,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
             logging.info("")
             train_log_payload = {
-                "loss": (
-                    float(np.sum(train_loss))
-                    if isinstance(train_loss, np.ndarray)
-                    else float(train_loss)
-                )
+                "loss": (float(np.sum(train_loss)) if isinstance(train_loss, np.ndarray) else float(train_loss))
             }
             if train_metrics:
                 train_log_payload.update(train_metrics)
@@ -1208,13 +1086,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 colorize=lambda s: colorize(s),
             )
             if self.training_logger:
-                self.training_logger.log_metrics(
-                    train_log_payload, step=epoch + 1, split="train"
-                )
+                self.training_logger.log_metrics(train_log_payload, step=epoch + 1, split="train")
             if valid_loader is not None:
-                should_eval_valid = (epoch + 1) % log_interval == 0 or (
-                    epoch + 1
-                ) == epochs
+                should_eval_valid = (epoch + 1) % log_interval == 0 or (epoch + 1) == epochs
                 val_metrics = None
                 if should_eval_valid:
                     self.callbacks.on_validation_begin()
@@ -1230,17 +1104,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         loss=None,
                         metrics=val_metrics,
                         target_names=self.target_columns,
-                        base_metrics=(
-                            self.metrics if isinstance(self.metrics, list) else None
-                        ),
+                        base_metrics=(self.metrics if isinstance(self.metrics, list) else None),
                         is_main_process=self.is_main_process,
                         colorize=lambda s: colorize("  " + s, color="cyan"),
                     )
                     self.callbacks.on_validation_end()
                     if val_metrics and self.training_logger:
-                        self.training_logger.log_metrics(
-                            val_metrics, step=epoch + 1, split="valid"
-                        )
+                        self.training_logger.log_metrics(val_metrics, step=epoch + 1, split="valid")
                 if not val_metrics:
                     if should_eval_valid and self.is_main_process:
                         logging.info(
@@ -1262,9 +1132,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
             # Broadcast stop_training flag to all processes
             if self.distributed and dist.is_available() and dist.is_initialized():
-                stop_tensor = torch.tensor(
-                    [int(self.stop_training)], device=self.device
-                )
+                stop_tensor = torch.tensor([int(self.stop_training)], device=self.device)
                 dist.broadcast(stop_tensor, src=0)
                 self.stop_training = bool(stop_tensor.item())
 
@@ -1281,13 +1149,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             logging.info("")
         if valid_loader is not None:
             if self.is_main_process:
-                logging.info(
-                    format_kv("Load best model from", self.best_checkpoint_path)
-                )
+                logging.info(format_kv("Load best model from", self.best_checkpoint_path))
             if os.path.exists(self.best_checkpoint_path):
-                self.load_model(
-                    self.best_checkpoint_path, map_location=self.device, verbose=False
-                )
+                self.load_model(self.best_checkpoint_path, map_location=self.device, verbose=False)
             elif self.is_main_process:
                 logging.info(
                     colorize(
@@ -1301,11 +1165,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
     def train_epoch(self, train_loader: DataLoader, is_streaming: bool = False):
         # use ddp model for distributed training
-        model = (
-            self.ddp_model
-            if hasattr(self, "ddp_model") and self.ddp_model is not None
-            else self
-        )
+        model = self.ddp_model if hasattr(self, "ddp_model") and self.ddp_model is not None else self
         accumulated_loss = 0.0
         model.train()  # type: ignore
         num_batches = 0
@@ -1358,21 +1218,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 self.grad_norm.step()
             accumulated_loss += loss.item()
 
-            if (
-                collect_metrics
-                and y_true is not None
-                and isinstance(y_pred, torch.Tensor)
-            ):
+            if collect_metrics and y_true is not None and isinstance(y_pred, torch.Tensor):
                 batch_size = int(y_true.size(0))
                 if max_samples is not None and collected_samples >= max_samples:
                     collect_metrics = False
                     metrics_capped = True
                 else:
                     take_count = batch_size
-                    if (
-                        max_samples is not None
-                        and collected_samples + batch_size > max_samples
-                    ):
+                    if max_samples is not None and collected_samples + batch_size > max_samples:
                         take_count = max_samples - collected_samples
                         metrics_capped = True
                         collect_metrics = False
@@ -1380,17 +1233,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         y_true_list.append(y_true[:take_count].detach().cpu().numpy())
                         y_pred_list.append(y_pred[:take_count].detach().cpu().numpy())
                         if self.needs_user_ids and user_ids_list is not None:
-                            batch_user_id = get_user_ids(
-                                data=batch_dict, id_columns=self.id_columns
-                            )
+                            batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
                             if batch_user_id is not None:
                                 user_ids_list.append(batch_user_id[:take_count])
                         collected_samples += take_count
             num_batches += 1
         if self.distributed and dist.is_available() and dist.is_initialized():
-            loss_tensor = torch.tensor(
-                [accumulated_loss, num_batches], device=self.device, dtype=torch.float32
-            )
+            loss_tensor = torch.tensor([accumulated_loss, num_batches], device=self.device, dtype=torch.float32)
             dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
             accumulated_loss = loss_tensor[0].item()
             num_batches = int(loss_tensor[1].item())
@@ -1399,17 +1248,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         y_true_all_local = np.concatenate(y_true_list, axis=0) if y_true_list else None
         y_pred_all_local = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
         combined_user_ids_local = (
-            np.concatenate(user_ids_list, axis=0)
-            if self.needs_user_ids and user_ids_list
-            else None
+            np.concatenate(user_ids_list, axis=0) if self.needs_user_ids and user_ids_list else None
         )
 
         # gather across ranks even when local is empty to avoid DDP hang
         y_true_all = gather_numpy(self, y_true_all_local)
         y_pred_all = gather_numpy(self, y_pred_all_local)
-        combined_user_ids = (
-            gather_numpy(self, combined_user_ids_local) if self.needs_user_ids else None
-        )
+        combined_user_ids = gather_numpy(self, combined_user_ids_local) if self.needs_user_ids else None
 
         if metrics_capped and self.is_main_process:
             logging.info(
@@ -1419,12 +1264,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 )
             )
 
-        if (
-            y_true_all is not None
-            and y_pred_all is not None
-            and len(y_true_all) > 0
-            and len(y_pred_all) > 0
-        ):
+        if y_true_all is not None and y_pred_all is not None and len(y_true_all) > 0 and len(y_pred_all) > 0:
             metrics_dict = evaluate_metrics(
                 y_true=y_true_all,
                 y_pred=y_pred_all,
@@ -1493,19 +1333,20 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             # In distributed mode, user_ids will be collected during evaluation from each batch
             # and gathered across all processes, so we don't pre-extract them here
             if not self.distributed:
-                valid_user_ids = get_user_ids(
-                    data=valid_data, id_columns=user_id_column
-                )
+                valid_user_ids = get_user_ids(data=valid_data, id_columns=user_id_column)
         return valid_loader, valid_user_ids
 
     def evaluate(
         self,
         data: dict | pd.DataFrame | DataLoader,
-        metrics: list[str] | dict[str, list[str]] | None = None,
+        metrics: list[MetricsName] | dict[str, list[MetricsName]] | None = None,
         batch_size: int = 32,
         user_ids: np.ndarray | None = None,
         user_id_column: str = "user_id",
         num_workers: int = 0,
+        thresholds: float | dict[str, float] | list[float] | None = None,
+        show_data_summary: bool = False,
+        show_confusion_matrix: bool = False,
     ) -> dict:
         """
         **IMPORTANT for Distributed Training:**
@@ -1522,6 +1363,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             user_ids: Optional array of user IDs for GAUC-style metrics; if None and needed, will be extracted from data using user_id_column. e.g. np.array([...])
             user_id_column: Column name for user IDs if user_ids is not provided. e.g. 'user_id'
             num_workers: DataLoader worker count.
+            thresholds: Threshold(s) for binary metrics/confusion matrix. Supports a single
+                float for all targets, a list aligned to target order, or a dict keyed by
+                target name. Defaults to 0.5. e.g. 0.5, [0.5, 0.7], {'target1': 0.5, 'target2': 0.7}
+            show_data_summary: If True, log data summary statistics.
+            show_confusion_matrix: If True, render confusion matrix blocks to logs.
         """
         model = self.ddp_model if self.ddp_model is not None else self
         model.eval()
@@ -1537,9 +1383,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         else:
             if user_ids is None and needs_user_ids:
                 user_ids = get_user_ids(data=data, id_columns=user_id_column)
-            data_loader = self.prepare_data_loader(
-                data, batch_size=batch_size, shuffle=False, num_workers=num_workers
-            )
+            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
         y_true_list = []
         y_pred_list = []
         collected_user_ids = []
@@ -1550,29 +1394,17 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 batch_dict = batch_to_dict(batch_data)
                 X_input, y_true = self.get_input(batch_dict, require_labels=True)
                 if X_input is None:
-                    raise ValueError(
-                        "[BaseModel-evaluate Error] No input features found in the evaluation data."
-                    )
+                    raise ValueError("[BaseModel-evaluate Error] No input features found in the evaluation data.")
                 y_pred = model(X_input)
                 if y_true is not None:
                     y_true_list.append(y_true.cpu().numpy())
                 if y_pred is not None and isinstance(y_pred, torch.Tensor):
                     y_pred_list.append(y_pred.cpu().numpy())
                 if needs_user_ids and user_ids is None:
-                    batch_user_id = get_user_ids(
-                        data=batch_dict, id_columns=self.id_columns
-                    )
+                    batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
                     if batch_user_id is not None:
                         collected_user_ids.append(batch_user_id)
-        # if self.is_main_process:
-        #     logging.info("")
-        #     logging.info(
-        #         colorize(
-        #             format_kv(
-        #                 "Evaluation batches processed", batch_count
-        #             ),
-        #         )
-        #     )
+
         y_true_all_local = np.concatenate(y_true_list, axis=0) if y_true_list else None
         y_pred_all_local = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
 
@@ -1594,15 +1426,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         # gather across ranks even when local arrays are empty to keep collectives aligned
         y_true_all = gather_numpy(self, y_true_all_local)
         y_pred_all = gather_numpy(self, y_pred_all_local)
-        final_user_ids = (
-            gather_numpy(self, final_user_ids_local) if needs_user_ids else None
-        )
-        if (
-            y_true_all is None
-            or y_pred_all is None
-            or len(y_true_all) == 0
-            or len(y_pred_all) == 0
-        ):
+        final_user_ids = gather_numpy(self, final_user_ids_local) if needs_user_ids else None
+        if y_true_all is None or y_pred_all is None or len(y_true_all) == 0 or len(y_pred_all) == 0:
             if self.is_main_process:
                 logging.info(
                     colorize(
@@ -1622,7 +1447,162 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             task_specific_metrics=self.task_specific_metrics,
             user_ids=final_user_ids,
             ignore_label=self.ignore_label,
+            thresholds=thresholds,
         )
+
+        if show_data_summary and self.is_main_process:
+            logging.info("")
+            logging.info(colorize("[Data Summary]", color="cyan", bold=True))
+            logging.info(colorize("-" * 80, color="cyan"))
+            logging.info(format_kv("Samples", len(y_true_all)))
+
+            task_types = list(self.task) if isinstance(self.task, list) else [self.task]
+            if len(task_types) != len(self.target_columns):
+                task_types = [task_types[0]] * len(self.target_columns)
+
+            if y_true_all.ndim == 1 or (y_true_all.ndim == 2 and y_true_all.shape[1] == 1):
+                y_true_matrix = y_true_all.reshape(-1, 1) if y_true_all.ndim == 1 else y_true_all
+            else:
+                y_true_matrix = y_true_all
+
+            for idx, (target_name, task_type) in enumerate(zip(self.target_columns, task_types)):
+                if idx >= y_true_matrix.shape[1]:
+                    continue
+                values = y_true_matrix[:, idx]
+                if self.ignore_label is not None:
+                    values = values[values != self.ignore_label]
+                if values.size == 0:
+                    continue
+                logging.info("")
+                logging.info(colorize(f"{target_name}", color="cyan", bold=True))
+                if task_type == "regression":
+                    values = values.astype(float)
+                    stats = {
+                        "mean": np.nanmean(values),
+                        "std": np.nanstd(values),
+                        "min": np.nanmin(values),
+                        "p25": np.nanpercentile(values, 25),
+                        "p50": np.nanpercentile(values, 50),
+                        "p75": np.nanpercentile(values, 75),
+                        "max": np.nanmax(values),
+                    }
+                    stat_text = ", ".join(f"{key}={value:.6g}" for key, value in stats.items())
+                    logging.info(format_kv("stats", stat_text, indent=2))
+                else:
+                    uniques, counts = np.unique(values, return_counts=True)
+                    total = counts.sum()
+                    for label_value, count in zip(uniques, counts):
+                        label_str = (
+                            f"{int(label_value)}"
+                            if isinstance(label_value, (int, np.integer))
+                            or (
+                                isinstance(label_value, (float, np.floating))
+                                and np.isclose(label_value, int(label_value))
+                            )
+                            else f"{label_value}"
+                        )
+                        ratio = count / total if total else 0.0
+                        logging.info(format_kv(label_str, f"{count} ({ratio:.2%})", indent=2))
+
+        if (show_data_summary or show_confusion_matrix) and self.is_main_process:
+            logging.info("")
+            logging.info(colorize("[Metrics]", color="cyan", bold=True))
+            logging.info(colorize("-" * 80, color="cyan"))
+            metrics_for_table = {k: v for k, v in metrics_dict.items() if not k.startswith("confusion_matrix")}
+            if metrics_for_table:
+                display_metrics_table(
+                    epoch=1,
+                    epochs=1,
+                    split="Eval",
+                    loss=None,
+                    metrics=metrics_for_table,
+                    target_names=self.target_columns,
+                    base_metrics=(metrics_to_use if isinstance(metrics_to_use, list) else None),
+                    is_main_process=True,
+                    colorize=lambda s: colorize(s),
+                )
+            else:
+                logging.info(
+                    colorize(
+                        "[BaseModel-evaluate Warning] No metrics computed.",
+                        color="yellow",
+                    )
+                )
+
+        if show_confusion_matrix:
+            task = self.task
+            target_names = self.target_columns
+            if isinstance(task, list):
+                task_types = task
+            else:
+                task_types = [task] * max(1, len(target_names))
+            thresholds_by_target = resolve_thresholds(thresholds, target_names)
+
+            if show_confusion_matrix and self.is_main_process:
+                logging.info("")
+                logging.info(colorize("[Confusion Matrix]", color="cyan", bold=True))
+                logging.info(colorize("-" * 80, color="cyan"))
+
+            if y_true_all.ndim == 1 or (y_true_all.ndim == 2 and y_true_all.shape[1] == 1):
+                if task_types[0] == "binary":
+                    y_true_vec = y_true_all.reshape(-1) if y_true_all.ndim == 1 else y_true_all[:, 0]
+                    y_pred_vec = y_pred_all.reshape(-1) if y_pred_all.ndim == 1 else y_pred_all[:, 0]
+                    cm = compute_confusion_matrix(
+                        y_true_vec,
+                        y_pred_vec,
+                        self.ignore_label,
+                        threshold=thresholds_by_target.get(target_names[0], 0.5),
+                    )
+                    if cm is not None:
+                        metrics_dict["confusion_matrix"] = cm
+                        if self.is_main_process:
+                            logging.info(
+                                colorize(
+                                    f"{target_names[0]} (threshold={thresholds_by_target.get(target_names[0], 0.5)})",
+                                    color="cyan",
+                                    bold=True,
+                                )
+                            )
+                            rendered = render_confusion_block(
+                                tn=cm["tn"],
+                                fp=cm["fp"],
+                                fn=cm["fn"],
+                                tp=cm["tp"],
+                            )
+                            for line in rendered.splitlines():
+                                logging.info(line)
+            else:
+                for idx, target_name in enumerate(target_names):
+                    task_type = task_types[idx] if idx < len(task_types) else "binary"
+                    if task_type != "binary":
+                        continue
+                    y_true_vec = y_true_all[:, idx]
+                    y_pred_vec = y_pred_all[:, idx]
+                    cm = compute_confusion_matrix(
+                        y_true_vec,
+                        y_pred_vec,
+                        self.ignore_label,
+                        threshold=thresholds_by_target.get(target_name, 0.5),
+                    )
+                    if cm is not None:
+                        metrics_dict[f"confusion_matrix_{target_name}"] = cm
+                        if self.is_main_process:
+                            logging.info("")
+                            logging.info(
+                                colorize(
+                                    f"{target_name} (threshold={thresholds_by_target.get(target_name, 0.5)})",
+                                    color="cyan",
+                                    bold=True,
+                                )
+                            )
+                            rendered = render_confusion_block(
+                                tn=cm["tn"],
+                                fp=cm["fp"],
+                                fn=cm["fn"],
+                                tp=cm["tp"],
+                            )
+                            for line in rendered.splitlines():
+                                logging.info(line)
         return metrics_dict
 
     @overload
@@ -1711,19 +1691,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.eval()
 
         # streaming mode prediction
-        if (
-            save_path is not None
-            and not return_dataframe
-            and isinstance(data, (str, os.PathLike, DataLoader))
-        ):
+        if save_path is not None and not return_dataframe and isinstance(data, (str, os.PathLike, DataLoader)):
             if num_processes > 1 and not isinstance(data, (str, os.PathLike)):
-                raise ValueError(
-                    "[BaseModel-predict Error] Multi-process streaming requires data to be a file path."
-                )
+                raise ValueError("[BaseModel-predict Error] Multi-process streaming requires data to be a file path.")
             if num_processes > 1 and num_workers != 0:
-                logging.info(
-                    "[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0."
-                )
+                logging.info("[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0.")
                 logging.info("")
                 num_workers = 0
             return self.predict_streaming(
@@ -1792,14 +1764,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 profiler=profiler,
             )
         else:
-            data_loader = self.prepare_data_loader(
-                data, batch_size=batch_size, shuffle=False, num_workers=num_workers
-            )
+            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
         y_pred_list = []
-        id_buffers = (
-            {name: [] for name in (predict_id_columns or [])} if include_ids else {}
-        )
+        id_buffers = {name: [] for name in (predict_id_columns or [])} if include_ids else {}
         id_arrays = None
 
         with torch.no_grad():
@@ -1822,14 +1790,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                             if isinstance(id_tensor, torch.Tensor)
                             else np.asarray(id_tensor)
                         )
-                        id_buffers[id_name].append(
-                            id_np.reshape(id_np.shape[0], -1)
-                            if id_np.ndim == 1
-                            else id_np
-                        )
-        y_pred_all = (
-            np.concatenate(y_pred_list, axis=0) if y_pred_list else np.array([])
-        )
+                        id_buffers[id_name].append(id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np)
+        y_pred_all = np.concatenate(y_pred_list, axis=0) if y_pred_list else np.array([])
 
         if y_pred_all.ndim == 1:
             y_pred_all = y_pred_all.reshape(-1, 1)
@@ -1837,17 +1799,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_outputs = len(self.target_columns) if self.target_columns else 1
             y_pred_all = y_pred_all.reshape(0, num_outputs)
         num_outputs = y_pred_all.shape[1]
-        pred_columns: list[str] = (
-            list(self.target_columns[:num_outputs]) if self.target_columns else []
-        )
+        pred_columns: list[str] = list(self.target_columns[:num_outputs]) if self.target_columns else []
         while len(pred_columns) < num_outputs:
             pred_columns.append(f"pred_{len(pred_columns)}")
         if include_ids and predict_id_columns:
             id_arrays = {
                 id_name: (
-                    np.concatenate(
-                        [p.reshape(p.shape[0], -1) for p in pieces], axis=0
-                    ).reshape(-1)
+                    np.concatenate([p.reshape(p.shape[0], -1) for p in pieces], axis=0).reshape(-1)
                     if pieces
                     else np.array([], dtype=np.int64)
                 )
@@ -1864,17 +1822,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             else:
                 output = y_pred_all
         else:
-            output = (
-                pd.DataFrame(y_pred_all, columns=pred_columns)
-                if return_dataframe
-                else y_pred_all
-            )
+            output = pd.DataFrame(y_pred_all, columns=pred_columns) if return_dataframe else y_pred_all
         if save_path is not None:
             if save_format not in {"csv", "parquet"}:
-                raise ValueError(
-                    f"Unsupported save format: {save_format}. "
-                    "Supported: csv, parquet"
-                )
+                raise ValueError(f"Unsupported save format: {save_format}. " "Supported: csv, parquet")
             target_path = get_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
@@ -1908,9 +1859,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             else:
                 raise ValueError(f"Unsupported save format: {save_format}")
 
-            logging.info(
-                colorize(f"Predictions saved to: {target_path}", color="green")
-            )
+            logging.info("")
+            logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         return output
 
     def predict_streaming(
@@ -1989,16 +1939,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 profiler=profiler,
             )
         elif not isinstance(data, DataLoader):
-            raise TypeError(
-                "[BaseModel-predict-streaming Error] data must be a file path or a DataLoader."
-            )
+            raise TypeError("[BaseModel-predict-streaming Error] data must be a file path or a DataLoader.")
         else:  # data is a DataLoader
             data_loader = data
 
         if save_format not in {"csv", "parquet"}:
-            raise ValueError(
-                f"Unsupported save format: {save_format}. Supported: csv, parquet"
-            )
+            raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
         target_path = get_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
@@ -2015,9 +1961,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         disable_progress = shard_count > 1
         with torch.no_grad():
-            for batch_data in progress(
-                data_loader, description="Predicting", disable=disable_progress
-            ):
+            for batch_data in progress(data_loader, description="Predicting", disable=disable_progress):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 start = time.perf_counter()
@@ -2031,19 +1975,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     y_pred_np = y_pred_np.reshape(-1, 1)
                 if pred_columns is None:
                     num_outputs = y_pred_np.shape[1]
-                    pred_columns = (
-                        list(self.target_columns[:num_outputs])
-                        if self.target_columns
-                        else []
-                    )
+                    pred_columns = list(self.target_columns[:num_outputs]) if self.target_columns else []
                     while len(pred_columns) < num_outputs:
                         pred_columns.append(f"pred_{len(pred_columns)}")
 
-                ids = (
-                    batch_dict.get("ids")
-                    if include_ids and predict_id_columns
-                    else None
-                )
+                ids = batch_dict.get("ids") if include_ids and predict_id_columns else None
                 id_arrays_batch = {
                     id_name: (
                         ids[id_name].detach().cpu().numpy()
@@ -2066,9 +2002,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 # Streaming save based on format
                 if save_format == "csv":
                     start = time.perf_counter()
-                    df_batch.to_csv(
-                        target_path, mode="a", header=not header_written, index=False
-                    )
+                    df_batch.to_csv(target_path, mode="a", header=not header_written, index=False)
                     if profiler is not None:
                         profiler.add("write_output", time.perf_counter() - start)
                     header_written = True
@@ -2092,6 +2026,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if parquet_writer is not None:
             parquet_writer.close()
 
+        logging.info("")
         logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         if return_dataframe:
             return (
@@ -2117,9 +2052,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         profiler: StageTimer | None,
     ):
         if num_workers > 0:
-            logging.info(
-                "[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0."
-            )
+            logging.info("[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0.")
         num_workers = 0
         prefetch_factor = None
         target_path = Path(
@@ -2133,15 +2066,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         )
         parts_dir = target_path.parent / f".{target_path.stem}_parts"
         parts_dir.mkdir(parents=True, exist_ok=True)
-        part_paths = [
-            parts_dir / f"{target_path.stem}.part{rank}{target_path.suffix}"
-            for rank in range(num_processes)
-        ]
+        part_paths = [parts_dir / f"{target_path.stem}.part{rank}{target_path.suffix}" for rank in range(num_processes)]
         profile_paths = (
-            [
-                parts_dir / f"{target_path.stem}.profile{rank}.json"
-                for rank in range(num_processes)
-            ]
+            [parts_dir / f"{target_path.stem}.profile{rank}.json" for rank in range(num_processes)]
             if profiler is not None
             else None
         )
@@ -2171,9 +2098,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             process.start()
             processes.append(process)
 
-        for process in progress(
-            iter(processes), description="Predicting...", total=None
-        ):
+        for process in progress(iter(processes), description="Predicting...", total=None):
             process.join()
 
         for process in processes:
@@ -2184,12 +2109,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         errors.append(error_queue.get_nowait())
                 except Exception:
                     pass
-                error_text = (
-                    "\n\n".join(errors) if errors else "No worker traceback captured."
-                )
+                error_text = "\n\n".join(errors) if errors else "No worker traceback captured."
                 raise RuntimeError(
-                    "[BaseModel-predict-streaming Error] One or more inference processes failed.\n"
-                    + error_text
+                    "[BaseModel-predict-streaming Error] One or more inference processes failed.\n" + error_text
                 )
         # Merge part files
         existing_parts = [p for p in part_paths if p.exists()]
@@ -2208,9 +2130,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 if profiler is not None:
                     profiler.add("merge_parts", time.perf_counter() - start)
             else:
-                raise ValueError(
-                    f"Unsupported save format: {save_format}. Supported: csv, parquet"
-                )
+                raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
 
         for part_path in part_paths:
             if part_path.exists():
@@ -2223,6 +2143,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if parts_dir.exists() and not any(parts_dir.iterdir()):
             parts_dir.rmdir()
 
+        logging.info("")
         logging.info(
             colorize(
                 f"Predictions saved to: {target_path} (merged from {num_processes} parts)",
@@ -2267,9 +2188,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 chunk_size=batch_size,
                 num_workers=num_workers,
             )
-        return self.prepare_data_loader(
-            data, batch_size=batch_size, shuffle=False, num_workers=num_workers
-        )
+        return self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     def export_onnx(
         self,
@@ -2292,11 +2211,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             batch_size: Dummy batch size for tracing.
             opset_version: ONNX opset version for export.
         """
-        model_to_export = (
-            self.ddp_model.module
-            if hasattr(self, "ddp_model") and self.ddp_model is not None
-            else self
-        )
+        model_to_export = self.ddp_model.module if hasattr(self, "ddp_model") and self.ddp_model is not None else self
         model_to_export = model_to_export.to(self.device)
         model_to_export.eval()
 
@@ -2449,9 +2364,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         session_inputs = session.get_inputs()
         session_input_names = [inp.name for inp in session_inputs]
         batch_dim = session_inputs[0].shape[0] if session_inputs else None
-        fixed_batch = (
-            batch_dim if isinstance(batch_dim, int) and batch_dim > 0 else None
-        )
+        fixed_batch = batch_dim if isinstance(batch_dim, int) and batch_dim > 0 else None
         data_loader = self.prepare_onnx_dataloader(
             data=data,
             batch_size=batch_size,
@@ -2459,25 +2372,17 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         )
 
         y_pred_list = []
-        id_buffers = (
-            {name: [] for name in (predict_id_columns or [])} if include_ids else {}
-        )
+        id_buffers = {name: [] for name in (predict_id_columns or [])} if include_ids else {}
 
         for batch_data in progress(data_loader, description="Predicting (ONNX)"):
             batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
             X_input, _ = self.get_input(batch_dict, require_labels=False)
             if X_input is None:
-                raise ValueError(
-                    "[BaseModel-predict-onnx Error] No input features found in the prediction data."
-                )
+                raise ValueError("[BaseModel-predict-onnx Error] No input features found in the prediction data.")
             orig_batch = None
             if fixed_batch is not None:
-                X_input, orig_batch = pad_onnx_inputs(
-                    self.all_features, X_input, target_batch=fixed_batch
-                )
-            feed = build_onnx_input_feed(
-                self.all_features, X_input, input_names=session_input_names
-            )
+                X_input, orig_batch = pad_onnx_inputs(self.all_features, X_input, target_batch=fixed_batch)
+            feed = build_onnx_input_feed(self.all_features, X_input, input_names=session_input_names)
             start = time.perf_counter()
             outputs = session.run(None, feed)
             if profiler is not None:
@@ -2507,18 +2412,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         id_np = id_np[:orig_batch]
                     elif orig_id_batch is not None and orig_id_batch > 0:
                         id_np = id_np[:orig_id_batch]
-                    id_buffers[id_name].append(
-                        id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np
-                    )
+                    id_buffers[id_name].append(id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np)
 
         y_pred_all = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
         if y_pred_all is None:
             return pd.DataFrame() if return_dataframe else np.array([])
 
         num_outputs = y_pred_all.shape[1] if y_pred_all.ndim > 1 else 1
-        pred_columns = (
-            list(self.target_columns[:num_outputs]) if self.target_columns else []
-        )
+        pred_columns = list(self.target_columns[:num_outputs]) if self.target_columns else []
         while len(pred_columns) < num_outputs:
             pred_columns.append(f"pred_{len(pred_columns)}")
 
@@ -2545,10 +2446,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         if save_path is not None:
             if save_format not in {"csv", "parquet"}:
-                raise ValueError(
-                    f"Unsupported save format: {save_format}. "
-                    "Supported: csv, parquet"
-                )
+                raise ValueError(f"Unsupported save format: {save_format}. " "Supported: csv, parquet")
             target_path = get_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
@@ -2574,9 +2472,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     profiler.add("write_output", time.perf_counter() - start)
             else:
                 raise ValueError(f"Unsupported save format: {save_format}")
-            logging.info(
-                colorize(f"Predictions saved to: {target_path}", color="green")
-            )
+            logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         return output
 
     def predict_onnx_streaming(
@@ -2600,9 +2496,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         session_inputs = session.get_inputs()
         session_input_names = [inp.name for inp in session_inputs]
         batch_dim = session_inputs[0].shape[0] if session_inputs else None
-        fixed_batch = (
-            batch_dim if isinstance(batch_dim, int) and batch_dim > 0 else None
-        )
+        fixed_batch = batch_dim if isinstance(batch_dim, int) and batch_dim > 0 else None
         data_loader = self.prepare_onnx_dataloader(
             data=data,
             batch_size=batch_size,
@@ -2610,9 +2504,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         )
 
         if save_format not in {"csv", "parquet"}:
-            raise ValueError(
-                f"Unsupported save format: {save_format}. " "Supported: csv, parquet"
-            )
+            raise ValueError(f"Unsupported save format: {save_format}. " "Supported: csv, parquet")
         target_path = get_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
@@ -2632,12 +2524,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 continue
             orig_batch = None
             if fixed_batch is not None:
-                X_input, orig_batch = pad_onnx_inputs(
-                    self.all_features, X_input, target_batch=fixed_batch
-                )
-            feed = build_onnx_input_feed(
-                self.all_features, X_input, input_names=session_input_names
-            )
+                X_input, orig_batch = pad_onnx_inputs(self.all_features, X_input, target_batch=fixed_batch)
+            feed = build_onnx_input_feed(self.all_features, X_input, input_names=session_input_names)
             start = time.perf_counter()
             outputs = session.run(None, feed)
             if profiler is not None:
@@ -2649,11 +2537,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 y_pred_np = y_pred_np[:orig_batch]
             if pred_columns is None:
                 num_outputs = y_pred_np.shape[1]
-                pred_columns = (
-                    list(self.target_columns[:num_outputs])
-                    if self.target_columns
-                    else []
-                )
+                pred_columns = list(self.target_columns[:num_outputs]) if self.target_columns else []
                 while len(pred_columns) < num_outputs:
                     pred_columns.append(f"pred_{len(pred_columns)}")
 
@@ -2672,21 +2556,15 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 if ids and id_name in ids
             }
             if orig_batch is not None and orig_batch > 0:
-                id_arrays_batch = {
-                    k: v[:orig_batch] for k, v in id_arrays_batch.items()
-                }
+                id_arrays_batch = {k: v[:orig_batch] for k, v in id_arrays_batch.items()}
             elif orig_id_batch is not None and orig_id_batch > 0:
-                id_arrays_batch = {
-                    k: v[:orig_id_batch] for k, v in id_arrays_batch.items()
-                }
+                id_arrays_batch = {k: v[:orig_id_batch] for k, v in id_arrays_batch.items()}
 
             df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
             if id_arrays_batch:
                 id_df = pd.DataFrame(id_arrays_batch)
                 if len(id_df) and len(df_batch) and len(id_df) != len(df_batch):
-                    raise ValueError(
-                        f"Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_batch)})."
-                    )
+                    raise ValueError(f"Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_batch)}).")
                 df_batch = pd.concat([id_df, df_batch], axis=1)
 
             should_collect = return_dataframe or save_format not in {"csv", "parquet"}
@@ -2695,9 +2573,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
             if save_format == "csv":
                 start = time.perf_counter()
-                df_batch.to_csv(
-                    target_path, mode="a", header=not header_written, index=False
-                )
+                df_batch.to_csv(target_path, mode="a", header=not header_written, index=False)
                 if profiler is not None:
                     profiler.add("write_output", time.perf_counter() - start)
                 header_written = True
@@ -2799,29 +2675,21 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if base_path.is_dir():
             model_files = sorted(base_path.glob("*.pt"))
             if not model_files:
-                raise FileNotFoundError(
-                    f"[BaseModel-load-model Error] No *.pt file found in directory: {base_path}"
-                )
+                raise FileNotFoundError(f"[BaseModel-load-model Error] No *.pt file found in directory: {base_path}")
             model_path = model_files[-1]
             config_dir = base_path
         else:
-            model_path = (
-                base_path.with_suffix(".pt") if base_path.suffix == "" else base_path
-            )
+            model_path = base_path.with_suffix(".pt") if base_path.suffix == "" else base_path
             config_dir = model_path.parent
         if not model_path.exists():
-            raise FileNotFoundError(
-                f"[BaseModel-load-model Error] Model file does not exist: {model_path}"
-            )
+            raise FileNotFoundError(f"[BaseModel-load-model Error] Model file does not exist: {model_path}")
 
         state_dict = torch.load(model_path, map_location=map_location)
         self.load_state_dict(state_dict)
 
         features_config_path = config_dir / "features_config.pkl"
         if not features_config_path.exists():
-            raise FileNotFoundError(
-                f"[BaseModel-load-model Error] features_config.pkl not found in: {config_dir}"
-            )
+            raise FileNotFoundError(f"[BaseModel-load-model Error] features_config.pkl not found in: {config_dir}")
         with open(features_config_path, "rb") as f:
             features_config = pickle.load(f)
 
@@ -2873,15 +2741,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if base_path.is_dir():
             model_candidates = sorted(base_path.glob("*.pt"))
             if not model_candidates:
-                raise FileNotFoundError(
-                    f"[BaseModel-from-checkpoint Error] No *.pt file found under: {base_path}"
-                )
+                raise FileNotFoundError(f"[BaseModel-from-checkpoint Error] No *.pt file found under: {base_path}")
             model_file = model_candidates[-1]
             config_dir = base_path
         else:
-            model_file = (
-                base_path.with_suffix(".pt") if base_path.suffix == "" else base_path
-            )
+            model_file = base_path.with_suffix(".pt") if base_path.suffix == "" else base_path
             config_dir = model_file.parent
         features_config_path = config_dir / "features_config.pkl"
         if not features_config_path.exists():
@@ -2951,9 +2815,7 @@ def predict_streaming_worker(
         if error_queue is not None:
             import traceback
 
-            error_queue.put(
-                f"[PredictWorker Error] rank={shard_rank}\n{traceback.format_exc()}"
-            )
+            error_queue.put(f"[PredictWorker Error] rank={shard_rank}\n{traceback.format_exc()}")
         raise
 
 
@@ -3062,16 +2924,8 @@ class BaseMatchModel(BaseModel):
             raise ValueError(
                 f"{self.model_name.upper()} does not support training_mode='{primary_mode}'. Supported modes: {self.support_training_modes}"
             )
-        self.user_features_all = (
-            self.user_dense_features
-            + self.user_sparse_features
-            + self.user_sequence_features
-        )
-        self.item_features_all = (
-            self.item_dense_features
-            + self.item_sparse_features
-            + self.item_sequence_features
-        )
+        self.user_features_all = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
+        self.item_features_all = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
         self.user_feature_names = {feature.name for feature in self.user_features_all}
         self.item_feature_names = {feature.name for feature in self.item_features_all}
         self.head = RetrievalHead(
@@ -3150,9 +3004,7 @@ class BaseMatchModel(BaseModel):
             loss_weights=loss_weights,
         )
 
-    def inbatch_logits(
-        self, user_emb: torch.Tensor, item_emb: torch.Tensor
-    ) -> torch.Tensor:
+    def inbatch_logits(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
         """Compute in-batch logits matrix between user and item embeddings."""
         if self.similarity_metric == "dot":
             logits = torch.matmul(user_emb, item_emb.t())
@@ -3168,9 +3020,7 @@ class BaseMatchModel(BaseModel):
             raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
         return logits / self.temperature
 
-    def compute_similarity(
-        self, user_emb: torch.Tensor, item_emb: torch.Tensor
-    ) -> torch.Tensor:
+    def compute_similarity(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
         """Compute similarity score between user and item embeddings."""
         if user_emb.dim() == 2 and item_emb.dim() == 3:
             user_emb = user_emb.unsqueeze(1)
@@ -3194,20 +3044,10 @@ class BaseMatchModel(BaseModel):
         """Item tower to encode item features into embeddings."""
         raise NotImplementedError
 
-    def forward(
-        self, X_input: dict
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, X_input: dict) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Rewrite forward to handle user and item features separately."""
-        user_input = {
-            name: tensor
-            for name, tensor in X_input.items()
-            if name in self.user_feature_names
-        }
-        item_input = {
-            name: tensor
-            for name, tensor in X_input.items()
-            if name in self.item_feature_names
-        }
+        user_input = {name: tensor for name, tensor in X_input.items() if name in self.user_feature_names}
+        item_input = {name: tensor for name, tensor in X_input.items() if name in self.item_feature_names}
 
         user_emb = self.user_tower(user_input)  # [B, D]
         item_emb = self.item_tower(item_input)  # [B, D]
@@ -3234,26 +3074,18 @@ class BaseMatchModel(BaseModel):
 
             eye = torch.eye(batch_size, device=logits.device, dtype=torch.bool)
             pos_logits = logits.diag()  # [B]
-            neg_logits = logits.masked_select(~eye).view(
-                batch_size, batch_size - 1
-            )  # [B, B-1]
+            neg_logits = logits.masked_select(~eye).view(batch_size, batch_size - 1)  # [B, B-1]
 
-            loss_fn = (
-                self.loss_fn[0] if hasattr(self, "loss_fn") and self.loss_fn else None
-            )
+            loss_fn = self.loss_fn[0] if hasattr(self, "loss_fn") and self.loss_fn else None
             if isinstance(loss_fn, SampledSoftmaxLoss):
                 loss = loss_fn(pos_logits, neg_logits)
             elif isinstance(loss_fn, (BPRLoss, HingeLoss)):
                 loss = loss_fn(pos_logits, neg_logits)
             elif isinstance(loss_fn, TripletLoss):
-                neg_emb = item_emb.masked_select(~eye.unsqueeze(-1)).view(
-                    batch_size, batch_size - 1, item_emb.size(-1)
-                )
+                neg_emb = item_emb.masked_select(~eye.unsqueeze(-1)).view(batch_size, batch_size - 1, item_emb.size(-1))
                 loss = loss_fn(user_emb, item_emb, neg_emb)
             elif isinstance(loss_fn, InfoNCELoss) and self.similarity_metric == "dot":
-                neg_emb = item_emb.masked_select(~eye.unsqueeze(-1)).view(
-                    batch_size, batch_size - 1, item_emb.size(-1)
-                )
+                neg_emb = item_emb.masked_select(~eye.unsqueeze(-1)).view(batch_size, batch_size - 1, item_emb.size(-1))
                 loss = loss_fn(user_emb, item_emb, neg_emb)
             else:
                 targets = torch.arange(batch_size, device=logits.device)
@@ -3303,9 +3135,7 @@ class BaseMatchModel(BaseModel):
             id_columns=[],
         )
         if tensors is None:
-            raise ValueError(
-                "[BaseMatchModel-prepare_feature_data Error] No data available to create DataLoader."
-            )
+            raise ValueError("[BaseMatchModel-prepare_feature_data Error] No data available to create DataLoader.")
         dataset = TensorDictDataset(tensors)
         return DataLoader(
             dataset,
@@ -3320,29 +3150,18 @@ class BaseMatchModel(BaseModel):
         tensors = {}
         for feature in features:
             if feature.name not in feature_source:
-                raise KeyError(
-                    f"[BaseMatchModel-feature Error] Feature '{feature.name}' not found in input data."
-                )
+                raise KeyError(f"[BaseMatchModel-feature Error] Feature '{feature.name}' not found in input data.")
             feature_data = get_column_data(feature_source, feature.name)
             tensors[feature.name] = to_tensor(
                 feature_data,
-                dtype=(
-                    torch.float32 if isinstance(feature, DenseFeature) else torch.long
-                ),
+                dtype=(torch.float32 if isinstance(feature, DenseFeature) else torch.long),
                 device=self.device,
             )
         return tensors
 
     def encode_user(
         self,
-        data: (
-            dict
-            | pd.DataFrame
-            | DataLoader
-            | str
-            | os.PathLike
-            | list[str | os.PathLike]
-        ),
+        data: dict | pd.DataFrame | DataLoader | str | os.PathLike | list[str | os.PathLike],
         batch_size: int = 512,
         num_workers: int = 0,
         stream_chunk_size: int = 10000,
@@ -3360,23 +3179,14 @@ class BaseMatchModel(BaseModel):
         with torch.no_grad():
             for batch_data in progress(data_loader, description="Encoding users"):
                 batch_dict = batch_to_dict(batch_data, include_ids=False)
-                user_input = self.build_feature_tensors(
-                    batch_dict["features"], self.user_features_all
-                )
+                user_input = self.build_feature_tensors(batch_dict["features"], self.user_features_all)
                 user_emb = self.user_tower(user_input)
                 embeddings_list.append(user_emb.cpu().numpy())
         return np.concatenate(embeddings_list, axis=0)
 
     def encode_item(
         self,
-        data: (
-            dict
-            | pd.DataFrame
-            | DataLoader
-            | str
-            | os.PathLike
-            | list[str | os.PathLike]
-        ),
+        data: dict | pd.DataFrame | DataLoader | str | os.PathLike | list[str | os.PathLike],
         batch_size: int = 512,
         num_workers: int = 0,
         stream_chunk_size: int = 10000,
@@ -3394,9 +3204,7 @@ class BaseMatchModel(BaseModel):
         with torch.no_grad():
             for batch_data in progress(data_loader, description="Encoding items"):
                 batch_dict = batch_to_dict(batch_data, include_ids=False)
-                item_input = self.build_feature_tensors(
-                    batch_dict["features"], self.item_features_all
-                )
+                item_input = self.build_feature_tensors(batch_dict["features"], self.item_features_all)
                 item_emb = self.item_tower(item_input)
                 embeddings_list.append(item_emb.cpu().numpy())
         return np.concatenate(embeddings_list, axis=0)

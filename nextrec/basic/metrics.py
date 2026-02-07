@@ -2,7 +2,7 @@
 Metrics computation and configuration for model evaluation.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 30/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -54,9 +54,7 @@ def check_user_id(*metric_sources: Any) -> bool:
     for name in metric_names:
         if name == "gauc":
             return True
-        if name.startswith(
-            ("recall@", "precision@", "hitrate@", "hr@", "mrr@", "ndcg@", "map@")
-        ):
+        if name.startswith(("recall@", "precision@", "hitrate@", "hr@", "mrr@", "ndcg@", "map@")):
             return True
     return False
 
@@ -83,9 +81,7 @@ def compute_mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Compute Mean Absolute Percentage Error."""
     mask = y_true != 0
     if np.any(mask):
-        return float(
-            np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
-        )
+        return float(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100)
     return 0.0
 
 
@@ -95,17 +91,13 @@ def compute_msle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(mean_squared_error(np.log1p(y_true), np.log1p(y_pred_pos)))
 
 
-def compute_gauc(
-    y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray | None = None
-) -> float:
+def compute_gauc(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray | None = None) -> float:
     if user_ids is None:
         # If no user_ids provided, fall back to regular AUC
         try:
             return float(roc_auc_score(y_true, y_pred))
         except Exception as e:
-            logging.warning(
-                f"[Metrics Warning: GAUC] Failed to compute AUC without user_ids: {e}"
-            )
+            logging.warning(f"[Metrics Warning: GAUC] Failed to compute AUC without user_ids: {e}")
             return 0.0
     # Group by user_id and calculate AUC for each user
     user_aucs = []
@@ -146,14 +138,10 @@ def group_indices_by_user(user_ids: np.ndarray, n_samples: int) -> list[np.ndarr
     return groups
 
 
-def compute_precision_at_k(
-    y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int
-) -> float:
+def compute_precision_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute Precision@K."""
     if user_ids is None:
-        raise ValueError(
-            "[Metrics Error: Precision@K] user_ids must be provided for Precision@K computation."
-        )
+        raise ValueError("[Metrics Error: Precision@K] user_ids must be provided for Precision@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
     groups = group_indices_by_user(user_ids, n)
@@ -171,14 +159,10 @@ def compute_precision_at_k(
     return float(np.mean(precisions)) if precisions else 0.0
 
 
-def compute_recall_at_k(
-    y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int
-) -> float:
+def compute_recall_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute Recall@K."""
     if user_ids is None:
-        raise ValueError(
-            "[Metrics Error: Recall@K] user_ids must be provided for Recall@K computation."
-        )
+        raise ValueError("[Metrics Error: Recall@K] user_ids must be provided for Recall@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
     groups = group_indices_by_user(user_ids, n)
@@ -199,14 +183,10 @@ def compute_recall_at_k(
     return float(np.mean(recalls)) if recalls else 0.0
 
 
-def compute_hitrate_at_k(
-    y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int
-) -> float:
+def compute_hitrate_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute HitRate@K."""
     if user_ids is None:
-        raise ValueError(
-            "[Metrics Error: HitRate@K] user_ids must be provided for HitRate@K computation."
-        )
+        raise ValueError("[Metrics Error: HitRate@K] user_ids must be provided for HitRate@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
     groups = group_indices_by_user(user_ids, n)
@@ -226,14 +206,10 @@ def compute_hitrate_at_k(
     return float(np.mean(hits_per_user)) if hits_per_user else 0.0
 
 
-def compute_mrr_at_k(
-    y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int
-) -> float:
+def compute_mrr_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute MRR@K."""
     if user_ids is None:
-        raise ValueError(
-            "[Metrics Error: MRR@K] user_ids must be provided for MRR@K computation."
-        )
+        raise ValueError("[Metrics Error: MRR@K] user_ids must be provided for MRR@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
     groups = group_indices_by_user(user_ids, n)
@@ -267,14 +243,10 @@ def compute_dcg_at_k(labels: np.ndarray, k: int) -> float:
     return float(np.sum(gains / discounts))
 
 
-def compute_ndcg_at_k(
-    y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int
-) -> float:
+def compute_ndcg_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Compute NDCG@K."""
     if user_ids is None:
-        raise ValueError(
-            "[Metrics Error: NDCG@K] user_ids must be provided for NDCG@K computation."
-        )
+        raise ValueError("[Metrics Error: NDCG@K] user_ids must be provided for NDCG@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
     groups = group_indices_by_user(user_ids, n)
@@ -298,14 +270,10 @@ def compute_ndcg_at_k(
     return float(np.mean(ndcgs)) if ndcgs else 0.0
 
 
-def compute_map_at_k(
-    y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int
-) -> float:
+def compute_map_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
     """Mean Average Precision@K."""
     if user_ids is None:
-        raise ValueError(
-            "[Metrics Error: MAP@K] user_ids must be provided for MAP@K computation."
-        )
+        raise ValueError("[Metrics Error: MAP@K] user_ids must be provided for MAP@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
     groups = group_indices_by_user(user_ids, n)
@@ -333,10 +301,11 @@ def compute_map_at_k(
     return float(np.mean(aps)) if aps else 0.0
 
 
-def compute_topk_counts(
-    y_true: np.ndarray, y_pred: np.ndarray, k_percent: int
-) -> tuple[int, int, int]:
+def compute_topk_counts(y_true: np.ndarray, y_pred: np.ndarray, k_percent: int) -> tuple[int, int, int]:
     """Compute Top-K% sample size, hits, and positives for binary labels."""
+    # Ensure 1D to avoid argsort on 2D returning column-wise indices
+    y_true = np.asarray(y_true).reshape(-1)
+    y_pred = np.asarray(y_pred).reshape(-1)
     y_true = (y_true > 0).astype(int)
     n = y_true.size
     if n == 0:
@@ -355,9 +324,7 @@ def compute_topk_counts(
     return k_count, hits, total_pos
 
 
-def compute_topk_precision(
-    y_true: np.ndarray, y_pred: np.ndarray, k_percent: int
-) -> float:
+def compute_topk_precision(y_true: np.ndarray, y_pred: np.ndarray, k_percent: int) -> float:
     """Compute Top-K% Precision."""
     k_count, hits, _ = compute_topk_counts(y_true, y_pred, k_percent)
     if k_count == 0:
@@ -365,9 +332,7 @@ def compute_topk_precision(
     return float(hits / k_count)
 
 
-def compute_topk_recall(
-    y_true: np.ndarray, y_pred: np.ndarray, k_percent: int
-) -> float:
+def compute_topk_recall(y_true: np.ndarray, y_pred: np.ndarray, k_percent: int) -> float:
     """Compute Top-K% Recall."""
     _, hits, total_pos = compute_topk_counts(y_true, y_pred, k_percent)
     if total_pos == 0:
@@ -505,13 +470,14 @@ def compute_single_metric(
     y_pred: np.ndarray,
     task_type: str,
     user_ids: np.ndarray | None = None,
+    threshold: float = 0.5,
 ) -> float:
     """Compute a single metric given true and predicted values."""
 
     if y_true.size == 0:
         return 0.0
 
-    y_p_binary = (y_pred > 0.5).astype(int)
+    y_p_binary = (y_pred > threshold).astype(int)
     try:
         if metric.startswith("topk_recall@"):
             k_percent = int(metric.split("@")[1])
@@ -588,13 +554,9 @@ def compute_single_metric(
                 )
             )
         elif metric == "micro_f1":
-            value = float(
-                f1_score(y_true, y_p_binary, average="micro", zero_division=0)
-            )
+            value = float(f1_score(y_true, y_p_binary, average="micro", zero_division=0))
         elif metric == "macro_f1":
-            value = float(
-                f1_score(y_true, y_p_binary, average="macro", zero_division=0)
-            )
+            value = float(f1_score(y_true, y_p_binary, average="macro", zero_division=0))
         elif metric == "mse":
             value = float(mean_squared_error(y_true, y_pred))
         elif metric == "mae":
@@ -608,16 +570,66 @@ def compute_single_metric(
         elif metric == "msle":
             value = float(compute_msle(y_true, y_pred))
         else:
-            logging.warning(
-                f"[Metric Warning] Metric '{metric}' is not supported, returning 0.0"
-            )
+            logging.warning(f"[Metric Warning] Metric '{metric}' is not supported, returning 0.0")
             value = 0.0
     except Exception as exception:
-        logging.warning(
-            f"[Metric Warning] Failed to compute metric {metric}: {exception}"
-        )
+        logging.warning(f"[Metric Warning] Failed to compute metric {metric}: {exception}")
         value = 0.0
     return value
+
+
+def compute_confusion_matrix(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    ignore_label: int | float | None = None,
+    threshold: float = 0.5,
+) -> dict[str, int] | None:
+    """
+    Compute confusion matrix for binary classification.
+
+    Returns:
+        dict with keys tn/fp/fn/tp, or None if unavailable.
+    """
+    y_true_vec = np.asarray(y_true).reshape(-1)
+    y_pred_vec = np.asarray(y_pred).reshape(-1)
+    if ignore_label is not None:
+        mask = y_true_vec != ignore_label
+        if not np.any(mask):
+            return None
+        y_true_vec = y_true_vec[mask]
+        y_pred_vec = y_pred_vec[mask]
+    y_pred_bin = (y_pred_vec > threshold).astype(int)
+    tn = int(np.sum((y_true_vec == 0) & (y_pred_bin == 0)))
+    fp = int(np.sum((y_true_vec == 0) & (y_pred_bin == 1)))
+    fn = int(np.sum((y_true_vec == 1) & (y_pred_bin == 0)))
+    tp = int(np.sum((y_true_vec == 1) & (y_pred_bin == 1)))
+    return {"tn": tn, "fp": fp, "fn": fn, "tp": tp}
+
+
+def resolve_thresholds(
+    thresholds: float | dict[str, float] | list[float] | None,
+    target_names: list[str],
+) -> dict[str, float]:
+    """
+    Resolve threshold(s) per target name.
+    """
+    if thresholds is None:
+        return {name: 0.5 for name in target_names}
+    if isinstance(thresholds, (int, float)):
+        return {name: float(thresholds) for name in target_names}
+    if isinstance(thresholds, dict):
+        thresholds_map = {name: 0.5 for name in target_names}
+        for name, value in thresholds.items():
+            if name in thresholds_map:
+                thresholds_map[name] = float(value)
+        return thresholds_map
+    if isinstance(thresholds, list):
+        thresholds_map = {name: 0.5 for name in target_names}
+        for idx, name in enumerate(target_names):
+            if idx < len(thresholds):
+                thresholds_map[name] = float(thresholds[idx])
+        return thresholds_map
+    return {name: 0.5 for name in target_names}
 
 
 def evaluate_metrics(
@@ -629,6 +641,7 @@ def evaluate_metrics(
     task_specific_metrics: dict[str, list[MetricsName]] | None = None,
     user_ids: np.ndarray | None = None,
     ignore_label: int | float | None = None,
+    thresholds: float | dict[str, float] | list[float] | None = None,
 ) -> dict:
     """
     Evaluate specified metrics for given true and predicted values.
@@ -644,6 +657,8 @@ def evaluate_metrics(
         task_specific_metrics: Optional dict mapping target names to specific metrics. e.g., {'target1': ['auc', 'logloss'], 'target2': ['mse']}
         user_ids: Optional user IDs for GAUC and ranking metrics. e.g., User IDs for GAUC computation
         ignore_label: Optional label value to ignore during evaluation.
+        thresholds: Threshold(s) for binary metrics. Supports a float, a list aligned to
+            target order, or a dict keyed by target name. Defaults to 0.5.
 
     Returns: Dictionary of computed metric values. {'auc': 0.75, 'logloss': 0.45, 'mse_target2': 3.2}
 
@@ -656,6 +671,7 @@ def evaluate_metrics(
     primary_task = task[0] if isinstance(task, list) else task
     nums_task = len(task) if isinstance(task, list) else 1
     # Single task evaluation
+    thresholds_by_target = resolve_thresholds(thresholds, target_names)
     if nums_task == 1:
         if ignore_label is not None:
             valid_mask = y_true != ignore_label
@@ -667,9 +683,8 @@ def evaluate_metrics(
             else:
                 return result
         for metric in metrics:
-            value = compute_single_metric(
-                metric, y_true, y_pred, primary_task, user_ids
-            )
+            threshold = thresholds_by_target.get(target_names[0], 0.5)
+            value = compute_single_metric(metric, y_true, y_pred, primary_task, user_ids, threshold=threshold)
             result[metric] = value
     # Multi-task evaluation
     else:
@@ -708,9 +723,7 @@ def evaluate_metrics(
             task_type = task_types[task_idx]
             target_name = target_names[task_idx]
             if task_specific_metrics is not None and task_idx < len(target_names):
-                allowed_metrics = {
-                    m for m in task_specific_metrics.get(target_name, [])
-                }
+                allowed_metrics = {m for m in task_specific_metrics.get(target_name, [])}
             else:
                 allowed_metrics = metric_allowlist.get(task_type)
             for metric in metrics:
@@ -746,8 +759,14 @@ def evaluate_metrics(
                         result[f"{metric}_{target_name}"] = 0.0
                         continue
                 # Compute metric
+                threshold = thresholds_by_target.get(target_name, 0.5)
                 value = compute_single_metric(
-                    metric, y_true_task, y_pred_task, task_type, task_user_ids
+                    metric,
+                    y_true_task,
+                    y_pred_task,
+                    task_type,
+                    task_user_ids,
+                    threshold=threshold,
                 )
                 result[f"{metric}_{target_name}"] = value
     return result

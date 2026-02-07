@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026 - prerelease version: need to overwrite compute_loss later
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Xi D, Chen Z, Yan P, Zhang Y, Zhu Y, Zhuang F, Chen Y. Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising. Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining (KDD ’21), 2021, pp. 3745–3755.
@@ -41,9 +41,7 @@ class AITMTransfer(nn.Module):
         value = self.value(stacked)
         key = self.key(stacked)
         query = self.query(stacked)
-        attn_scores = torch.sum(key * query, dim=2, keepdim=True) / math.sqrt(
-            self.input_dim
-        )
+        attn_scores = torch.sum(key * query, dim=2, keepdim=True) / math.sqrt(self.input_dim)
         attn = torch.softmax(attn_scores, dim=1)
         return torch.sum(attn * value, dim=1)
 
@@ -119,40 +117,26 @@ class AITM(BaseModel):
                 )
             bottom_mlp_params_list = [params.copy() for params in bottom_mlp_params]
         else:
-            bottom_mlp_params_list = [
-                bottom_mlp_params.copy() for _ in range(self.nums_task)
-            ]
+            bottom_mlp_params_list = [bottom_mlp_params.copy() for _ in range(self.nums_task)]
 
         self.embedding = EmbeddingLayer(features=self.all_features)
         input_dim = self.embedding.input_dim
 
         self.bottoms = nn.ModuleList(
-            [
-                MLP(input_dim=input_dim, output_dim=None, **params)
-                for params in bottom_mlp_params_list
-            ]
+            [MLP(input_dim=input_dim, output_dim=None, **params) for params in bottom_mlp_params_list]
         )
-        bottom_dims = [
-            get_mlp_output_dim(params, input_dim) for params in bottom_mlp_params_list
-        ]
+        bottom_dims = [get_mlp_output_dim(params, input_dim) for params in bottom_mlp_params_list]
         if len(set(bottom_dims)) != 1:
             raise ValueError(f"All bottom output dims must match, got {bottom_dims}.")
         bottom_output_dim = bottom_dims[0]
 
-        self.transfers = nn.ModuleList(
-            [AITMTransfer(bottom_output_dim) for _ in range(self.nums_task - 1)]
-        )
+        self.transfers = nn.ModuleList([AITMTransfer(bottom_output_dim) for _ in range(self.nums_task - 1)])
         self.grad_norm_shared_modules = ["embedding", "transfers"]
 
         self.towers = nn.ModuleList(
-            [
-                MLP(input_dim=bottom_output_dim, output_dim=1, **params)
-                for params in tower_mlp_params_list
-            ]
+            [MLP(input_dim=bottom_output_dim, output_dim=1, **params) for params in tower_mlp_params_list]
         )
-        self.prediction_layer = TaskHead(
-            task_type=self.task, task_dims=[1] * self.nums_task
-        )
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
 
         self.register_regularization_weights(
             embedding_attr="embedding",
@@ -164,9 +148,7 @@ class AITM(BaseModel):
         task_feats = [bottom(input_flat) for bottom in self.bottoms]
 
         for idx in range(1, self.nums_task):
-            task_feats[idx] = self.transfers[idx - 1](
-                task_feats[idx - 1], task_feats[idx]
-            )
+            task_feats[idx] = self.transfers[idx - 1](task_feats[idx - 1], task_feats[idx])
 
         task_outputs = [tower(task_feats[idx]) for idx, tower in enumerate(self.towers)]
         logits = torch.cat(task_outputs, dim=1)

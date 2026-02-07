@@ -25,11 +25,8 @@ export function buildTrainConfig(trainState) {
       loss: lossList.length <= 1 ? (lossList[0] || '') : lossList,
       metrics: metricsList,
       epochs: trainState.train.epochs,
-      batch_size: trainState.train.batch_size,
       shuffle: trainState.train.shuffle,
       log_interval: trainState.train.log_interval,
-      use_wandb: trainState.train.use_wandb,
-      use_swanlab: trainState.train.use_swanlab,
       device: trainState.train.device
     }
   };
@@ -39,6 +36,7 @@ export function buildTrainConfig(trainState) {
   }
 
   if (trainState.train.use_wandb) {
+    output.train.use_wandb = true;
     if (trainState.train.wandb_api) {
       output.train.wandb_api = trainState.train.wandb_api;
     }
@@ -49,6 +47,7 @@ export function buildTrainConfig(trainState) {
   }
 
   if (trainState.train.use_swanlab) {
+    output.train.use_swanlab = true;
     if (trainState.train.swanlab_api) {
       output.train.swanlab_api = trainState.train.swanlab_api;
     }
@@ -72,7 +71,7 @@ export function buildTrainConfig(trainState) {
     output.train.loss_params = parseYaml(trainState.train.loss_params_text);
   }
 
-  if (trainState.train.loss_weights_text && trainState.train.loss_weights_text.trim()) {
+  if (targetList.length > 1 && trainState.train.loss_weights_text && trainState.train.loss_weights_text.trim()) {
     output.train.loss_weights = parseYaml(trainState.train.loss_weights_text);
   }
 

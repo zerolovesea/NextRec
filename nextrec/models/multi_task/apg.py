@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Yan B, Wang P, Zhang K, Li F, Deng H, Xu J, Zheng B. APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction. Advances in Neural Information Processing Systems 35 (NeurIPS 2022), 2022.
@@ -43,12 +43,8 @@ class APGLayer(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
 
-        self.activation = (
-            activation_layer(activation) if activation is not None else nn.Identity()
-        )
-        self.inner_activation = (
-            activation_layer(inner_activation) if inner_activation is not None else None
-        )
+        self.activation = activation_layer(activation) if activation is not None else nn.Identity()
+        self.inner_activation = activation_layer(inner_activation) if inner_activation is not None else None
 
         min_dim = min(int(input_dim), int(output_dim))
         self.p_dim = math.ceil(float(min_dim) / float(mf_p))
@@ -56,31 +52,19 @@ class APGLayer(nn.Module):
 
         if use_uv_shared:
             if use_mf_p:
-                self.shared_weight_np = nn.Parameter(
-                    torch.empty(self.input_dim, self.p_dim)
-                )
+                self.shared_weight_np = nn.Parameter(torch.empty(self.input_dim, self.p_dim))
                 self.shared_bias_np = nn.Parameter(torch.zeros(self.p_dim))
-                self.shared_weight_pk = nn.Parameter(
-                    torch.empty(self.p_dim, self.k_dim)
-                )
+                self.shared_weight_pk = nn.Parameter(torch.empty(self.p_dim, self.k_dim))
                 self.shared_bias_pk = nn.Parameter(torch.zeros(self.k_dim))
 
-                self.shared_weight_kp = nn.Parameter(
-                    torch.empty(self.k_dim, self.p_dim)
-                )
+                self.shared_weight_kp = nn.Parameter(torch.empty(self.k_dim, self.p_dim))
                 self.shared_bias_kp = nn.Parameter(torch.zeros(self.p_dim))
-                self.shared_weight_pm = nn.Parameter(
-                    torch.empty(self.p_dim, self.output_dim)
-                )
+                self.shared_weight_pm = nn.Parameter(torch.empty(self.p_dim, self.output_dim))
                 self.shared_bias_pm = nn.Parameter(torch.zeros(self.output_dim))
             else:
-                self.shared_weight_nk = nn.Parameter(
-                    torch.empty(self.input_dim, self.k_dim)
-                )
+                self.shared_weight_nk = nn.Parameter(torch.empty(self.input_dim, self.k_dim))
                 self.shared_bias_nk = nn.Parameter(torch.zeros(self.k_dim))
-                self.shared_weight_km = nn.Parameter(
-                    torch.empty(self.k_dim, self.output_dim)
-                )
+                self.shared_weight_km = nn.Parameter(torch.empty(self.k_dim, self.output_dim))
                 self.shared_bias_km = nn.Parameter(torch.zeros(self.output_dim))
         self.specific_weight_kk = MLP(
             input_dim=scene_emb_dim,
@@ -157,10 +141,7 @@ class APGLayer(nn.Module):
                 output_pk = output_np @ self.shared_weight_pk + self.shared_bias_pk
                 if self.inner_activation is not None:
                     output_pk = self.inner_activation(output_pk)
-                output_kk = (
-                    torch.bmm(output_pk.unsqueeze(1), specific_weight_kk).squeeze(1)
-                    + specific_bias_kk
-                )
+                output_kk = torch.bmm(output_pk.unsqueeze(1), specific_weight_kk).squeeze(1) + specific_bias_kk
                 if self.inner_activation is not None:
                     output_kk = self.inner_activation(output_kk)
                 output_kp = output_kk @ self.shared_weight_kp + self.shared_bias_kp
@@ -171,10 +152,7 @@ class APGLayer(nn.Module):
                 output_nk = inputs @ self.shared_weight_nk + self.shared_bias_nk
                 if self.inner_activation is not None:
                     output_nk = self.inner_activation(output_nk)
-                output_kk = (
-                    torch.bmm(output_nk.unsqueeze(1), specific_weight_kk).squeeze(1)
-                    + specific_bias_kk
-                )
+                output_kk = torch.bmm(output_nk.unsqueeze(1), specific_weight_kk).squeeze(1) + specific_bias_kk
                 if self.inner_activation is not None:
                     output_kk = self.inner_activation(output_kk)
                 output = output_kk @ self.shared_weight_km + self.shared_bias_km
@@ -183,27 +161,16 @@ class APGLayer(nn.Module):
             specific_weight_nk = specific_weight_nk.view(-1, self.input_dim, self.k_dim)
             specific_bias_nk = self.specific_bias_nk(scene_emb)
             specific_weight_km = self.specific_weight_km(scene_emb)
-            specific_weight_km = specific_weight_km.view(
-                -1, self.k_dim, self.output_dim
-            )
+            specific_weight_km = specific_weight_km.view(-1, self.k_dim, self.output_dim)
             specific_bias_km = self.specific_bias_km(scene_emb)
 
-            output_nk = (
-                torch.bmm(inputs.unsqueeze(1), specific_weight_nk).squeeze(1)
-                + specific_bias_nk
-            )
+            output_nk = torch.bmm(inputs.unsqueeze(1), specific_weight_nk).squeeze(1) + specific_bias_nk
             if self.inner_activation is not None:
                 output_nk = self.inner_activation(output_nk)
-            output_kk = (
-                torch.bmm(output_nk.unsqueeze(1), specific_weight_kk).squeeze(1)
-                + specific_bias_kk
-            )
+            output_kk = torch.bmm(output_nk.unsqueeze(1), specific_weight_kk).squeeze(1) + specific_bias_kk
             if self.inner_activation is not None:
                 output_kk = self.inner_activation(output_kk)
-            output = (
-                torch.bmm(output_kk.unsqueeze(1), specific_weight_km).squeeze(1)
-                + specific_bias_km
-            )
+            output = torch.bmm(output_kk.unsqueeze(1), specific_weight_km).squeeze(1) + specific_bias_km
 
         return self.activation(output)
 
@@ -272,9 +239,7 @@ class APG(BaseModel):
             raise ValueError("APG requires scene_features to generate parameters.")
         if isinstance(scene_features, str):
             scene_features = [scene_features]
-        self.scene_features = select_features(
-            self.all_features, scene_features, "scene_features"
-        )
+        self.scene_features = select_features(self.all_features, scene_features, "scene_features")
         self.detach_scene = detach_scene
 
         if len(mlp_params["hidden_dims"]) == 0:
@@ -303,17 +268,11 @@ class APG(BaseModel):
             ]
         )
 
-        self.towers = nn.ModuleList(
-            [nn.Linear(mlp_params["hidden_dims"][-1], 1) for _ in range(self.nums_task)]
-        )
-        self.prediction_layer = TaskHead(
-            task_type=self.task, task_dims=[1] * self.nums_task
-        )
+        self.towers = nn.ModuleList([nn.Linear(mlp_params["hidden_dims"][-1], 1) for _ in range(self.nums_task)])
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
 
         self.grad_norm_shared_modules = ["embedding", "apg_layers"]
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["apg_layers", "towers"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["apg_layers", "towers"])
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)

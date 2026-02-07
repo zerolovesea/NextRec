@@ -4,7 +4,7 @@ Console and CLI utilities for NextRec.
 This module centralizes CLI logging helpers, progress display, and metric tables.
 
 Date: create on 19/12/2025
-Checkpoint: edit on 20/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -63,9 +63,7 @@ def get_nextrec_version() -> str:
         return "unknown"
 
 
-def log_startup_info(
-    logger: logging.Logger, *, mode: str, config_path: str | None
-) -> None:
+def log_startup_info(logger: logging.Logger, *, mode: str, config_path: str | None) -> None:
     """Log a short, user-friendly startup banner."""
     version = get_nextrec_version()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -148,9 +146,7 @@ def progress(iterable, *, description=None, total=None, disable=False):
         last_tick = start_time
         min_interval_seconds = 10.0
         max_interval_seconds = 300.0
-        target_steps = (
-            max(1, resolved_total // 20) if resolved_total is not None else 500
-        )
+        target_steps = max(1, resolved_total // 20) if resolved_total is not None else 500
         interval_seconds = min_interval_seconds
         completed = 0
 
@@ -205,18 +201,14 @@ def progress(iterable, *, description=None, total=None, disable=False):
 
     if hasattr(progress_bar, "__enter__"):
         with progress_bar:
-            task_id = progress_bar.add_task(
-                description or "Working", total=resolved_total
-            )
+            task_id = progress_bar.add_task(description or "Working", total=resolved_total)
             for item in iterable:
                 yield item
                 progress_bar.advance(task_id, 1)
     else:
         progress_bar.start()
         try:
-            task_id = progress_bar.add_task(
-                description or "Working", total=resolved_total
-            )
+            task_id = progress_bar.add_task(description or "Working", total=resolved_total)
             for item in iterable:
                 yield item
                 progress_bar.advance(task_id, 1)
@@ -254,9 +246,7 @@ def group_metrics_by_task(
                 break
 
         if matched_target is None:
-            matched_target = (
-                target_names[0] if len(target_names) == 1 else default_task_name
-            )
+            matched_target = target_names[0] if len(target_names) == 1 else default_task_name
         grouped.setdefault(matched_target, {})[metric_name] = value
 
     task_order: list[str] = []
@@ -316,18 +306,12 @@ def display_metrics_table(
                 metric_items = grouped.get(task_name, {})
                 if not metric_items:
                     continue
-                metric_str = ", ".join(
-                    f"{k}={float(v):.4f}" for k, v in metric_items.items()
-                )
+                metric_str = ", ".join(f"{k}={float(v):.4f}" for k, v in metric_items.items())
                 task_strs.append(f"{task_name}[{metric_str}]")
             if task_strs:
                 segments.append(", ".join(task_strs))
         elif metrics:
-            metric_str = ", ".join(
-                f"{k}={float(v):.4f}"
-                for k, v in metrics.items()
-                if as_float(v) is not None
-            )
+            metric_str = ", ".join(f"{k}={float(v):.4f}" for k, v in metrics.items() if as_float(v) is not None)
             if metric_str:
                 segments.append(metric_str)
         if not segments:
@@ -432,3 +416,65 @@ def display_metrics_table(
     if not emitted:
         # Fallback: no file handlers configured, use standard logging.
         root_logger.log(logging.INFO, "[MetricsTable]\n" + table_text)
+
+
+def render_confusion_matrix(
+    tn: int,
+    fp: int,
+    fn: int,
+    tp: int,
+    *,
+    box_style: box.Box = box.ROUNDED,
+) -> str:
+    """
+    Render a confusion matrix table as plain text using rich.
+    """
+    table = Table(
+        box=box_style,
+        show_header=True,
+        header_style="bold",
+    )
+    table.add_column("", justify="left")
+    table.add_column("Pred 0", justify="right")
+    table.add_column("Pred 1", justify="right")
+    table.add_row("True 0", str(tn), str(fp))
+    table.add_row("True 1", str(fn), str(tp))
+    record_console = Console(file=io.StringIO(), record=True, width=120)
+    record_console.print(table)
+    return record_console.export_text(styles=False).rstrip()
+
+
+def render_confusion_stats(
+    tn: int,
+    fp: int,
+    fn: int,
+    tp: int,
+) -> dict[str, float]:
+    """
+    Compute precision/recall/f1 from confusion matrix counts.
+    """
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def render_confusion_block(
+    tn: int,
+    fp: int,
+    fn: int,
+    tp: int,
+    *,
+    box_style: box.Box = box.ROUNDED,
+) -> str:
+    """
+    Render confusion stats plus matrix as a single text block.
+    """
+    stats = render_confusion_stats(tn, fp, fn, tp)
+    stats_lines = [
+        f"  precision: {stats['precision']:.6g}",
+        f"  recall: {stats['recall']:.6g}",
+        f"  f1: {stats['f1']:.6g}",
+    ]
+    matrix = render_confusion_matrix(tn, fp, fn, tp, box_style=box_style)
+    return "\n".join(stats_lines + matrix.splitlines())

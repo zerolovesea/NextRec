@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Cheng H T, Koc L, Harmsen J, et al. Wide & Deep learning for recommender systems[C] //Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. 2016: 7-10.
@@ -94,9 +94,7 @@ class WideDeep(BaseModel):
         self.mlp = MLP(input_dim=input_dim, **mlp_params)
         self.prediction_layer = TaskHead(task_type=self.task)
         # Register regularization weights
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["linear", "mlp"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear", "mlp"])
 
     def forward(self, x):
         # Deep part

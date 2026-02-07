@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Song W, Shi C, Xiao Z, et al. AutoInt: Automatic feature interaction learning via self-attentive neural networks. In: Proceedings of the 28th ACM International Conference on Information and Knowledge Management (CIKM ’19), 2019, pp. 1161–1170.
@@ -113,16 +113,11 @@ class AutoInt(BaseModel):
         num_fields = len(self.interaction_features)
 
         # If embeddings have different dimensions, project them to att_embedding_dim
-        self.need_projection = not all(
-            f.embedding_dim == att_embedding_dim for f in self.interaction_features
-        )
+        self.need_projection = not all(f.embedding_dim == att_embedding_dim for f in self.interaction_features)
         self.projection_layers = None
         if self.need_projection:
             self.projection_layers = nn.ModuleList(
-                [
-                    nn.Linear(f.embedding_dim, att_embedding_dim, bias=False)
-                    for f in self.interaction_features
-                ]
+                [nn.Linear(f.embedding_dim, att_embedding_dim, bias=False) for f in self.interaction_features]
             )
 
         # Multi-head self-attention layers
@@ -150,29 +145,21 @@ class AutoInt(BaseModel):
         # Get embeddings field-by-field so mixed dimensions can be projected safely
         field_embeddings = []
         if len(self.interaction_features) == 0:
-            raise ValueError(
-                "AutoInt requires at least one sparse or sequence feature for interactions."
-            )
+            raise ValueError("AutoInt requires at least one sparse or sequence feature for interactions.")
         for idx, feature in enumerate(self.interaction_features):
             feature_emb = self.embedding(x=x, features=[feature], squeeze_dim=False)
             feature_emb = feature_emb.squeeze(1)  # [B, embedding_dim]
             if self.need_projection and self.projection_layers is not None:
                 feature_emb = self.projection_layers[idx](feature_emb)
-            field_embeddings.append(
-                feature_emb.unsqueeze(1)
-            )  # [B, 1, att_embedding_dim or original_dim]
+            field_embeddings.append(feature_emb.unsqueeze(1))  # [B, 1, att_embedding_dim or original_dim]
         embeddings = torch.cat(field_embeddings, dim=1)
 
         # Apply multi-head self-attention layers
         attention_output = embeddings
         for att_layer in self.attention_layers:
-            attention_output = att_layer(
-                attention_output
-            )  # [B, num_fields, att_embedding_dim]
+            attention_output = att_layer(attention_output)  # [B, num_fields, att_embedding_dim]
 
         # Flatten and predict
-        attention_output_flat = attention_output.flatten(
-            start_dim=1
-        )  # [B, num_fields * att_embedding_dim]
+        attention_output_flat = attention_output.flatten(start_dim=1)  # [B, num_fields * att_embedding_dim]
         y = self.fc(attention_output_flat)  # [B, 1]
         return self.prediction_layer(y)

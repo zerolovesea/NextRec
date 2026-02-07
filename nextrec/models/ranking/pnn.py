@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Qu Y, Cai H, Ren K, et al. Product-based neural networks for user response prediction[C]//ICDM. 2016: 1149-1154. (https://arxiv.org/abs/1611.00144)
@@ -61,9 +61,7 @@ class PNN(BaseModel):
         target: str | list[str] | None = None,
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
         mlp_params: dict | None = None,
-        product_type: Literal[
-            "inner", "outer", "both"
-        ] = "inner",  # "inner" (IPNN), "outer" (OPNN), "both" (PNN*)
+        product_type: Literal["inner", "outer", "both"] = "inner",  # "inner" (IPNN), "outer" (OPNN), "both" (PNN*)
         outer_product_dim: int | None = None,
         **kwargs,
     ):
@@ -93,9 +91,7 @@ class PNN(BaseModel):
 
         self.embedding_dim = self.field_features[0].embedding_dim
         if any(f.embedding_dim != self.embedding_dim for f in self.field_features):
-            raise ValueError(
-                "All field features must share the same embedding_dim for PNN."
-            )
+            raise ValueError("All field features must share the same embedding_dim for PNN.")
 
         self.product_type = product_type.lower()
         if self.product_type not in {"inner", "outer", "both"}:
@@ -105,9 +101,7 @@ class PNN(BaseModel):
         self.outer_product_dim = outer_product_dim or self.embedding_dim
 
         if self.product_type in {"outer", "both"}:
-            self.kernel = nn.Parameter(
-                torch.randn(self.embedding_dim, self.outer_product_dim)
-            )
+            self.kernel = nn.Parameter(torch.randn(self.embedding_dim, self.outer_product_dim))
             nn.init.xavier_uniform_(self.kernel)
         else:
             self.kernel = None
@@ -127,9 +121,7 @@ class PNN(BaseModel):
         modules = ["mlp"]
         if self.kernel is not None:
             modules.append("kernel")
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=modules
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=modules)
 
     def compute_inner_products(self, field_emb: torch.Tensor) -> torch.Tensor:
         interactions = []

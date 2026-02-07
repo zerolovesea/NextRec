@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Wang R, Fu B, Fu G, et al. Deep & cross network for ad click predictions[C] //Proceedings of the ADKDD'17. 2017: 1-7.
@@ -65,12 +65,8 @@ class CrossNetwork(nn.Module):
     def __init__(self, input_dim, num_layers):
         super().__init__()
         self.num_layers = num_layers
-        self.w = torch.nn.ModuleList(
-            [torch.nn.Linear(input_dim, 1, bias=False) for _ in range(num_layers)]
-        )
-        self.b = torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)]
-        )
+        self.w = torch.nn.ModuleList([torch.nn.Linear(input_dim, 1, bias=False) for _ in range(num_layers)])
+        self.b = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)])
 
     def forward(self, x):
         x0 = x
@@ -119,19 +115,8 @@ class DCN(BaseModel):
         self.embedding = EmbeddingLayer(features=self.all_features)
 
         # Calculate input dimension
-        emb_dim_total = sum(
-            [
-                f.embedding_dim
-                for f in self.all_features
-                if not isinstance(f, DenseFeature)
-            ]
-        )
-        dense_input_dim = sum(
-            [
-                (f.embedding_dim if f.embedding_dim is not None else 1) or 1
-                for f in dense_features
-            ]
-        )
+        emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
+        dense_input_dim = sum([(f.embedding_dim if f.embedding_dim is not None else 1) or 1 for f in dense_features])
         input_dim = emb_dim_total + dense_input_dim
 
         # Cross Network for explicit feature crosses
@@ -143,9 +128,7 @@ class DCN(BaseModel):
             self.mlp = MLP(input_dim=input_dim, **mlp_params)
             deep_dim = self.mlp.output_dim
             # Final layer combines cross and deep
-            self.final_layer = nn.Linear(
-                input_dim + deep_dim, 1
-            )  # + deep_dim for MLP output
+            self.final_layer = nn.Linear(input_dim + deep_dim, 1)  # + deep_dim for MLP output
         else:
             self.use_dnn = False
             # Final layer only uses cross network output
@@ -170,9 +153,7 @@ class DCN(BaseModel):
             # Deep Network
             deep_output = self.mlp(input_flat)  # [B, 1]
             # Concatenate cross and deep
-            combined = torch.cat(
-                [cross_output, deep_output], dim=-1
-            )  # [B, input_dim + 1]
+            combined = torch.cat([cross_output, deep_output], dim=-1)  # [B, input_dim + 1]
         else:
             combined = cross_output
 

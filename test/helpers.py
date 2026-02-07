@@ -12,9 +12,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 
-def assert_model_output_shape(
-    output: torch.Tensor, expected_shape: tuple, message: str = ""
-):
+def assert_model_output_shape(output: torch.Tensor, expected_shape: tuple, message: str = ""):
     """
     Assert that model output has the expected shape.
     """
@@ -33,9 +31,7 @@ def assert_model_output_shape(
     logger.info("Output shape assertion passed: %s", actual_shape)
 
 
-def assert_model_output_range(
-    output: torch.Tensor, min_val: float = 0.0, max_val: float = 1.0
-):
+def assert_model_output_range(output: torch.Tensor, min_val: float = 0.0, max_val: float = 1.0):
     """
     Assert that model output values are within expected range.
     """
@@ -107,9 +103,7 @@ def run_model_forward_backward(
     return {"loss": loss.item(), "output": output.detach()}
 
 
-def run_model_inference(
-    model: torch.nn.Module, data: Dict[str, torch.Tensor]
-) -> torch.Tensor:
+def run_model_inference(model: torch.nn.Module, data: Dict[str, torch.Tensor]) -> torch.Tensor:
     """
     Test model inference (eval mode).
     """
@@ -124,19 +118,13 @@ def run_model_inference(
     return output
 
 
-def compare_outputs(
-    output1: torch.Tensor, output2: torch.Tensor, tolerance: float = 1e-5
-):
+def compare_outputs(output1: torch.Tensor, output2: torch.Tensor, tolerance: float = 1e-5):
     """
     Compare two model outputs.
     """
-    assert (
-        output1.shape == output2.shape
-    ), f"Output shapes don't match: {output1.shape} vs {output2.shape}"
+    assert output1.shape == output2.shape, f"Output shapes don't match: {output1.shape} vs {output2.shape}"
 
     max_diff = torch.max(torch.abs(output1 - output2)).item()
-    assert (
-        max_diff < tolerance
-    ), f"Outputs differ by {max_diff}, tolerance is {tolerance}"
+    assert max_diff < tolerance, f"Outputs differ by {max_diff}, tolerance is {tolerance}"
 
     logger.info("Outputs match within tolerance (max_diff=%.2e)", max_diff)

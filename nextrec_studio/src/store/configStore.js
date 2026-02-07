@@ -26,10 +26,8 @@ export const store = reactive({
     feature_config: 'feature_config.yaml',
     model_config: 'model_config.yaml',
     dataloader: {
-      train_batch_size: 512,
-      train_shuffle: true,
-      valid_batch_size: 512,
-      valid_shuffle: false,
+      batch_size: 512,
+      shuffle: true,
       num_workers: 4,
       prefetch_factor: 2
     },
@@ -44,7 +42,6 @@ export const store = reactive({
       loss_weights_text: '',
       metrics_list: ['auc'],
       epochs: 10,
-      batch_size: 512,
       shuffle: true,
       log_interval: 1,
       use_wandb: false,

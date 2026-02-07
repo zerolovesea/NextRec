@@ -2,6 +2,7 @@
 ONNX utilities for NextRec.
 
 Date: create on 25/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -28,9 +29,7 @@ class OnnxModelWrapper(torch.nn.Module):
 
     def forward(self, *inputs: torch.Tensor):
         if len(inputs) != len(self.feature_names):
-            raise ValueError(
-                "[OnnxWrapper Error] Number of inputs does not match feature names."
-            )
+            raise ValueError("[OnnxWrapper Error] Number of inputs does not match feature names.")
         x = {name: tensor for name, tensor in zip(self.feature_names, inputs)}
         output = self.model(x)
         if isinstance(output, list):
@@ -49,21 +48,15 @@ def create_dummy_inputs(
     for feature in features:
         if isinstance(feature, DenseFeature):
             input_dim = max(int(feature.input_dim), 1)
-            tensors.append(
-                torch.zeros((batch_size, input_dim), dtype=torch.float32, device=device)
-            )
+            tensors.append(torch.zeros((batch_size, input_dim), dtype=torch.float32, device=device))
         elif isinstance(feature, SequenceFeature):
             seq_len = None
             if seq_len_map:
                 seq_len = seq_len_map.get(feature.name)
             if seq_len is None:
-                seq_len = (
-                    feature.max_len if feature.max_len is not None else default_seq_len
-                )
+                seq_len = feature.max_len if feature.max_len is not None else default_seq_len
             seq_len = max(int(seq_len), 1)
-            tensors.append(
-                torch.zeros((batch_size, seq_len), dtype=torch.long, device=device)
-            )
+            tensors.append(torch.zeros((batch_size, seq_len), dtype=torch.long, device=device))
         else:
             tensors.append(torch.zeros((batch_size,), dtype=torch.long, device=device))
     return tensors
@@ -90,9 +83,7 @@ def normalize_sparse(feature: SparseFeature, array: object) -> np.ndarray:
     elif arr.ndim != 1:
         arr = arr.reshape(arr.shape[0], -1)
         if arr.shape[1] != 1:
-            raise ValueError(
-                f"[ONNX Input Error] Sparse feature '{feature.name}' expects 1 dim but got {arr.shape}."
-            )
+            raise ValueError(f"[ONNX Input Error] Sparse feature '{feature.name}' expects 1 dim but got {arr.shape}.")
         arr = arr.reshape(-1)
     return arr
 
@@ -124,9 +115,7 @@ def build_onnx_input_feed(
         if input_names is not None and feature.name not in input_names:
             continue
         if feature.name not in feature_batch:
-            raise KeyError(
-                f"[ONNX Input Error] Feature '{feature.name}' missing from batch data."
-            )
+            raise KeyError(f"[ONNX Input Error] Feature '{feature.name}' missing from batch data.")
         value = to_numpy(feature_batch[feature.name])
         if isinstance(feature, DenseFeature):
             value = normalize_dense(feature, value)
@@ -138,9 +127,7 @@ def build_onnx_input_feed(
     return feed
 
 
-def pad_tensor(
-    value: torch.Tensor, pad_rows: int, pad_value: int | float
-) -> torch.Tensor:
+def pad_tensor(value: torch.Tensor, pad_rows: int, pad_value: int | float) -> torch.Tensor:
     if pad_rows <= 0:
         return value
     pad_shape = (pad_rows, *value.shape[1:])
@@ -233,9 +220,7 @@ def merge_onnx_outputs(outputs: Sequence[np.ndarray]) -> np.ndarray:
         elif arr.ndim == 1:
             arr = arr.reshape(-1, 1)
         if batch is not None and arr.shape[0] != batch:
-            raise ValueError(
-                "[ONNX Output Error] Output batch size mismatch across ONNX outputs."
-            )
+            raise ValueError("[ONNX Output Error] Output batch size mismatch across ONNX outputs.")
         normalized.append(arr)
     return np.concatenate(normalized, axis=1)
 

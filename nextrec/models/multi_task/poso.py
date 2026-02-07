@@ -1,6 +1,6 @@
 """
 Date: create on 28/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Dai S, Lin H, Zhao Z, Lin J, Wu H, Wang Z, Yang S, Liu J. POSO: Personalized Cold Start Modules for Large-scale Recommender Systems. arXiv preprint arXiv:2108.04690, 2021.
@@ -223,14 +223,10 @@ class POSOMMoE(nn.Module):
                 for _ in range(num_experts)
             ]
         )
-        self.expert_output_dim = (
-            expert_hidden_dims[-1] if expert_hidden_dims else input_dim
-        )
+        self.expert_output_dim = expert_hidden_dims[-1] if expert_hidden_dims else input_dim
 
         # Task-specific gates: gate_t(x) over experts
-        self.gates = nn.ModuleList(
-            [nn.Linear(input_dim, num_experts) for _ in range(nums_task)]
-        )
+        self.gates = nn.ModuleList([nn.Linear(input_dim, num_experts) for _ in range(nums_task)])
         self.gate_use_softmax = gate_use_softmax
 
         # PC gate per expert: g_e(pc) ∈ R^D
@@ -363,9 +359,7 @@ class POSO(BaseModel):
             "main_sequence_features",
         )
 
-        self.pc_dense_features = select_features(
-            self.dense_features, self.pc_dense_feature_names, "pc_dense_features"
-        )
+        self.pc_dense_features = select_features(self.dense_features, self.pc_dense_feature_names, "pc_dense_features")
         self.pc_sparse_features = select_features(
             self.sparse_features, self.pc_sparse_feature_names, "pc_sparse_features"
         )
@@ -375,21 +369,13 @@ class POSO(BaseModel):
             "pc_sequence_features",
         )
 
-        self.main_features = (
-            self.main_dense_features
-            + self.main_sparse_features
-            + self.main_sequence_features
-        )
-        self.pc_features = (
-            self.pc_dense_features + self.pc_sparse_features + self.pc_sequence_features
-        )
+        self.main_features = self.main_dense_features + self.main_sparse_features + self.main_sequence_features
+        self.pc_features = self.pc_dense_features + self.pc_sparse_features + self.pc_sequence_features
 
         if not self.main_features:
             raise ValueError("POSO requires at least one main feature.")
         if not self.pc_features:
-            raise ValueError(
-                "POSO requires at least one PC feature for personalization."
-            )
+            raise ValueError("POSO requires at least one PC feature for personalization.")
 
         self.embedding = EmbeddingLayer(features=self.all_features)
         self.main_input_dim = self.embedding.get_input_dim(self.main_features)
@@ -397,9 +383,7 @@ class POSO(BaseModel):
 
         self.architecture = architecture.lower()
         if self.architecture not in {"mlp", "mmoe"}:
-            raise ValueError(
-                f"Unsupported architecture '{architecture}', choose from ['mlp', 'mmoe']."
-            )
+            raise ValueError(f"Unsupported architecture '{architecture}', choose from ['mlp', 'mmoe'].")
 
         # Build backbones
         if self.architecture == "mlp":
@@ -409,32 +393,25 @@ class POSO(BaseModel):
                 hidden_dims = tower_params.get("hidden_dims")
                 if not hidden_dims:
                     raise ValueError(
-                        "tower_mlp_params_list must include a non-empty 'hidden_dims' "
-                        "list for POSO-MLP towers."
+                        "tower_mlp_params_list must include a non-empty 'hidden_dims' " "list for POSO-MLP towers."
                     )
                 dropout = tower_params.get("dropout", 0.0)
                 tower = POSOMLP(
                     input_dim=self.main_input_dim,
                     pc_dim=self.pc_input_dim,
                     hidden_dims=hidden_dims,
-                    gate_hidden_dim=tower_params.get(
-                        "gate_hidden_dim", gate_hidden_dim
-                    ),
+                    gate_hidden_dim=tower_params.get("gate_hidden_dim", gate_hidden_dim),
                     scale_factor=tower_params.get("scale_factor", gate_scale_factor),
                     activation=tower_params.get("activation", gate_activation),
                     use_bias=tower_params.get("use_bias", gate_use_bias),
                     dropout=dropout,
                 )
                 self.towers.append(tower)
-                tower_output_dim = (
-                    hidden_dims[-1] if hidden_dims else self.main_input_dim
-                )
+                tower_output_dim = hidden_dims[-1] if hidden_dims else self.main_input_dim
                 self.tower_heads.append(nn.Linear(tower_output_dim, 1))
         else:
             if expert_hidden_dims is None or not expert_hidden_dims:
-                raise ValueError(
-                    "expert_hidden_dims must be provided for MMoE architecture."
-                )
+                raise ValueError("expert_hidden_dims must be provided for MMoE architecture.")
             self.mmoe = POSOMMoE(
                 input_dim=self.main_input_dim,
                 pc_dim=self.pc_input_dim,
@@ -466,14 +443,8 @@ class POSO(BaseModel):
             task_type=self.task,
             task_dims=[1] * self.nums_task,
         )
-        include_modules = (
-            ["towers", "tower_heads"]
-            if self.architecture == "mlp"
-            else ["mmoe", "towers"]
-        )
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=include_modules
-        )
+        include_modules = ["towers", "tower_heads"] if self.architecture == "mlp" else ["mmoe", "towers"]
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=include_modules)
 
     def forward(self, x):
         # Embed main and PC features separately so PC can gate hidden units

@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Xiao J, Ye H, He X, et al. Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks
@@ -82,27 +82,19 @@ class AFM(BaseModel):
 
         self.fm_features = sparse_features + sequence_features
         if len(self.fm_features) < 2:
-            raise ValueError(
-                "AFM requires at least two sparse/sequence features to build pairwise interactions."
-            )
+            raise ValueError("AFM requires at least two sparse/sequence features to build pairwise interactions.")
 
         # make sure all embedding dimension are the same for FM features
         self.embedding_dim = self.fm_features[0].embedding_dim
         if any(f.embedding_dim != self.embedding_dim for f in self.fm_features):
-            raise ValueError(
-                "All FM features must share the same embedding_dim for AFM."
-            )
+            raise ValueError("All FM features must share the same embedding_dim for AFM.")
 
-        self.embedding = EmbeddingLayer(
-            features=self.fm_features
-        )  # [Batch, Field, Dim ]
+        self.embedding = EmbeddingLayer(features=self.fm_features)  # [Batch, Field, Dim ]
 
         # First-order terms: dense linear + one hot embeddings
         self.dense_features = list(dense_features)
         dense_input_dim = sum([f.input_dim for f in self.dense_features])
-        self.linear_dense = (
-            nn.Linear(dense_input_dim, 1, bias=True) if dense_input_dim > 0 else None
-        )
+        self.linear_dense = nn.Linear(dense_input_dim, 1, bias=True) if dense_input_dim > 0 else None
 
         # First-order term: sparse/sequence features one-hot
         # **INFO**: source paper does not contain sequence features in experiments,
@@ -110,9 +102,7 @@ class AFM(BaseModel):
         # remove sequence features from fm_features.
         self.first_order_embeddings = nn.ModuleDict()
         for feature in self.fm_features:
-            if (
-                feature.embedding_name in self.first_order_embeddings
-            ):  # shared embedding
+            if feature.embedding_name in self.first_order_embeddings:  # shared embedding
                 continue
             emb = nn.Embedding(
                 num_embeddings=feature.vocab_size,
@@ -142,22 +132,16 @@ class AFM(BaseModel):
             ],
         )
         # add first-order embeddings to embedding regularization list
-        self.embedding_params.extend(
-            emb.weight for emb in self.first_order_embeddings.values()
-        )
+        self.embedding_params.extend(emb.weight for emb in self.first_order_embeddings.values())
 
     def forward(self, x):
-        field_emb = self.embedding(
-            x=x, features=self.fm_features, squeeze_dim=False
-        )  # [B, F, D]
+        field_emb = self.embedding(x=x, features=self.fm_features, squeeze_dim=False)  # [B, F, D]
         batch_size = field_emb.size(0)
         y_linear = torch.zeros(batch_size, 1, device=field_emb.device)
 
         # First-order dense part
         if self.linear_dense is not None:
-            dense_inputs = [
-                x[f.name].float().reshape(batch_size, -1) for f in self.dense_features
-            ]
+            dense_inputs = [x[f.name].float().reshape(batch_size, -1) for f in self.dense_features]
             dense_stack = torch.cat(dense_inputs, dim=1) if dense_inputs else None
             if dense_stack is not None:
                 y_linear = y_linear + self.linear_dense(dense_stack)
@@ -177,9 +161,7 @@ class AFM(BaseModel):
                 term = (seq_weight * mask).sum(dim=1, keepdim=True)  # [B, 1]
             first_order_terms.append(term)
         if first_order_terms:
-            y_linear = y_linear + torch.sum(
-                torch.cat(first_order_terms, dim=1), dim=1, keepdim=True
-            )
+            y_linear = y_linear + torch.sum(torch.cat(first_order_terms, dim=1), dim=1, keepdim=True)
 
         interactions = []
         feature_values = []
@@ -196,9 +178,7 @@ class AFM(BaseModel):
                 else:
                     value = torch.ones(batch_size, 1, device=field_emb.device)
             feature_values.append(value)
-        feature_values_tensor = torch.cat(feature_values, dim=1).unsqueeze(
-            -1
-        )  # [B, F, 1]
+        feature_values_tensor = torch.cat(feature_values, dim=1).unsqueeze(-1)  # [B, F, 1]
         field_emb = field_emb * feature_values_tensor
 
         num_fields = field_emb.shape[1]

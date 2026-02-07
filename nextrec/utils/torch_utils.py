@@ -5,7 +5,7 @@ This module groups device setup, distributed helpers, optimizers/schedulers,
 initialization, and tensor helpers.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 22/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -56,9 +56,7 @@ def to_numpy(values: Any) -> np.ndarray:
     return np.asarray(values)
 
 
-def to_tensor(
-    value: Any, dtype: torch.dtype, device: torch.device | str | None = None
-) -> torch.Tensor:
+def to_tensor(value: Any, dtype: torch.dtype, device: torch.device | str | None = None) -> torch.Tensor:
     if value is None:
         raise ValueError("[Tensor Utils Error] Cannot convert None to tensor.")
     if isinstance(value, torch.Tensor):
@@ -71,9 +69,7 @@ def to_tensor(
         tensor = tensor.to(dtype=dtype)
 
     if device is not None:
-        target_device = (
-            device if isinstance(device, torch.device) else torch.device(device)
-        )
+        target_device = device if isinstance(device, torch.device) else torch.device(device)
         if tensor.device != target_device:
             tensor = tensor.to(target_device)
     return tensor
@@ -124,19 +120,13 @@ def get_initializer(
         elif init_type == "xavier_normal":
             nn.init.xavier_normal_(tensor, gain=gain)
         elif init_type == "kaiming_uniform":
-            nn.init.kaiming_uniform_(
-                tensor, a=param.get("a", 0), nonlinearity=nonlinearity  # type: ignore
-            )
+            nn.init.kaiming_uniform_(tensor, a=param.get("a", 0), nonlinearity=nonlinearity)  # type: ignore
         elif init_type == "kaiming_normal":
-            nn.init.kaiming_normal_(
-                tensor, a=param.get("a", 0), nonlinearity=nonlinearity  # type: ignore
-            )
+            nn.init.kaiming_normal_(tensor, a=param.get("a", 0), nonlinearity=nonlinearity)  # type: ignore
         elif init_type == "orthogonal":
             nn.init.orthogonal_(tensor, gain=gain)
         elif init_type == "normal":
-            nn.init.normal_(
-                tensor, mean=param.get("mean", 0.0), std=param.get("std", 0.0001)
-            )
+            nn.init.normal_(tensor, mean=param.get("mean", 0.0), std=param.get("std", 0.0001))
         elif init_type == "uniform":
             nn.init.uniform_(tensor, a=param.get("a", -0.05), b=param.get("b", 0.05))
         else:
@@ -146,23 +136,17 @@ def get_initializer(
     return initializer_fn
 
 
-def get_device(
-    distributed: bool, local_rank: int, base_device: torch.device | str = "cpu"
-) -> torch.device:
+def get_device(distributed: bool, local_rank: int, base_device: torch.device | str = "cpu") -> torch.device:
     try:
         device = torch.device(base_device)
     except Exception:
-        logging.warning(
-            "[get_device Warning] Invalid base_device, falling back to CPU."
-        )
+        logging.warning("[get_device Warning] Invalid base_device, falling back to CPU.")
         return torch.device("cpu")
 
     if distributed:
         if device.type == "cuda":
             if not torch.cuda.is_available():
-                logging.warning(
-                    "[Distributed Warning] CUDA requested but unavailable. Falling back to CPU."
-                )
+                logging.warning("[Distributed Warning] CUDA requested but unavailable. Falling back to CPU.")
                 return torch.device("cpu")
             if not (0 <= local_rank < torch.cuda.device_count()):
                 logging.warning(
@@ -204,9 +188,7 @@ def get_optimizer(
         elif opt_name == "rmsprop":
             opt_class = torch.optim.RMSprop
         else:
-            raise NotImplementedError(
-                f"[Optimizer Error] Unsupported optimizer: {optimizer}"
-            )
+            raise NotImplementedError(f"[Optimizer Error] Unsupported optimizer: {optimizer}")
         optimizer_fn = opt_class(params=params, **optimizer_params)
     elif isinstance(optimizer, torch.optim.Optimizer):
         optimizer_fn = optimizer
@@ -229,17 +211,11 @@ def get_scheduler(
 ):
     if isinstance(scheduler, str):
         if scheduler == "step":
-            scheduler_fn = torch.optim.lr_scheduler.StepLR(
-                optimizer, **scheduler_params
-            )
+            scheduler_fn = torch.optim.lr_scheduler.StepLR(optimizer, **scheduler_params)
         elif scheduler == "cosine":
-            scheduler_fn = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, **scheduler_params
-            )
+            scheduler_fn = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **scheduler_params)
         else:
-            raise NotImplementedError(
-                f"[Scheduler Error] Unsupported scheduler: {scheduler}"
-            )
+            raise NotImplementedError(f"[Scheduler Error] Unsupported scheduler: {scheduler}")
     elif isinstance(scheduler, type) and issubclass(
         scheduler,
         (torch.optim.lr_scheduler._LRScheduler, torch.optim.lr_scheduler.LRScheduler),
@@ -256,9 +232,7 @@ def get_scheduler(
     return scheduler_fn
 
 
-def init_process_group(
-    distributed: bool, rank: int, world_size: int, device_id: int | None = None
-) -> None:
+def init_process_group(distributed: bool, rank: int, world_size: int, device_id: int | None = None) -> None:
     """
     initialize distributed process group for multi-GPU training.
 
@@ -272,9 +246,7 @@ def init_process_group(
     backend = "nccl" if device_id is not None else "gloo"
     if backend == "nccl":
         torch.cuda.set_device(device_id)
-    dist.init_process_group(
-        backend=backend, init_method="env://", rank=rank, world_size=world_size
-    )
+    dist.init_process_group(backend=backend, init_method="env://", rank=rank, world_size=world_size)
 
 
 def gather_numpy(self, array: np.ndarray | None) -> np.ndarray | None:
@@ -340,9 +312,7 @@ def add_distributed_sampler(
         drop_last=drop_last,
     )
     loader_kwargs = {
-        "batch_size": (
-            loader.batch_size if loader.batch_size is not None else default_batch_size
-        ),
+        "batch_size": (loader.batch_size if loader.batch_size is not None else default_batch_size),
         "shuffle": False,
         "sampler": sampler,
         "num_workers": loader.num_workers,

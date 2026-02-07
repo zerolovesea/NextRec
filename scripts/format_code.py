@@ -3,13 +3,17 @@
 Format / lint Python files with ruff + black, only on files not ignored by git.
 
 Date: create on 07/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 
 Usage:
-  python format_python.py [--check] [--no-install] [path ...]
+  python format_code.py [--check] [--no-install] [--line-length N]
+                         [--skip-magic-trailing-comma] [path ...]
 
   --check       Run in check/diff mode (no files will be modified).
   --no-install  Do not auto-install ruff/black; expect them to already exist.
+  --line-length Target max line length for ruff/black (default: 120).
+  --skip-magic-trailing-comma  Avoid "magic trailing comma" expansion in black.
   path ...      Optional paths (files or directories). If omitted, the repo root is used.
 """
 
@@ -37,6 +41,17 @@ def parse_args() -> argparse.Namespace:
         "--no-install",
         action="store_true",
         help="Skip automatic pip installs; expect ruff/black to already exist.",
+    )
+    parser.add_argument(
+        "--line-length",
+        type=int,
+        default=120,
+        help="Target max line length for ruff/black (default: 120).",
+    )
+    parser.add_argument(
+        "--skip-magic-trailing-comma",
+        action="store_true",
+        help='Avoid black "magic trailing comma" expansion.',
     )
     parser.add_argument(
         "paths",
@@ -209,9 +224,27 @@ def main() -> None:
     for chunk in chunked(py_files):
         paths_str = [str(p) for p in chunk]
 
+        ruff_common = [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--line-length",
+            str(args.line_length),
+        ]
+        black_common = [
+            sys.executable,
+            "-m",
+            "black",
+            "--line-length",
+            str(args.line_length),
+        ]
+        if args.skip_magic_trailing_comma:
+            black_common.append("--skip-magic-trailing-comma")
+
         if args.check:
-            ruff_cmd = [sys.executable, "-m", "ruff", "check", "--diff", *paths_str]
-            black_cmd = [sys.executable, "-m", "black", "--check", "--diff", *paths_str]
+            ruff_cmd = [*ruff_common, "--diff", *paths_str]
+            black_cmd = [*black_common, "--check", "--diff", *paths_str]
 
             ruff_ret = run_command(ruff_cmd, allow_failure=True)
             black_ret = run_command(black_cmd, allow_failure=True)
@@ -219,14 +252,13 @@ def main() -> None:
             if ruff_ret != 0 or black_ret != 0:
                 exit_code = 1
         else:
-            ruff_cmd = [sys.executable, "-m", "ruff", "check", "--fix", *paths_str]
-            black_cmd = [sys.executable, "-m", "black", *paths_str]
+            ruff_cmd = [*ruff_common, "--fix", *paths_str]
+            black_cmd = [*black_common, *paths_str]
 
             ruff_ret = run_command(ruff_cmd, allow_failure=True)
             if ruff_ret != 0:
                 print(
-                    "Warning: ruff reported issues that could not be fully fixed. "
-                    "See output above for details.",
+                    "Warning: ruff reported issues that could not be fully fixed. " "See output above for details.",
                     file=sys.stderr,
                 )
 

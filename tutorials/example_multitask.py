@@ -91,9 +91,7 @@ sparse_features = [
 num_sparse = len([col for col in df.columns if col.startswith("sparse_")])
 sparse_features.extend(
     [
-        SparseFeature(
-            f"sparse_{i}", vocab_size=int(df[f"sparse_{i}"].max() + 1), embedding_dim=16
-        )
+        SparseFeature(f"sparse_{i}", vocab_size=int(df[f"sparse_{i}"].max() + 1), embedding_dim=16)
         for i in range(num_sparse)
     ]
 )

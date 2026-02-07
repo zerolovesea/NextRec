@@ -11,9 +11,7 @@ import subprocess
 import sys
 import os
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -106,17 +104,11 @@ Examples:
         help="Type of tests to run (default: all)",
     )
 
-    parser.add_argument(
-        "--coverage", "-c", action="store_true", help="Generate coverage report"
-    )
+    parser.add_argument("--coverage", "-c", action="store_true", help="Generate coverage report")
 
-    parser.add_argument(
-        "--quiet", "-q", action="store_true", help="Reduce output verbosity"
-    )
+    parser.add_argument("--quiet", "-q", action="store_true", help="Reduce output verbosity")
 
-    parser.add_argument(
-        "--markers", "-m", type=str, help="Run tests matching given mark expression"
-    )
+    parser.add_argument("--markers", "-m", type=str, help="Run tests matching given mark expression")
 
     args = parser.parse_args()
 

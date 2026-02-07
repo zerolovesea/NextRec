@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Wang H, Chang T-W, Liu T, Huang J, Chen Z, Yu C, Li R, Chu W. ESCM²: Entire Space Counterfactual Multi-Task Model for Post-Click Conversion Rate Estimation. Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR ’22), 2022:363–372.
@@ -89,9 +89,7 @@ class ESCM(BaseModel):
             target_roles = list(target)
         else:
             if len(target) > len(default_roles):
-                raise ValueError(
-                    f"ESCM supports up to {len(default_roles)} targets, got {len(target)}."
-                )
+                raise ValueError(f"ESCM supports up to {len(default_roles)} targets, got {len(target)}.")
             target_roles = default_roles[: len(target)]
 
         self.target_roles = target_roles
@@ -109,17 +107,13 @@ class ESCM(BaseModel):
             self.imp_tower = MLP(input_dim=input_dim, output_dim=1, **imp_mlp_params)
 
         self.base_task_types = ["binary"] * len(base_targets)
-        self.prediction_layer = TaskHead(
-            task_type=self.base_task_types, task_dims=[1] * len(base_targets)
-        )
+        self.prediction_layer = TaskHead(task_type=self.base_task_types, task_dims=[1] * len(base_targets))
 
         self.grad_norm_shared_modules = ["embedding"]
         reg_modules = ["ctr_tower", "cvr_tower"]
         if self.use_dr:
             reg_modules.append("imp_tower")
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=reg_modules
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=reg_modules)
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
@@ -209,9 +203,7 @@ class ESCM(BaseModel):
 
     def compute_loss(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
         if y_true is None:
-            raise ValueError(
-                "[ESCM-compute_loss Error] Ground truth labels (y_true) are required."
-            )
+            raise ValueError("[ESCM-compute_loss Error] Ground truth labels (y_true) are required.")
 
         if y_pred.dim() == 1:
             y_pred = y_pred.view(-1, 1)
@@ -222,15 +214,9 @@ class ESCM(BaseModel):
         ctr_index = role_to_index.get("ctr")
         imp_index = role_to_index.get("imp")
 
-        ctr_pred = (
-            y_pred[:, ctr_index : ctr_index + 1] if ctr_index is not None else None
-        )
-        ctr_true = (
-            y_true[:, ctr_index : ctr_index + 1] if ctr_index is not None else None
-        )
-        imp_pred = (
-            y_pred[:, imp_index : imp_index + 1] if imp_index is not None else None
-        )
+        ctr_pred = y_pred[:, ctr_index : ctr_index + 1] if ctr_index is not None else None
+        ctr_true = y_true[:, ctr_index : ctr_index + 1] if ctr_index is not None else None
+        imp_pred = y_pred[:, imp_index : imp_index + 1] if imp_index is not None else None
 
         task_losses = []
         for i, role in enumerate(self.target_roles):
@@ -279,12 +265,7 @@ class ESCM(BaseModel):
                 self.grad_norm_shared_params = get_grad_norm_shared_params(
                     self, getattr(self, "grad_norm_shared_modules", None)
                 )
-            return self.grad_norm.compute_weighted_loss(
-                task_losses, self.grad_norm_shared_params
-            )
+            return self.grad_norm.compute_weighted_loss(task_losses, self.grad_norm_shared_params)
         if isinstance(self.loss_weights, (list, tuple)):
-            task_losses = [
-                task_loss * self.loss_weights[i]
-                for i, task_loss in enumerate(task_losses)
-            ]
+            task_losses = [task_loss * self.loss_weights[i] for i, task_loss in enumerate(task_losses)]
         return torch.stack(task_losses).sum()

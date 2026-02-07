@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 
 Shared-Bottom is the classic hard-parameter-sharing baseline for multi-task learning.
@@ -101,10 +101,7 @@ class ShareBottom(BaseModel):
         self.grad_norm_shared_modules = ["embedding", "bottom"]
 
         # Get bottom output dimension
-        if (
-            "hidden_dims" in bottom_mlp_params
-            and len(bottom_mlp_params["hidden_dims"]) > 0
-        ):
+        if "hidden_dims" in bottom_mlp_params and len(bottom_mlp_params["hidden_dims"]) > 0:
             bottom_output_dim = bottom_mlp_params["hidden_dims"][-1]
         else:
             bottom_output_dim = input_dim
@@ -114,13 +111,9 @@ class ShareBottom(BaseModel):
         for tower_mlp_params in tower_mlp_params_list:
             tower = MLP(input_dim=bottom_output_dim, output_dim=1, **tower_mlp_params)
             self.towers.append(tower)
-        self.prediction_layer = TaskHead(
-            task_type=self.task, task_dims=[1] * self.nums_task
-        )
+        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         # Register regularization weights
-        self.register_regularization_weights(
-            embedding_attr="embedding", include_modules=["bottom", "towers"]
-        )
+        self.register_regularization_weights(embedding_attr="embedding", include_modules=["bottom", "towers"])
 
     def forward(self, x):
         # Get all embeddings and flatten

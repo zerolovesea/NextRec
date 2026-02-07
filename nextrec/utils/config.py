@@ -5,7 +5,7 @@ This module provides utilities for loading and processing configuration files,
 including feature configuration, model configuration, and training configuration.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 19/12/2025
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -28,9 +28,7 @@ if TYPE_CHECKING:
     from nextrec.data.preprocessor import DataProcessor
 
 
-def resolve_path(
-    path_str: str | Path | None = None, base_dir: Path | None = None
-) -> Path:
+def resolve_path(path_str: str | Path | None = None, base_dir: Path | None = None) -> Path:
     if path_str is None:
         return Path.cwd()
     path = Path(path_str).expanduser()
@@ -43,11 +41,7 @@ def resolve_path(
         ((base_dir or Path.cwd()) / path).resolve(),
     )
     return next(
-        (
-            candidate
-            for candidate in candidates
-            if candidate.exists() or candidate.parent.exists()
-        ),
+        (candidate for candidate in candidates if candidate.exists() or candidate.parent.exists()),
         candidates[0],
     )
 
@@ -62,9 +56,7 @@ def safe_value(value: Any):
     return str(value)
 
 
-def select_features(
-    feature_cfg: Dict[str, Any], df_columns: List[str]
-) -> Tuple[List[str], List[str], List[str]]:
+def select_features(feature_cfg: Dict[str, Any], df_columns: List[str]) -> Tuple[List[str], List[str], List[str]]:
     columns = set(df_columns)
 
     def pick(group: str) -> List[str]:
@@ -175,12 +167,7 @@ def build_feature_objects(
         entry = sparse_cfg.get(name, {}) or {}
         proc_cfg = entry.get("processor_config", {}) or {}
         embed_cfg = entry.get("embedding_config", {}) or {}
-        vocab_size = (
-            embed_cfg.get("vocab_size")
-            or proc_cfg.get("hash_size")
-            or vocab_sizes.get(name, 0)
-            or 1
-        )
+        vocab_size = embed_cfg.get("vocab_size") or proc_cfg.get("hash_size") or vocab_sizes.get(name, 0) or 1
         sparse_features.append(
             SparseFeature(
                 name=name,
@@ -201,12 +188,7 @@ def build_feature_objects(
         entry = sequence_cfg.get(name, {}) or {}
         proc_cfg = entry.get("processor_config", {}) or {}
         embed_cfg = entry.get("embedding_config", {}) or {}
-        vocab_size = (
-            embed_cfg.get("vocab_size")
-            or proc_cfg.get("hash_size")
-            or vocab_sizes.get(name, 0)
-            or 1
-        )
+        vocab_size = embed_cfg.get("vocab_size") or proc_cfg.get("hash_size") or vocab_sizes.get(name, 0) or 1
         sequence_features.append(
             SequenceFeature(
                 name=name,
@@ -270,9 +252,7 @@ def extract_feature_groups(
                     missing_cols.append(n)
 
         if missing_cols:
-            print(
-                f"[Feature Config] feature_groups.{group_name} missing data columns: {missing_cols}"
-            )
+            print(f"[Feature Config] feature_groups.{group_name} missing data columns: {missing_cols}")
 
         resolved[group_name] = filtered
         collected.extend(filtered)
@@ -291,10 +271,7 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
 
     def camelize(name: str) -> str:
         """Convert snake_case or kebab-case to CamelCase."""
-        return "".join(
-            part.capitalize()
-            for part in name.replace("_", " ").replace("-", " ").split()
-        )
+        return "".join(part.capitalize() for part in name.replace("_", " ").replace("-", " ").split())
 
     module_path = model_cfg.get("module_path")
     name = model_cfg.get("model") or model_cfg.get("name")
@@ -321,16 +298,10 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
         from nextrec.basic.model import BaseModel
 
         for attr in module.__dict__.values():
-            if (
-                isinstance(attr, type)
-                and issubclass(attr, BaseModel)
-                and attr is not BaseModel
-            ):
+            if isinstance(attr, type) and issubclass(attr, BaseModel) and attr is not BaseModel:
                 return attr
 
-        raise AttributeError(
-            f"No BaseModel subclass found in {resolved}, please provide class_name"
-        )
+        raise AttributeError(f"No BaseModel subclass found in {resolved}, please provide class_name")
 
     # Case 2: Builtin model by short name
     if name and not module_name:
@@ -356,11 +327,7 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
 
                 # Fallback: first BaseModel subclass
                 for attr in module.__dict__.values():
-                    if (
-                        isinstance(attr, type)
-                        and issubclass(attr, BaseModel)
-                        and attr is not BaseModel
-                    ):
+                    if isinstance(attr, type) and issubclass(attr, BaseModel) and attr is not BaseModel:
                         return attr
 
                 errors.append(f"{mod} missing class {cls_name}")
@@ -412,11 +379,7 @@ def build_model_instance(
     model_cls = load_model_class(model_cfg, model_cfg_path.parent)
     params_cfg = deepcopy(model_cfg.get("params") or {})
     feature_groups = params_cfg.pop("feature_groups", {}) or {}
-    feature_bindings_cfg = (
-        model_cfg.get("feature_bindings")
-        or params_cfg.pop("feature_bindings", {})
-        or {}
-    )
+    feature_bindings_cfg = model_cfg.get("feature_bindings") or params_cfg.pop("feature_bindings", {}) or {}
     sig_params = inspect.signature(model_cls.__init__).parameters
 
     def _select(names: List[str] | None, pool: Dict[str, Any], desc: str) -> List[Any]:
@@ -425,18 +388,14 @@ def build_model_instance(
             return list(pool.values())
         missing = [n for n in names if n not in feature_pool]
         if missing:
-            raise ValueError(
-                f"feature_groups.{desc} contains unknown features: {missing}"
-            )
+            raise ValueError(f"feature_groups.{desc} contains unknown features: {missing}")
         return [feature_pool[n] for n in names]
 
     def accepts(name: str) -> bool:
         """Check if parameter name is accepted by model __init__."""
         return name in sig_params
 
-    accepts_var_kwargs = any(
-        param.kind == inspect.Parameter.VAR_KEYWORD for param in sig_params.values()
-    )
+    accepts_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in sig_params.values())
 
     init_kwargs = dict(params_cfg)
 
@@ -447,9 +406,7 @@ def build_model_instance(
 
         if isinstance(binding, (list, tuple, set)):
             if accepts(param_name) or accepts_var_kwargs:
-                init_kwargs[param_name] = _select(
-                    list(binding), feature_pool, f"feature_bindings.{param_name}"
-                )
+                init_kwargs[param_name] = _select(list(binding), feature_pool, f"feature_bindings.{param_name}")
             continue
 
         if isinstance(binding, dict):
@@ -466,22 +423,16 @@ def build_model_instance(
             group_key = binding
 
         if group_key not in feature_groups:
-            print(
-                f"[Feature Config] feature_bindings refers to unknown group '{group_key}', skipped"
-            )
+            print(f"[Feature Config] feature_bindings refers to unknown group '{group_key}', skipped")
             continue
 
         if accepts(param_name) or accepts_var_kwargs:
-            init_kwargs[param_name] = _select(
-                feature_groups[group_key], feature_pool, str(group_key)
-            )
+            init_kwargs[param_name] = _select(feature_groups[group_key], feature_pool, str(group_key))
 
     # Dynamic feature groups: any key in feature_groups that matches __init__ will be filled
     for group_key, names in feature_groups.items():
         if accepts(str(group_key)):
-            init_kwargs.setdefault(
-                str(group_key), _select(names, feature_pool, str(group_key))
-            )
+            init_kwargs.setdefault(str(group_key), _select(names, feature_pool, str(group_key)))
 
     # Generalized mapping: match params to feature_groups by normalized names
     def _normalize_group_key(key: str) -> str:
@@ -501,13 +452,9 @@ def build_model_instance(
         if param_name in ("self",) or param_name in init_kwargs:
             continue
         norm_param = _normalize_group_key(param_name)
-        if norm_param in normalized_groups and (
-            accepts(param_name) or accepts_var_kwargs
-        ):
+        if norm_param in normalized_groups and (accepts(param_name) or accepts_var_kwargs):
             group_key = normalized_groups[norm_param]
-            init_kwargs[param_name] = _select(
-                feature_groups[group_key], feature_pool, str(group_key)
-            )
+            init_kwargs[param_name] = _select(feature_groups[group_key], feature_pool, str(group_key))
 
     # Feature wiring: prefer explicit groups when provided
     if accepts("dense_features"):
@@ -548,9 +495,7 @@ def build_user_histories(
 
     histories = []
     labels = []
-    for _, user_df in df_with_ids.sort_values(["user_id", "log_time"]).groupby(
-        "user_id"
-    ):
+    for _, user_df in df_with_ids.sort_values(["user_id", "log_time"]).groupby("user_id"):
         tokens = torch.tensor(user_df["semantic_token"].tolist(), dtype=torch.long)
         for i in range(1, len(tokens)):
             start = max(0, i - seq_len)

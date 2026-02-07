@@ -2,7 +2,7 @@
 GradNorm loss weighting for multi-task learning.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 22/01/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 
 Reference:
@@ -132,24 +132,18 @@ class GradNormLossWeighting:
         BaseModel will use this method to compute the weighted loss when self.grad_norm is enabled.
         """
         if len(task_losses) != self.nums_task:
-            raise ValueError(
-                f"Expected {self.nums_task} task losses, got {len(task_losses)}."
-            )
+            raise ValueError(f"Expected {self.nums_task} task losses, got {len(task_losses)}.")
         shared_params = [p for p in shared_params if p.requires_grad]
         if not shared_params:
             return torch.stack(task_losses).sum()
 
         with torch.no_grad():
-            loss_values = torch.tensor(
-                [loss.item() for loss in task_losses], device=self.weights.device
-            )
+            loss_values = torch.tensor([loss.item() for loss in task_losses], device=self.weights.device)
             if self.initial_losses is None:
                 self.initial_losses = loss_values.clone()
 
         weights_detached = self.weights.detach()
-        weighted_losses = [
-            weights_detached[i] * task_losses[i] for i in range(self.nums_task)
-        ]
+        weighted_losses = [weights_detached[i] * task_losses[i] for i in range(self.nums_task)]
         total_loss = torch.stack(weighted_losses).sum()
 
         grad_norms = self.compute_grad_norms(task_losses, shared_params)

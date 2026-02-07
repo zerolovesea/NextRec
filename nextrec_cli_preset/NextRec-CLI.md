@@ -79,10 +79,8 @@ feature_config: path/to/feature_config.yaml  # Feature configuration file path
 model_config: path/to/model_config.yaml      # Model configuration file path
 
 dataloader:
-  train_batch_size: 512                 # Training batch size
-  train_shuffle: true                   # Shuffle training data each epoch
-  valid_batch_size: 512                 # Validation batch size
-  valid_shuffle: false                  # Shuffle validation data
+  batch_size: 512                       # Training batch size (used for validation too)
+  shuffle: true                         # Shuffle training data each epoch
   num_workers: 4                        # Number of parallel data loading workers
                                         # 0 = single process, >0 = multiprocessing
   # chunk_size: 20000                   # Chunk size when streaming=true
@@ -112,7 +110,6 @@ train:
     # - mae
     # - rmse
   epochs: 10                           # Number of training epochs
-  batch_size: 512                      # Overrides dataloader.train_batch_size if set
   shuffle: true                        # Shuffle training data
   log_interval: 1                      # Log validation metrics every N epochs
   note: ""                             # Optional run note stored in training logs
@@ -160,10 +157,8 @@ train:
   - `false`: Loads all data into memory at once
 
 ##### dataloader Section
-- `train_batch_size`: Batch size for training
-- `train_shuffle`: Whether to shuffle training data
-- `valid_batch_size`: Batch size for validation
-- `valid_shuffle`: Whether to shuffle validation data
+- `batch_size`: Training batch size (validation uses the same value)
+- `shuffle`: Whether to shuffle training data (validation does not shuffle)
 - `num_workers`: Number of data loading workers
 - `prefetch_factor`: Prefetch batches per worker (effective when `num_workers > 0`)
 - `chunk_size`: Data chunk size for streaming processing (when `streaming=true`)
@@ -191,7 +186,6 @@ train:
   - `f1`: F1 Score
   - `gauc`: Group AUC
 - `epochs`: Number of training epochs
-- `batch_size`: Overrides dataloader batch size if set
 - `shuffle`: Whether to shuffle training data
 - `log_interval`: Log validation metrics every N epochs
 - `note`: Optional run note stored in training logs
@@ -619,10 +613,8 @@ feature_config: feature_config.yaml
 model_config: model_config.yaml
 
 dataloader:
-  train_batch_size: 512
-  train_shuffle: true
-  valid_batch_size: 512
-  valid_shuffle: false
+  batch_size: 512
+  shuffle: true
   num_workers: 4
 
 train:
@@ -643,7 +635,6 @@ train:
     - recall
     - precision
   epochs: 10
-  batch_size: 512
   shuffle: true
   device: cuda
 ```
@@ -717,10 +708,8 @@ feature_config: feature_config.yaml
 model_config: mmoe_config.yaml
 
 dataloader:
-  train_batch_size: 512
-  train_shuffle: true
-  valid_batch_size: 512
-  valid_shuffle: false
+  batch_size: 512
+  shuffle: true
   num_workers: 4
 
 train:
@@ -733,7 +722,6 @@ train:
   metrics:
     - auc
   epochs: 10
-  batch_size: 512
   shuffle: true
   device: cuda
 ```
@@ -770,7 +758,7 @@ data:
 
 dataloader:
   chunk_size: 50000                   # Read 50000 rows at a time
-  train_batch_size: 512
+  batch_size: 512
 ```
 
 ### Using Separate Validation Dataset

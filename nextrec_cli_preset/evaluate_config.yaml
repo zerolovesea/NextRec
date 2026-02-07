@@ -1,0 +1,29 @@
+checkpoint_path: nextrec_logs/ctcvr_task
+
+model_config: model_configs/mmoe.yaml
+
+evaluate:
+  data_path: ../dataset/ctcvr_task.csv
+  source_data_format: csv                 
+  id_column: user_id                    
+
+  target:
+    - click
+    - conversion
+
+  device: cpu
+  streaming: false
+
+  metrics:
+    - auc
+    - ks
+    - precision
+    - recall
+
+  confusion_matrix:
+    enable: true
+    thresholds: [0.5, 0.9]          # Thresholds for binary classification confusion matrix
+
+
+# cd nextrec_cli_preset                                           
+# nextrec --mode evaluate --evaluate_config evaluate_config.yaml

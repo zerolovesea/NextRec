@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 01/14/2026
+Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Wang Z, She Q, Zhang J. MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask.
@@ -88,9 +88,7 @@ class MaskBlockOnEmbedding(nn.Module):
         super().__init__()
         self.num_fields = num_fields
         self.embedding_dim = embedding_dim
-        self.input_dim = (
-            num_fields * embedding_dim
-        )  # input_dim = features count * embedding_dim
+        self.input_dim = num_fields * embedding_dim  # input_dim = features count * embedding_dim
         self.ln_emb = nn.LayerNorm(embedding_dim)
         self.mask_gen = InstanceGuidedMask(
             input_dim=self.input_dim,
@@ -101,9 +99,7 @@ class MaskBlockOnEmbedding(nn.Module):
         self.ln_hid = nn.LayerNorm(hidden_dim)
 
     # different from MaskBlockOnHidden: input is field embeddings
-    def forward(
-        self, field_emb: torch.Tensor, v_emb_flat: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, field_emb: torch.Tensor, v_emb_flat: torch.Tensor) -> torch.Tensor:
         B = field_emb.size(0)
         norm_emb = self.ln_emb(field_emb)  # [B, features count, embedding_dim]
         norm_emb_flat = norm_emb.view(B, -1)  # [B, features count * embedding_dim]
@@ -141,9 +137,7 @@ class MaskBlockOnHidden(nn.Module):
         self.ffn = nn.Linear(hidden_dim, hidden_dim)
 
     # different from MaskBlockOnEmbedding: input is hidden representation
-    def forward(
-        self, hidden_in: torch.Tensor, v_emb_flat: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, hidden_in: torch.Tensor, v_emb_flat: torch.Tensor) -> torch.Tensor:
         norm_hidden = self.ln_input(hidden_in)
         v_mask = self.mask_gen(v_emb_flat)
         v_masked_hid = v_mask * norm_hidden
@@ -169,9 +163,7 @@ class MaskNet(BaseModel):
         sequence_features: list[SequenceFeature] | None = None,
         target: str | list[str] | None = None,
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
-        architecture: Literal[
-            "serial", "parallel"
-        ] = "parallel",  # "serial" or "parallel"
+        architecture: Literal["serial", "parallel"] = "parallel",  # "serial" or "parallel"
         num_blocks: int = 3,
         mask_hidden_dim: int = 64,
         block_hidden_dim: int = 256,
@@ -197,15 +189,11 @@ class MaskNet(BaseModel):
         self.sparse_features = sparse_features
         self.sequence_features = sequence_features
         self.mask_features = self.all_features  # use all features for masking
-        assert (
-            len(self.mask_features) > 0
-        ), "MaskNet requires at least one feature for masking."
+        assert len(self.mask_features) > 0, "MaskNet requires at least one feature for masking."
         self.embedding = EmbeddingLayer(features=self.mask_features)
         self.num_fields = len(self.mask_features)
         self.embedding_dim = self.mask_features[0].embedding_dim
-        assert (
-            self.embedding_dim is not None
-        ), "MaskNet requires mask_features to have 'embedding_dim' defined."
+        assert self.embedding_dim is not None, "MaskNet requires mask_features to have 'embedding_dim' defined."
 
         for f in self.mask_features:
             edim = f.embedding_dim
@@ -224,9 +212,7 @@ class MaskNet(BaseModel):
 
         self.num_blocks = max(1, num_blocks)
         self.block_hidden_dim = block_hidden_dim
-        self.block_dropout = (
-            nn.Dropout(block_dropout) if block_dropout > 0 else nn.Identity()
-        )
+        self.block_dropout = nn.Dropout(block_dropout) if block_dropout > 0 else nn.Identity()
 
         if self.architecture == "serial":
             self.first_block = MaskBlockOnEmbedding(
@@ -262,9 +248,7 @@ class MaskNet(BaseModel):
                     for _ in range(self.num_blocks)
                 ]
             )
-            self.final_mlp = MLP(
-                input_dim=self.num_blocks * block_hidden_dim, **mlp_params
-            )
+            self.final_mlp = MLP(input_dim=self.num_blocks * block_hidden_dim, **mlp_params)
             self.output_layer = None
         self.prediction_layer = TaskHead(task_type=self.task)
 

@@ -53,9 +53,7 @@ def test_group_metrics_by_task():
         "logloss_taskB": 0.3,
         "acc": 0.8,
     }
-    task_order, grouped = console_utils.group_metrics_by_task(
-        metrics, target_names=["taskA", "taskB"]
-    )
+    task_order, grouped = console_utils.group_metrics_by_task(metrics, target_names=["taskA", "taskB"])
     assert task_order == ["taskA", "taskB", "overall"]
     assert grouped["taskA"]["auc"] == 0.9
     assert grouped["taskB"]["logloss"] == 0.3
@@ -119,6 +117,4 @@ def test_progress_iterable(monkeypatch):
 
     items = [1, 2, 3]
     assert list(console_utils.progress(items, disable=True)) == items
-    assert (
-        list(console_utils.progress(items, description="test", disable=False)) == items
-    )
+    assert list(console_utils.progress(items, description="test", disable=False)) == items
