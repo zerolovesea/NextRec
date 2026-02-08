@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 08/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -17,14 +17,23 @@ import multiprocessing as mp
 import time
 from pathlib import Path
 from typing import Any, Literal, cast, overload
-
+import io
+from contextlib import redirect_stdout
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import polars as pl
-import swanlab
-import wandb
+
+try:
+    import swanlab  # type: ignore
+except Exception:  # pragma: no cover
+    swanlab = None
+
+try:
+    import wandb  # type: ignore
+except Exception:  # pragma: no cover
+    wandb = None
 
 
 import torch
@@ -114,7 +123,7 @@ from nextrec.utils.types import (
 
 class BaseModel(SummarySet, FeatureSet, nn.Module):
     @property
-    def model_name(self) -> str:
+    def model_name(self) -> str:  # type: ignore[override]
         raise NotImplementedError
 
     @property
@@ -183,7 +192,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.local_rank = env_local_rank if local_rank is None else local_rank
         self.is_main_process = self.rank == 0
         self.ddp_find_unused_parameters = ddp_find_unused_parameters
-        self.ddp_model = None
+        self.ddp_model: DDP | None = None
         self.device = get_device(self.distributed, self.local_rank, device)
 
         self.session_id = session_id
@@ -218,6 +227,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.max_gradient_norm = 1.0
         self.logger_initialized = False
         self.training_logger = None
+        self.steps_per_epoch = None
         self.callbacks = CallbackList()
 
         self.train_data_summary = None
@@ -420,7 +430,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         scheduler_params: dict | None = None,
         loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
-        loss_weights: int | float | list[int | float] | dict | str | None = None,
+        loss_weights: int | float | list[int | float] | dict | None = None,
         ignore_label: int | float | None = -1,
     ):
         """
@@ -433,7 +443,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             loss: Loss function name, instance, or list for multi-task. e.g., 'bce', 'mse', or torch.nn.BCELoss(), you can also use custom loss functions.
             loss_params: Loss function parameters, or list for multi-task. e.g., {'weight': tensor([0.25, 0.75])}.
             loss_weights: Weights for each task loss, int/float for single-task or list for multi-task. e.g., 1.0, or [1.0, 0.5].
-                Use "grad_norm" or {"method": "grad_norm", ...} to enable GradNorm for multi-task loss balancing.
+                Use {"method": "grad_norm", ...} to enable GradNorm for multi-task loss balancing.
             ignore_label: Label value to ignore when computing loss. Use this to skip gradients for unknown labels.
         """
         self.ignore_label = ignore_label
@@ -441,7 +451,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         # get loss list
         loss_list = get_loss_list(loss, self.training_modes, self.nums_task)
 
-        self.loss_params = {} if loss_params is None else loss_params
+        self.loss_params = loss_params or {}
         self.optimizer_params = optimizer_params or {}
         self.scheduler_params = scheduler_params or {}
 
@@ -470,9 +480,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         # loss weighting (grad norm or fixed weights)
         self.grad_norm = None
         self.grad_norm_shared_params = None
-        is_grad_norm = (
-            loss_weights == "grad_norm" or isinstance(loss_weights, dict) and loss_weights.get("method") == "grad_norm"
-        )
+        is_grad_norm = isinstance(loss_weights, dict) and loss_weights.get("method") == "grad_norm"
         if is_grad_norm:
             if self.nums_task == 1:
                 raise ValueError("[BaseModel-compile Error] GradNorm requires multi-task setup.")
@@ -598,16 +606,40 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             task_losses = [task_loss * self.loss_weights[i] for i, task_loss in enumerate(task_losses)]
         return torch.stack(task_losses).sum()
 
+    @overload
     def prepare_data_loader(
         self,
-        data,
+        data: Any,
         batch_size: int = 32,
         shuffle: bool = True,
         num_workers: int = 0,
         prefetch_factor: int | None = None,
-        sampler=None,
+        sampler: Any = None,
+        return_dataset: Literal[False] = False,
+    ) -> DataLoader: ...
+
+    @overload
+    def prepare_data_loader(
+        self,
+        data: Any,
+        batch_size: int = 32,
+        shuffle: bool = True,
+        num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        sampler: Any = None,
+        return_dataset: Literal[True] = True,
+    ) -> tuple[DataLoader, TensorDictDataset | None]: ...
+
+    def prepare_data_loader(
+        self,
+        data: Any,
+        batch_size: int = 32,
+        shuffle: bool = True,
+        num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        sampler: Any = None,
         return_dataset: bool = False,
-    ):
+    ) -> DataLoader | tuple[DataLoader, TensorDictDataset | None]:
         """
         Prepare a DataLoader from input data. Only used when input data is not a DataLoader.
 
@@ -634,9 +666,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if tensors is None:
             raise ValueError("[BaseModel-prepare_data_loader Error] No data available to create DataLoader.")
         dataset = TensorDictDataset(tensors)
-        loader_kwargs = {}
-        if num_workers > 0 and prefetch_factor is not None:
-            loader_kwargs["prefetch_factor"] = prefetch_factor
         loader = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -646,14 +675,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_workers=num_workers,
             pin_memory=self.device.type == "cuda",
             persistent_workers=num_workers > 0,
-            **loader_kwargs,
+            prefetch_factor=prefetch_factor if num_workers > 0 else None,
         )
         return (loader, dataset) if return_dataset else loader
 
     def fit(
         self,
-        train_data=None,
-        valid_data=None,
+        train_data: dict | pd.DataFrame | DataLoader | None = None,
+        valid_data: dict | pd.DataFrame | DataLoader | None = None,
         metrics: (
             list[MetricsName] | dict[str, list[MetricsName]] | None
         ) = None,  # ['auc', 'logloss'] or {'target1': ['auc', 'logloss'], 'target2': ['mse']}
@@ -664,7 +693,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         valid_split: float | None = None,
         early_stop_patience: int = 20,
         early_stop_monitor_task: str | None = None,
-        metrics_sample_limit: int | None = 200000,
         num_workers: int = 0,
         use_tensorboard: bool = True,
         use_wandb: bool = False,
@@ -693,7 +721,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
             early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
             early_stop_monitor_task: Task name to monitor for early stopping in multi-task scenario. If None, uses first target. e.g., 'click'.
-            metrics_sample_limit: Max samples to keep for training metrics. None disables limit.
             num_workers: DataLoader worker count.
 
             use_tensorboard: Enable tensorboard logging.
@@ -756,8 +783,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         self.early_stop_patience = early_stop_patience
         self.early_stop_monitor_task = early_stop_monitor_task
-        # max samples to keep for training metrics, in case of large training set
-        self.metrics_sample_limit = None if metrics_sample_limit is None else int(metrics_sample_limit)
         self.note = note
 
         training_config = {}
@@ -780,7 +805,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 "loss_weights": getattr(self, "loss_weights", None),
                 "early_stop_patience": self.early_stop_patience,
                 "max_gradient_norm": self.max_gradient_norm,
-                "metrics_sample_limit": self.metrics_sample_limit,
                 "embedding_l1_reg": self.embedding_l1_reg,
                 "embedding_l2_reg": self.embedding_l2_reg,
                 "dense_l1_reg": self.dense_l1_reg,
@@ -792,7 +816,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 "sparse_feature_count": len(self.sparse_features),
                 "sequence_feature_count": len(self.sequence_features),
             }
-            training_config: dict = safe_value(training_config)  # type: ignore
+            training_config = safe_value(training_config)
 
         if self.is_main_process:
             is_tty = sys.stdin.isatty() and sys.stdout.isatty()
@@ -863,8 +887,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     verbose=1 if self.is_main_process else 0,
                 )
             )
-
-        has_validation = valid_data is not None or valid_split is not None
 
         if self.is_main_process and not any(isinstance(cb, CheckpointSaver) for cb in existing_callbacks):
             self.callbacks.append(
@@ -948,17 +970,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 else:
                     train_loader = train_data
             else:
-                result = self.prepare_data_loader(
+                loader, dataset = self.prepare_data_loader(
                     train_data,
                     batch_size=batch_size,
                     shuffle=shuffle,
                     num_workers=num_workers,
                     return_dataset=True,
                 )
-                assert isinstance(
-                    result, tuple
-                ), "[BaseModel-fit Error] Expected tuple from prepare_data_loader with return_dataset=True, but got something else."
-                loader, dataset = result
                 if use_ddp_sampler and dataset is not None:
                     train_sampler = DistributedSampler(
                         dataset,
@@ -1040,7 +1058,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         for epoch in range(epochs):
             self.epoch_index = epoch
-
             self.callbacks.on_epoch_begin(epoch)
 
             if is_streaming and self.is_main_process:
@@ -1172,9 +1189,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         y_true_list = []
         y_pred_list = []
         collect_metrics = getattr(self, "collect_train_metrics", True)
-        max_samples = getattr(self, "metrics_sample_limit", None)
-        collected_samples = 0
-        metrics_capped = False
 
         user_ids_list = [] if self.needs_user_ids else None
         tqdm_disable = not self.is_main_process
@@ -1209,7 +1223,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             total_loss.backward()
 
             params = model.parameters() if self.ddp_model is not None else self.parameters()  # type: ignore # ddp model parameters or self parameters
-            nn.utils.clip_grad_norm_(params, self.max_gradient_norm)
+            if self.max_gradient_norm is not None:
+                nn.utils.clip_grad_norm_(params, self.max_gradient_norm)
             self.optimizer_fn.step()
             if self.grad_norm is not None:
                 # Synchronize GradNorm buffers across DDP ranks before stepping
@@ -1219,24 +1234,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             accumulated_loss += loss.item()
 
             if collect_metrics and y_true is not None and isinstance(y_pred, torch.Tensor):
-                batch_size = int(y_true.size(0))
-                if max_samples is not None and collected_samples >= max_samples:
-                    collect_metrics = False
-                    metrics_capped = True
-                else:
-                    take_count = batch_size
-                    if max_samples is not None and collected_samples + batch_size > max_samples:
-                        take_count = max_samples - collected_samples
-                        metrics_capped = True
-                        collect_metrics = False
-                    if take_count > 0:
-                        y_true_list.append(y_true[:take_count].detach().cpu().numpy())
-                        y_pred_list.append(y_pred[:take_count].detach().cpu().numpy())
-                        if self.needs_user_ids and user_ids_list is not None:
-                            batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
-                            if batch_user_id is not None:
-                                user_ids_list.append(batch_user_id[:take_count])
-                        collected_samples += take_count
+                y_true_list.append(y_true.detach().cpu().numpy())
+                y_pred_list.append(y_pred.detach().cpu().numpy())
+                if self.needs_user_ids and user_ids_list is not None:
+                    batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
+                    if batch_user_id is not None:
+                        user_ids_list.append(batch_user_id)
             num_batches += 1
         if self.distributed and dist.is_available() and dist.is_initialized():
             loss_tensor = torch.tensor([accumulated_loss, num_batches], device=self.device, dtype=torch.float32)
@@ -1255,14 +1258,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         y_true_all = gather_numpy(self, y_true_all_local)
         y_pred_all = gather_numpy(self, y_pred_all_local)
         combined_user_ids = gather_numpy(self, combined_user_ids_local) if self.needs_user_ids else None
-
-        if metrics_capped and self.is_main_process:
-            logging.info(
-                colorize(
-                    f"[Training Info] Training metrics capped at {max_samples} samples to limit memory usage.",
-                    color="yellow",
-                )
-            )
 
         if y_true_all is not None and y_pred_all is not None and len(y_true_all) > 0 and len(y_pred_all) > 0:
             metrics_dict = evaluate_metrics(
@@ -1393,8 +1388,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 batch_count += 1
                 batch_dict = batch_to_dict(batch_data)
                 X_input, y_true = self.get_input(batch_dict, require_labels=True)
-                if X_input is None:
-                    raise ValueError("[BaseModel-evaluate Error] No input features found in the evaluation data.")
                 y_pred = model(X_input)
                 if y_true is not None:
                     y_true_list.append(y_true.cpu().numpy())
@@ -1608,7 +1601,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
     @overload
     def predict(
         self,
-        data: str | os.PathLike | DataLoader,
+        data: str | os.PathLike | dict | pd.DataFrame | DataLoader,
         batch_size: int = 32,
         save_path: str | os.PathLike | None = None,
         save_format: str = "csv",
@@ -1624,7 +1617,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
     @overload
     def predict(
         self,
-        data: str | os.PathLike | DataLoader,
+        data: str | os.PathLike | dict | pd.DataFrame | DataLoader,
         batch_size: int = 32,
         save_path: None = None,
         save_format: str = "csv",
@@ -1667,12 +1660,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_processes: int = 1,
         processor: Any | None = None,
         profiler: StageTimer | None = None,
-    ) -> pd.DataFrame | np.ndarray | Path | None:
+    ) -> pd.DataFrame | np.ndarray | Path:
         """
         Make predictions on the given data.
 
         Args:
-            data: Input data for prediction (file path or DataLoader).
+            data: Input data for prediction (file path, dict, DataFrame, or DataLoader).
             batch_size: Batch size for prediction (per process when distributed).
             save_path: Optional path to save predictions; if None, predictions are not saved to disk.
             save_format: Format to save predictions ('csv' or 'parquet').
@@ -1691,7 +1684,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.eval()
 
         # streaming mode prediction
-        if save_path is not None and not return_dataframe and isinstance(data, (str, os.PathLike, DataLoader)):
+        if save_path is not None and not return_dataframe:
             if num_processes > 1 and not isinstance(data, (str, os.PathLike)):
                 raise ValueError("[BaseModel-predict Error] Multi-process streaming requires data to be a file path.")
             if num_processes > 1 and num_workers != 0:
@@ -1706,41 +1699,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 stream_chunk_size=stream_chunk_size,
                 return_dataframe=return_dataframe,
                 num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
                 num_processes=num_processes,
                 processor=processor,
                 profiler=profiler,
             )
 
-        return self.predict_in_memory(
-            data=data,
-            batch_size=batch_size,
-            save_path=save_path,
-            save_format=save_format,
-            return_dataframe=return_dataframe,
-            stream_chunk_size=stream_chunk_size,
-            num_workers=num_workers,
-            prefetch_factor=prefetch_factor,
-            processor=processor,
-            profiler=profiler,
-        )
-
-    def predict_in_memory(
-        self,
-        data: str | os.PathLike | dict | pd.DataFrame | DataLoader,
-        batch_size: int = 32,
-        save_path: str | os.PathLike | None = None,
-        save_format: str = "csv",
-        return_dataframe: bool = True,
-        stream_chunk_size: int = 10000,
-        num_workers: int = 0,
-        prefetch_factor: int | None = None,
-        processor: Any | None = None,
-        profiler: StageTimer | None = None,
-    ) -> pd.DataFrame | np.ndarray | Path | None:
-
-        predict_id_columns = self.id_columns
-        if isinstance(predict_id_columns, str):
-            predict_id_columns = [predict_id_columns]
+        predict_id_columns = list(self.id_columns)
         include_ids = bool(predict_id_columns)
         if isinstance(data, DataLoader):
             data_loader = data
@@ -1767,8 +1732,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
         y_pred_list = []
-        id_buffers = {name: [] for name in (predict_id_columns or [])} if include_ids else {}
-        id_arrays = None
+        id_buffers = {name: [] for name in predict_id_columns} if include_ids else {}
 
         with torch.no_grad():
             for batch_data in progress(data_loader, description="Predicting"):
@@ -1792,6 +1756,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         )
                         id_buffers[id_name].append(id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np)
         y_pred_all = np.concatenate(y_pred_list, axis=0) if y_pred_list else np.array([])
+        id_arrays = None
 
         if y_pred_all.ndim == 1:
             y_pred_all = y_pred_all.reshape(-1, 1)
@@ -1814,10 +1779,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             if return_dataframe:
                 id_df = pd.DataFrame(id_arrays)
                 pred_df = pd.DataFrame(y_pred_all, columns=pred_columns)
-                if len(id_df) and len(pred_df) and len(id_df) != len(pred_df):
-                    raise ValueError(
-                        f"[BaseModel-predict Error] Mismatch between id rows ({len(id_df)}) and prediction rows ({len(pred_df)})."
-                    )
                 output = pd.concat([id_df, pred_df], axis=1)
             else:
                 output = y_pred_all
@@ -1831,7 +1792,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 default_dir=self.session.predictions_dir,
                 default_name="predictions",
                 suffix=f".{save_format}",
-                add_timestamp=True if save_path is None else False,
+                add_timestamp=False,
             )
             if isinstance(output, pd.DataFrame):
                 df_to_save = output
@@ -1839,10 +1800,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 df_to_save = pd.DataFrame(y_pred_all, columns=pred_columns)
                 if include_ids and predict_id_columns and id_arrays is not None:
                     id_df = pd.DataFrame(id_arrays)
-                    if len(id_df) and len(df_to_save) and len(id_df) != len(df_to_save):
-                        raise ValueError(
-                            f"[BaseModel-predict Error] Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_to_save)})."
-                        )
                     df_to_save = pd.concat([id_df, df_to_save], axis=1)
 
             # Save based on format
@@ -1856,8 +1813,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 df_to_save.to_parquet(target_path, index=False)
                 if profiler is not None:
                     profiler.add("write_output", time.perf_counter() - start)
-            else:
-                raise ValueError(f"Unsupported save format: {save_format}")
 
             logging.info("")
             logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
@@ -1865,7 +1820,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
     def predict_streaming(
         self,
-        data: str | os.PathLike | DataLoader,
+        data: str | os.PathLike | dict | pd.DataFrame | DataLoader,
         batch_size: int,
         save_path: str | os.PathLike,
         save_format: str,
@@ -1883,7 +1838,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         Make predictions on the given data using streaming mode for large datasets.
 
         Args:
-            data: Input data for prediction (file path or DataLoader).
+            data: Input data for prediction (file path, dict, DataFrame, or DataLoader).
             batch_size: Batch size for prediction.
             save_path: Path to save predictions.
             save_format: Format to save predictions ('csv' or 'parquet').
@@ -1897,25 +1852,121 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             shard_count: Total number of shards for multi-process inference.
         """
         predict_id_columns = self.id_columns
-        if isinstance(predict_id_columns, str):
-            predict_id_columns = [predict_id_columns]
         include_ids = bool(predict_id_columns)
+        if save_format not in {"csv", "parquet"}:
+            raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
 
         # Multi-process streaming
         if num_processes > 1:
-            return self.predict_streaming_multiprocess(
-                data=data,
-                batch_size=batch_size,
-                save_path=save_path,
-                save_format=save_format,
-                stream_chunk_size=stream_chunk_size,
-                return_dataframe=return_dataframe,
-                num_workers=num_workers,
-                prefetch_factor=None,  # disable prefetching in multi-process mode
-                num_processes=num_processes,
-                processor=processor,
-                profiler=profiler,
+            if num_workers > 0:
+                logging.info("[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0.")
+            num_workers = 0
+            prefetch_factor = None
+            target_path = Path(
+                get_save_path(
+                    path=save_path,
+                    default_dir=self.session.predictions_dir,
+                    default_name="predictions",
+                    suffix=f".{save_format}",
+                    add_timestamp=False,
+                )
             )
+            parts_dir = target_path.parent / f".{target_path.stem}_parts"
+            parts_dir.mkdir(parents=True, exist_ok=True)
+            part_paths = [
+                parts_dir / f"{target_path.stem}.part{rank}{target_path.suffix}" for rank in range(num_processes)
+            ]
+            profile_paths = (
+                [parts_dir / f"{target_path.stem}.profile{rank}.json" for rank in range(num_processes)]
+                if profiler is not None
+                else None
+            )
+            error_paths = [parts_dir / f"{target_path.stem}.error{rank}.txt" for rank in range(num_processes)]
+
+            ctx = mp.get_context("spawn")
+            processes = []
+            for rank in range(num_processes):
+                process = ctx.Process(
+                    target=predict_streaming_worker,
+                    args=(
+                        self,
+                        data,
+                        batch_size,
+                        part_paths[rank],
+                        save_format,
+                        stream_chunk_size,
+                        num_workers,
+                        prefetch_factor,
+                        processor,
+                        rank,
+                        num_processes,
+                        profile_paths[rank] if profile_paths else None,
+                        error_paths[rank],
+                    ),
+                )
+                process.start()
+                processes.append(process)
+
+            for process in progress(iter(processes), description="Predicting...", total=None):
+                process.join()
+
+            failed_processes = [process for process in processes if process.exitcode not in (0, None)]
+            if failed_processes:
+                errors: list[str] = []
+                for error_path in error_paths:
+                    if not error_path.exists():
+                        continue
+                    text = error_path.read_text(encoding="utf-8").strip()
+                    if text and text not in errors:
+                        errors.append(text)
+                if not errors:
+                    errors = [
+                        f"[PredictWorker Error] pid={process.pid}, exitcode={process.exitcode}, name={process.name}"
+                        for process in failed_processes
+                    ]
+                error_text = "\n\n".join(errors)
+                raise RuntimeError(
+                    "[BaseModel-predict-streaming Error] One or more inference processes failed.\n" + error_text
+                )
+
+            existing_parts = [p for p in part_paths if p.exists()]
+            if existing_parts:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if save_format == "csv":
+                    start = time.perf_counter()
+                    lazy_frames = [pl.scan_csv(p) for p in existing_parts]
+                    pl.concat(lazy_frames).sink_csv(target_path)
+                    if profiler is not None:
+                        profiler.add("merge_parts", time.perf_counter() - start)
+                elif save_format == "parquet":
+                    start = time.perf_counter()
+                    lazy_frames = [pl.scan_parquet(p) for p in existing_parts]
+                    pl.concat(lazy_frames).sink_parquet(target_path)
+                    if profiler is not None:
+                        profiler.add("merge_parts", time.perf_counter() - start)
+
+            for part_path in part_paths:
+                if part_path.exists():
+                    part_path.unlink()
+            if profile_paths and profiler is not None:
+                for profile_path in profile_paths:
+                    if profile_path.exists():
+                        profiler.merge(StageTimer.load(profile_path))
+                        profile_path.unlink()
+            for error_path in error_paths:
+                if error_path.exists():
+                    error_path.unlink()
+            if parts_dir.exists() and not any(parts_dir.iterdir()):
+                parts_dir.rmdir()
+
+            logging.info("")
+            logging.info(
+                colorize(
+                    f"Predictions saved to: {target_path} (merged from {num_processes} parts)",
+                    color="green",
+                )
+            )
+            return target_path
         # Single-process streaming
         if isinstance(data, (str, os.PathLike)):
             rec_loader = RecDataLoader(
@@ -1938,19 +1989,23 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 shard_count=shard_count,
                 profiler=profiler,
             )
-        elif not isinstance(data, DataLoader):
-            raise TypeError("[BaseModel-predict-streaming Error] data must be a file path or a DataLoader.")
-        else:  # data is a DataLoader
+        elif isinstance(data, DataLoader):
             data_loader = data
+        else:
+            data_loader = self.prepare_data_loader(
+                data,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
+            )
 
-        if save_format not in {"csv", "parquet"}:
-            raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
         target_path = get_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
             default_name="predictions",
             suffix=f".{save_format}",
-            add_timestamp=True if save_path is None else False,
+            add_timestamp=False,
         )
         target_path.parent.mkdir(parents=True, exist_ok=True)
         header_written = target_path.exists()
@@ -1993,10 +2048,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
                 if id_arrays_batch:
                     id_df = pd.DataFrame(id_arrays_batch)
-                    if len(id_df) and len(df_batch) and len(id_df) != len(df_batch):
-                        raise ValueError(
-                            f"Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_batch)})."
-                        )
                     df_batch = pd.concat([id_df, df_batch], axis=1)
 
                 # Streaming save based on format
@@ -2018,9 +2069,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         profiler.add("write_output", time.perf_counter() - start)
                     if return_dataframe:
                         cached_frames.append(df_batch)
-                else:
-                    # Non-streaming formats: collect all data
-                    cached_frames.append(df_batch)
 
         # Close writers
         if parquet_writer is not None:
@@ -2037,126 +2085,15 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         # Return the actual save path when not returning dataframe
         return target_path
 
-    def predict_streaming_multiprocess(
-        self,
-        data: str | os.PathLike | DataLoader,
-        batch_size: int,
-        save_path: str | os.PathLike,
-        save_format: str,
-        stream_chunk_size: int,
-        return_dataframe: bool,
-        num_workers: int,
-        prefetch_factor: int | None,
-        num_processes: int,
-        processor: Any | None,
-        profiler: StageTimer | None,
-    ):
-        if num_workers > 0:
-            logging.info("[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0.")
-        num_workers = 0
-        prefetch_factor = None
-        target_path = Path(
-            get_save_path(
-                path=save_path,
-                default_dir=self.session.predictions_dir,
-                default_name="predictions",
-                suffix=f".{save_format}",
-                add_timestamp=True if save_path is None else False,
-            )
-        )
-        parts_dir = target_path.parent / f".{target_path.stem}_parts"
-        parts_dir.mkdir(parents=True, exist_ok=True)
-        part_paths = [parts_dir / f"{target_path.stem}.part{rank}{target_path.suffix}" for rank in range(num_processes)]
-        profile_paths = (
-            [parts_dir / f"{target_path.stem}.profile{rank}.json" for rank in range(num_processes)]
-            if profiler is not None
-            else None
-        )
-
-        ctx = mp.get_context("spawn")
-        error_queue = ctx.SimpleQueue()
-        processes = []
-        for rank in range(num_processes):
-            process = ctx.Process(
-                target=predict_streaming_worker,
-                args=(
-                    self,
-                    data,
-                    batch_size,
-                    part_paths[rank],
-                    save_format,
-                    stream_chunk_size,
-                    num_workers,
-                    prefetch_factor,
-                    processor,
-                    rank,
-                    num_processes,
-                    error_queue,
-                    profile_paths[rank] if profile_paths else None,
-                ),
-            )
-            process.start()
-            processes.append(process)
-
-        for process in progress(iter(processes), description="Predicting...", total=None):
-            process.join()
-
-        for process in processes:
-            if process.exitcode not in (0, None):
-                errors = []
-                try:
-                    while not error_queue.empty():
-                        errors.append(error_queue.get_nowait())
-                except Exception:
-                    pass
-                error_text = "\n\n".join(errors) if errors else "No worker traceback captured."
-                raise RuntimeError(
-                    "[BaseModel-predict-streaming Error] One or more inference processes failed.\n" + error_text
-                )
-        # Merge part files
-        existing_parts = [p for p in part_paths if p.exists()]
-        if existing_parts:
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if save_format == "csv":
-                start = time.perf_counter()
-                lazy_frames = [pl.scan_csv(p) for p in existing_parts]
-                pl.concat(lazy_frames).sink_csv(target_path)
-                if profiler is not None:
-                    profiler.add("merge_parts", time.perf_counter() - start)
-            elif save_format == "parquet":
-                start = time.perf_counter()
-                lazy_frames = [pl.scan_parquet(p) for p in existing_parts]
-                pl.concat(lazy_frames).sink_parquet(target_path)
-                if profiler is not None:
-                    profiler.add("merge_parts", time.perf_counter() - start)
-            else:
-                raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
-
-        for part_path in part_paths:
-            if part_path.exists():
-                part_path.unlink()
-        if profile_paths and profiler is not None:
-            for profile_path in profile_paths:
-                if profile_path.exists():
-                    profiler.merge(StageTimer.load(profile_path))
-                    profile_path.unlink()
-        if parts_dir.exists() and not any(parts_dir.iterdir()):
-            parts_dir.rmdir()
-
-        logging.info("")
-        logging.info(
-            colorize(
-                f"Predictions saved to: {target_path} (merged from {num_processes} parts)",
-                color="green",
-            )
-        )
-        return target_path
-
     def prepare_onnx_dataloader(
         self,
         data: str | dict | pd.DataFrame | DataLoader,
         batch_size: int,
         num_workers: int,
+        id_columns: list[str] | None = None,
+        processor: Any | None = None,
+        shard_rank: int = 0,
+        shard_count: int = 1,
     ) -> DataLoader:
         """
         Prepare a DataLoader for ONNX prediction.
@@ -2173,12 +2110,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         # if data is a file path, use streaming DataLoader
         # will set batch_size=1 cause each batch is a file chunk
         if isinstance(data, (str, os.PathLike)):
+            effective_processor = processor
             rec_loader = RecDataLoader(
                 dense_features=self.dense_features,
                 sparse_features=self.sparse_features,
                 sequence_features=self.sequence_features,
                 target=self.target_columns,
-                id_columns=self.id_columns,
+                id_columns=id_columns if id_columns is not None else self.id_columns,
+                processor=effective_processor,
             )
             return rec_loader.create_dataloader(
                 data=data,
@@ -2187,6 +2126,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 streaming=True,
                 chunk_size=batch_size,
                 num_workers=num_workers,
+                shard_rank=shard_rank,
+                shard_count=shard_count,
             )
         return self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
@@ -2194,7 +2135,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self,
         save_path: str | Path | None = None,
         batch_size: int = 1,
-        opset_version: int = 18,
     ) -> Path:
         """
         Export the model to ONNX.
@@ -2203,15 +2143,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             onnx_path = model.export_onnx(
                 save_path="model.onnx",
                 batch_size=1,
-                opset_version=18,
             )
 
         Args:
             save_path: Path to save the ONNX model; if None, uses session root.
             batch_size: Dummy batch size for tracing.
-            opset_version: ONNX opset version for export.
         """
-        model_to_export = self.ddp_model.module if hasattr(self, "ddp_model") and self.ddp_model is not None else self
+        model_to_export = self.ddp_model.module if self.ddp_model is not None else self
         model_to_export = model_to_export.to(self.device)
         model_to_export.eval()
 
@@ -2238,23 +2176,18 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         export_sig = inspect.signature(torch.onnx.export)
         if "dynamo" in export_sig.parameters:
             export_kwargs["dynamo"] = True
-        if opset_version < 18:
-            logging.warning(
-                "[BaseModel-export-onnx Warning] TorchDynamo exporter requires opset >= 18. "
-                "Overriding opset_version to 18."
-            )
-            opset_version = 18
 
-        torch.onnx.export(
-            wrapper,
-            tuple(dummy_inputs),
-            target_path,
-            input_names=list(input_names),
-            output_names=list(output_names),
-            opset_version=opset_version,
-            do_constant_folding=True,
-            **export_kwargs,
-        )
+        with redirect_stdout(io.StringIO()):
+            torch.onnx.export(
+                wrapper,
+                tuple(dummy_inputs),
+                target_path,
+                input_names=list(input_names),
+                output_names=list(output_names),
+                opset_version=18,
+                do_constant_folding=True,
+                **export_kwargs,
+            )
 
         logging.info(colorize(f"ONNX model exported to: {target_path}", color="green"))
         return target_path
@@ -2273,6 +2206,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_workers: int = 0,
         onnx_session: Any | None = None,
         profiler: StageTimer | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
     ) -> pd.DataFrame: ...
 
     @overload
@@ -2289,6 +2224,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_workers: int = 0,
         onnx_session: Any | None = None,
         profiler: StageTimer | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
     ) -> np.ndarray: ...
 
     @overload
@@ -2306,6 +2243,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_workers: int = 0,
         onnx_session: Any | None = None,
         profiler: StageTimer | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
     ) -> Path: ...
 
     def predict_onnx(
@@ -2321,6 +2260,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_workers: int = 0,
         onnx_session: Any | None = None,
         profiler: StageTimer | None = None,
+        num_processes: int = 1,
+        processor: Any | None = None,
     ) -> pd.DataFrame | np.ndarray | Path | None:
         """
         Run ONNX inference on the given data.
@@ -2335,17 +2276,30 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             id_columns: Column name(s) to use as IDs; if None, uses model's id_columns.
             return_dataframe: Whether to return predictions as a pandas DataFrame; if False, returns a NumPy array.
             num_workers: DataLoader worker count.
+            num_processes: Number of inference processes for ONNX streaming file inference.
             onnx_session: Optional pre-created ONNX Runtime session.
         """
         predict_id_columns = id_columns if id_columns is not None else self.id_columns
         if isinstance(predict_id_columns, str):
             predict_id_columns = [predict_id_columns]
 
-        if include_ids is None:
-            include_ids = bool(predict_id_columns)
-        include_ids = include_ids and bool(predict_id_columns)
+        include_ids = bool(predict_id_columns) if include_ids is None else include_ids and bool(predict_id_columns)
+        if save_path is not None and save_format not in {"csv", "parquet"}:
+            raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
 
         if save_path is not None and not return_dataframe:
+            if num_processes > 1 and not isinstance(data, (str, os.PathLike)):
+                raise ValueError(
+                    "[BaseModel-predict-onnx Error] Multi-process streaming requires data to be a file path."
+                )
+            if num_processes > 1 and num_workers != 0:
+                logging.info("[BaseModel-predict-onnx-streaming Info] Multi-process streaming enforces num_workers=0.")
+                num_workers = 0
+            if num_processes > 1 and onnx_session is not None:
+                raise ValueError(
+                    "[BaseModel-predict-onnx Error] onnx_session is not supported when num_processes > 1. "
+                    "Please pass onnx_path and let each worker create its own session."
+                )
             return self.predict_onnx_streaming(
                 onnx_path=onnx_path,
                 data=data,
@@ -2357,10 +2311,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 id_columns=predict_id_columns,
                 onnx_session=onnx_session,
                 num_workers=num_workers,
+                num_processes=num_processes,
                 profiler=profiler,
+                processor=processor,
             )
 
-        session = onnx_session or load_onnx_session(onnx_path)
+        session = onnx_session or load_onnx_session(Path(onnx_path))
         session_inputs = session.get_inputs()
         session_input_names = [inp.name for inp in session_inputs]
         batch_dim = session_inputs[0].shape[0] if session_inputs else None
@@ -2369,50 +2325,78 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             data=data,
             batch_size=batch_size,
             num_workers=num_workers,
+            id_columns=predict_id_columns,
+            processor=processor,
         )
 
         y_pred_list = []
         id_buffers = {name: [] for name in (predict_id_columns or [])} if include_ids else {}
 
-        for batch_data in progress(data_loader, description="Predicting (ONNX)"):
+        for batch_data in progress(data_loader, description="Predicting with ONNX"):
             batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
             X_input, _ = self.get_input(batch_dict, require_labels=False)
-            if X_input is None:
-                raise ValueError("[BaseModel-predict-onnx Error] No input features found in the prediction data.")
-            orig_batch = None
-            if fixed_batch is not None:
-                X_input, orig_batch = pad_onnx_inputs(self.all_features, X_input, target_batch=fixed_batch)
-            feed = build_onnx_input_feed(self.all_features, X_input, input_names=session_input_names)
-            start = time.perf_counter()
-            outputs = session.run(None, feed)
-            if profiler is not None:
-                profiler.add("inference", time.perf_counter() - start)
-            y_pred_np = merge_onnx_outputs(outputs)
-            if y_pred_np.ndim == 1:
-                y_pred_np = y_pred_np.reshape(-1, 1)
-            if orig_batch is not None and orig_batch > 0:
-                y_pred_np = y_pred_np[:orig_batch]
-            y_pred_list.append(y_pred_np)
+            first_value = next(iter(X_input.values()), None)
+            if first_value is None:
+                continue
+            current_batch = (
+                int(first_value.shape[0])
+                if isinstance(first_value, torch.Tensor)
+                else int(np.asarray(first_value).shape[0])
+            )
+            if current_batch <= 0:
+                continue
+            if fixed_batch is not None and current_batch > fixed_batch:
+                slice_ranges = [
+                    (start, min(start + fixed_batch, current_batch)) for start in range(0, current_batch, fixed_batch)
+                ]
+            else:
+                slice_ranges = [(0, current_batch)]
 
-            if include_ids and predict_id_columns and batch_dict.get("ids"):
-                ids_dict = batch_dict["ids"]
-                orig_id_batch = None
+            for start_idx, end_idx in slice_ranges:
+                X_sub = (
+                    {name: value[start_idx:end_idx] for name, value in X_input.items()}
+                    if len(slice_ranges) > 1
+                    else X_input
+                )
+                orig_batch = None
                 if fixed_batch is not None:
-                    ids_dict, orig_id_batch = pad_id_batch(ids_dict, fixed_batch)
-                for id_name in predict_id_columns:
-                    if id_name not in ids_dict:
-                        continue
-                    id_tensor = ids_dict[id_name]
-                    id_np = (
-                        id_tensor.detach().cpu().numpy()
-                        if isinstance(id_tensor, torch.Tensor)
-                        else np.asarray(id_tensor)
+                    X_sub, orig_batch = pad_onnx_inputs(self.all_features, X_sub, target_batch=fixed_batch)
+                feed = build_onnx_input_feed(self.all_features, X_sub, input_names=session_input_names)
+                start = time.perf_counter()
+                outputs = session.run(None, feed)
+                if profiler is not None:
+                    profiler.add("inference", time.perf_counter() - start)
+                y_pred_np = merge_onnx_outputs(outputs)
+                if y_pred_np.ndim == 1:
+                    y_pred_np = y_pred_np.reshape(-1, 1)
+                if orig_batch is not None and orig_batch > 0:
+                    y_pred_np = y_pred_np[:orig_batch]
+                y_pred_list.append(y_pred_np)
+
+                if include_ids and predict_id_columns and batch_dict.get("ids"):
+                    ids_dict = batch_dict["ids"]
+                    ids_sub = (
+                        {name: value[start_idx:end_idx] for name, value in ids_dict.items()}
+                        if len(slice_ranges) > 1
+                        else ids_dict
                     )
-                    if orig_batch is not None and orig_batch > 0:
-                        id_np = id_np[:orig_batch]
-                    elif orig_id_batch is not None and orig_id_batch > 0:
-                        id_np = id_np[:orig_id_batch]
-                    id_buffers[id_name].append(id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np)
+                    orig_id_batch = None
+                    if fixed_batch is not None:
+                        ids_sub, orig_id_batch = pad_id_batch(ids_sub, fixed_batch)
+                    for id_name in predict_id_columns:
+                        if id_name not in ids_sub:
+                            continue
+                        id_tensor = ids_sub[id_name]
+                        id_np = (
+                            id_tensor.detach().cpu().numpy()
+                            if isinstance(id_tensor, torch.Tensor)
+                            else np.asarray(id_tensor)
+                        )
+                        if orig_batch is not None and orig_batch > 0:
+                            id_np = id_np[:orig_batch]
+                        elif orig_id_batch is not None and orig_id_batch > 0:
+                            id_np = id_np[:orig_id_batch]
+                        id_buffers[id_name].append(id_np.reshape(id_np.shape[0], -1) if id_np.ndim == 1 else id_np)
 
         y_pred_all = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
         if y_pred_all is None:
@@ -2432,10 +2416,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             }
             if id_arrays:
                 id_df = pd.DataFrame(id_arrays)
-                if len(id_df) and len(id_df) != len(y_pred_all):
-                    raise ValueError(
-                        f"[BaseModel-predict-onnx Error] Mismatch between id rows ({len(id_df)}) and prediction rows ({len(y_pred_all)})."
-                    )
 
         output = y_pred_all
         if return_dataframe:
@@ -2445,8 +2425,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             output = df_to_return
 
         if save_path is not None:
-            if save_format not in {"csv", "parquet"}:
-                raise ValueError(f"Unsupported save format: {save_format}. " "Supported: csv, parquet")
             target_path = get_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
@@ -2470,8 +2448,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 df_to_save.to_parquet(target_path, index=False)
                 if profiler is not None:
                     profiler.add("write_output", time.perf_counter() - start)
-            else:
-                raise ValueError(f"Unsupported save format: {save_format}")
             logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         return output
 
@@ -2487,12 +2463,143 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         id_columns: list[str] | None = None,
         onnx_session: Any | None = None,
         num_workers: int = 0,
+        num_processes: int = 1,
+        shard_rank: int = 0,
+        shard_count: int = 1,
         profiler: StageTimer | None = None,
+        processor: Any | None = None,
     ):
         """
         Run ONNX inference using streaming mode for large datasets.
         """
-        session = onnx_session or load_onnx_session(onnx_path)
+        if save_format not in {"csv", "parquet"}:
+            raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
+        if num_processes > 1:
+            if onnx_session is not None:
+                raise ValueError(
+                    "[BaseModel-predict-onnx Error] onnx_session is not supported when num_processes > 1. "
+                    "Please pass onnx_path and let each worker create its own session."
+                )
+            if not isinstance(data, (str, os.PathLike)):
+                raise ValueError(
+                    "[BaseModel-predict-onnx Error] Multi-process streaming requires data to be a file path."
+                )
+            if num_workers > 0:
+                logging.info("[BaseModel-predict-onnx-streaming Info] Multi-process streaming enforces num_workers=0.")
+            if return_dataframe:
+                raise ValueError(
+                    "[BaseModel-predict-onnx Error] Multi-process streaming does not support return_dataframe=True."
+                )
+            num_workers = 0
+
+            target_path = Path(
+                get_save_path(
+                    path=save_path,
+                    default_dir=self.session.predictions_dir,
+                    default_name="predictions",
+                    suffix=f".{save_format}",
+                    add_timestamp=False,
+                )
+            )
+            parts_dir = target_path.parent / f".{target_path.stem}_parts"
+            parts_dir.mkdir(parents=True, exist_ok=True)
+            part_paths = [
+                parts_dir / f"{target_path.stem}.part{rank}{target_path.suffix}" for rank in range(num_processes)
+            ]
+            profile_paths = (
+                [parts_dir / f"{target_path.stem}.profile{rank}.json" for rank in range(num_processes)]
+                if profiler is not None
+                else None
+            )
+            error_paths = [parts_dir / f"{target_path.stem}.error{rank}.txt" for rank in range(num_processes)]
+
+            ctx = mp.get_context("spawn")
+            processes = []
+            for rank in range(num_processes):
+                process = ctx.Process(
+                    target=predict_onnx_streaming_worker,
+                    args=(
+                        self,
+                        onnx_path,
+                        data,
+                        batch_size,
+                        part_paths[rank],
+                        save_format,
+                        include_ids,
+                        id_columns,
+                        rank,
+                        num_processes,
+                        num_workers,
+                        processor,
+                        profile_paths[rank] if profile_paths else None,
+                        error_paths[rank],
+                    ),
+                )
+                process.start()
+                processes.append(process)
+
+            for process in progress(iter(processes), description="Predicting...", total=None):
+                process.join()
+
+            failed_processes = [process for process in processes if process.exitcode not in (0, None)]
+            if failed_processes:
+                errors: list[str] = []
+                for error_path in error_paths:
+                    if not error_path.exists():
+                        continue
+                    text = error_path.read_text(encoding="utf-8").strip()
+                    if text and text not in errors:
+                        errors.append(text)
+                if not errors:
+                    errors = [
+                        f"[PredictOnnxWorker Error] pid={process.pid}, exitcode={process.exitcode}, name={process.name}"
+                        for process in failed_processes
+                    ]
+                error_text = "\n\n".join(errors)
+                raise RuntimeError(
+                    "[BaseModel-predict-onnx-streaming Error] One or more inference processes failed.\n" + error_text
+                )
+
+            existing_parts = [p for p in part_paths if p.exists()]
+            if existing_parts:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if save_format == "csv":
+                    start = time.perf_counter()
+                    lazy_frames = [pl.scan_csv(p) for p in existing_parts]
+                    pl.concat(lazy_frames).sink_csv(target_path)
+                    if profiler is not None:
+                        profiler.add("merge_parts", time.perf_counter() - start)
+                elif save_format == "parquet":
+                    start = time.perf_counter()
+                    lazy_frames = [pl.scan_parquet(p) for p in existing_parts]
+                    pl.concat(lazy_frames).sink_parquet(target_path)
+                    if profiler is not None:
+                        profiler.add("merge_parts", time.perf_counter() - start)
+
+            for part_path in part_paths:
+                if part_path.exists():
+                    part_path.unlink()
+            if profile_paths and profiler is not None:
+                for profile_path in profile_paths:
+                    if profile_path.exists():
+                        profiler.merge(StageTimer.load(profile_path))
+                        profile_path.unlink()
+            for error_path in error_paths:
+                if error_path.exists():
+                    error_path.unlink()
+            if parts_dir.exists() and not any(parts_dir.iterdir()):
+                parts_dir.rmdir()
+
+            logging.info("")
+            logging.info(
+                colorize(
+                    f"Predictions saved to: {target_path} (merged from {num_processes} parts)",
+                    color="green",
+                )
+            )
+            return target_path
+
+        session = onnx_session or load_onnx_session(Path(onnx_path))
         session_inputs = session.get_inputs()
         session_input_names = [inp.name for inp in session_inputs]
         batch_dim = session_inputs[0].shape[0] if session_inputs else None
@@ -2501,10 +2608,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             data=data,
             batch_size=batch_size,
             num_workers=num_workers,
+            id_columns=id_columns,
+            processor=processor,
+            shard_rank=shard_rank,
+            shard_count=shard_count,
         )
 
-        if save_format not in {"csv", "parquet"}:
-            raise ValueError(f"Unsupported save format: {save_format}. " "Supported: csv, parquet")
         target_path = get_save_path(
             path=save_path,
             default_dir=self.session.predictions_dir,
@@ -2517,81 +2626,97 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         pred_columns = None
         cached_frames = []
 
-        for batch_data in progress(data_loader, description="Predicting (ONNX)"):
+        disable_progress = shard_count > 1
+        for batch_data in progress(data_loader, description="Predicting with ONNX", disable=disable_progress):
             batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
             X_input, _ = self.get_input(batch_dict, require_labels=False)
-            if X_input is None:
+            # ONNX Runtime may require fixed batch sizes, need to slice and pad batches accordingly
+            first_value = next(iter(X_input.values()), None)
+            if first_value is None:
                 continue
-            orig_batch = None
-            if fixed_batch is not None:
-                X_input, orig_batch = pad_onnx_inputs(self.all_features, X_input, target_batch=fixed_batch)
-            feed = build_onnx_input_feed(self.all_features, X_input, input_names=session_input_names)
-            start = time.perf_counter()
-            outputs = session.run(None, feed)
-            if profiler is not None:
-                profiler.add("inference", time.perf_counter() - start)
-            y_pred_np = merge_onnx_outputs(outputs)
-            if y_pred_np.ndim == 1:
-                y_pred_np = y_pred_np.reshape(-1, 1)
-            if orig_batch is not None and orig_batch > 0:
-                y_pred_np = y_pred_np[:orig_batch]
-            if pred_columns is None:
-                num_outputs = y_pred_np.shape[1]
-                pred_columns = list(self.target_columns[:num_outputs]) if self.target_columns else []
-                while len(pred_columns) < num_outputs:
-                    pred_columns.append(f"pred_{len(pred_columns)}")
-
-            ids = batch_dict.get("ids") if include_ids and id_columns else None
-            if ids and fixed_batch is not None:
-                ids, orig_id_batch = pad_id_batch(ids, fixed_batch)
+            current_batch = (
+                int(first_value.shape[0])
+                if isinstance(first_value, torch.Tensor)
+                else int(np.asarray(first_value).shape[0])
+            )
+            if current_batch <= 0:
+                continue
+            if fixed_batch is not None and current_batch > fixed_batch:
+                slice_ranges = [
+                    (start, min(start + fixed_batch, current_batch)) for start in range(0, current_batch, fixed_batch)
+                ]
             else:
-                orig_id_batch = None
-            id_arrays_batch = {
-                id_name: (
-                    ids[id_name].detach().cpu().numpy()
-                    if isinstance(ids[id_name], torch.Tensor)
-                    else np.asarray(ids[id_name])
-                ).reshape(-1)
-                for id_name in (id_columns or [])
-                if ids and id_name in ids
-            }
-            if orig_batch is not None and orig_batch > 0:
-                id_arrays_batch = {k: v[:orig_batch] for k, v in id_arrays_batch.items()}
-            elif orig_id_batch is not None and orig_id_batch > 0:
-                id_arrays_batch = {k: v[:orig_id_batch] for k, v in id_arrays_batch.items()}
+                slice_ranges = [(0, current_batch)]
 
-            df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
-            if id_arrays_batch:
-                id_df = pd.DataFrame(id_arrays_batch)
-                if len(id_df) and len(df_batch) and len(id_df) != len(df_batch):
-                    raise ValueError(f"Mismatch between id rows ({len(id_df)}) and prediction rows ({len(df_batch)}).")
-                df_batch = pd.concat([id_df, df_batch], axis=1)
-
-            should_collect = return_dataframe or save_format not in {"csv", "parquet"}
-            if should_collect:
-                cached_frames.append(df_batch)
-
-            if save_format == "csv":
+            for start_idx, end_idx in slice_ranges:
+                X_sub = (
+                    {name: value[start_idx:end_idx] for name, value in X_input.items()}
+                    if len(slice_ranges) > 1
+                    else X_input
+                )
+                orig_batch = None
+                if fixed_batch is not None:
+                    X_sub, orig_batch = pad_onnx_inputs(self.all_features, X_sub, target_batch=fixed_batch)
+                feed = build_onnx_input_feed(self.all_features, X_sub, input_names=session_input_names)
                 start = time.perf_counter()
-                df_batch.to_csv(target_path, mode="a", header=not header_written, index=False)
+                outputs = session.run(None, feed)
                 if profiler is not None:
-                    profiler.add("write_output", time.perf_counter() - start)
-                header_written = True
-            elif save_format == "parquet":
-                try:
-                    import pyarrow as pa
-                    import pyarrow.parquet as pq
-                except ImportError as exc:  # pragma: no cover
-                    raise ImportError(
-                        "[BaseModel-predict-onnx-streaming Error] Parquet streaming save requires pyarrow."
-                    ) from exc
-                start = time.perf_counter()
-                table = pa.Table.from_pandas(df_batch, preserve_index=False)
-                if parquet_writer is None:
-                    parquet_writer = pq.ParquetWriter(target_path, table.schema)
-                parquet_writer.write_table(table)
-                if profiler is not None:
-                    profiler.add("write_output", time.perf_counter() - start)
+                    profiler.add("inference", time.perf_counter() - start)
+                y_pred_np = merge_onnx_outputs(outputs)
+                if y_pred_np.ndim == 1:
+                    y_pred_np = y_pred_np.reshape(-1, 1)
+                if orig_batch is not None and orig_batch > 0:
+                    y_pred_np = y_pred_np[:orig_batch]
+                if pred_columns is None:
+                    num_outputs = y_pred_np.shape[1]
+                    pred_columns = list(self.target_columns[:num_outputs]) if self.target_columns else []
+                    while len(pred_columns) < num_outputs:
+                        pred_columns.append(f"pred_{len(pred_columns)}")
+
+                ids = batch_dict.get("ids") if include_ids and id_columns else None
+                if ids is not None and len(slice_ranges) > 1:
+                    ids = {name: value[start_idx:end_idx] for name, value in ids.items()}
+                if ids and fixed_batch is not None:
+                    ids, orig_id_batch = pad_id_batch(ids, fixed_batch)
+                else:
+                    orig_id_batch = None
+                id_arrays_batch = {
+                    id_name: (
+                        ids[id_name].detach().cpu().numpy()
+                        if isinstance(ids[id_name], torch.Tensor)
+                        else np.asarray(ids[id_name])
+                    ).reshape(-1)
+                    for id_name in (id_columns or [])
+                    if ids and id_name in ids
+                }
+                if orig_batch is not None and orig_batch > 0:
+                    id_arrays_batch = {k: v[:orig_batch] for k, v in id_arrays_batch.items()}
+                elif orig_id_batch is not None and orig_id_batch > 0:
+                    id_arrays_batch = {k: v[:orig_id_batch] for k, v in id_arrays_batch.items()}
+
+                df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
+                if id_arrays_batch:
+                    id_df = pd.DataFrame(id_arrays_batch)
+                    df_batch = pd.concat([id_df, df_batch], axis=1)
+
+                should_collect = return_dataframe
+                if should_collect:
+                    cached_frames.append(df_batch)
+
+                if save_format == "csv":
+                    start = time.perf_counter()
+                    df_batch.to_csv(target_path, mode="a", header=not header_written, index=False)
+                    if profiler is not None:
+                        profiler.add("write_output", time.perf_counter() - start)
+                    header_written = True
+                elif save_format == "parquet":
+                    start = time.perf_counter()
+                    table = pa.Table.from_pandas(df_batch, preserve_index=False)
+                    if parquet_writer is None:
+                        parquet_writer = pq.ParquetWriter(target_path, table.schema)
+                    parquet_writer.write_table(table)
+                    if profiler is not None:
+                        profiler.add("write_output", time.perf_counter() - start)
             # Non-streaming formats are saved after collecting all batches.
 
         if parquet_writer is not None:
@@ -2788,8 +2913,8 @@ def predict_streaming_worker(
     processor: Any | None,
     shard_rank: int,
     shard_count: int,
-    error_queue: "mp.SimpleQueue[str] | None" = None,
     profile_path: str | os.PathLike | None = None,
+    error_path: str | os.PathLike | None = None,
 ) -> None:
     try:
         model.eval()
@@ -2810,12 +2935,64 @@ def predict_streaming_worker(
             profiler=profiler,
         )
         if profiler is not None and profile_path is not None:
-            profiler.dump(profile_path)
-    except Exception:
-        if error_queue is not None:
-            import traceback
+            profiler.dump(Path(profile_path))
+    except BaseException:
+        import traceback
 
-            error_queue.put(f"[PredictWorker Error] rank={shard_rank}\n{traceback.format_exc()}")
+        error_text = f"[PredictWorker Error] rank={shard_rank}\n{traceback.format_exc()}"
+        if error_path is not None:
+            path = Path(error_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(error_text, encoding="utf-8")
+        raise
+
+
+def predict_onnx_streaming_worker(
+    model: "BaseModel",
+    onnx_path: str | os.PathLike | Path,
+    data_path: str | os.PathLike,
+    batch_size: int,
+    save_path: str | os.PathLike,
+    save_format: str,
+    include_ids: bool,
+    id_columns: list[str] | None,
+    shard_rank: int,
+    shard_count: int,
+    num_workers: int,
+    processor: Any | None = None,
+    profile_path: str | os.PathLike | None = None,
+    error_path: str | os.PathLike | None = None,
+) -> None:
+    try:
+        model.eval()
+        profiler = StageTimer(enabled=profile_path is not None) if profile_path else None
+        model.predict_onnx_streaming(
+            onnx_path=onnx_path,
+            data=data_path,
+            batch_size=batch_size,
+            save_path=save_path,
+            save_format=save_format,
+            include_ids=include_ids,
+            return_dataframe=False,
+            id_columns=id_columns,
+            onnx_session=None,
+            num_workers=num_workers,
+            num_processes=1,
+            shard_rank=shard_rank,
+            shard_count=shard_count,
+            profiler=profiler,
+            processor=processor,
+        )
+        if profiler is not None and profile_path is not None:
+            profiler.dump(Path(profile_path))
+    except BaseException:
+        import traceback
+
+        error_text = f"[PredictOnnxWorker Error] rank={shard_rank}\n{traceback.format_exc()}"
+        if error_path is not None:
+            path = Path(error_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(error_text, encoding="utf-8")
         raise
 
 
@@ -2828,11 +3005,11 @@ class BaseMatchModel(BaseModel):
     """
 
     @property
-    def model_name(self) -> str:
+    def model_name(self) -> str:  # type: ignore[override]
         raise NotImplementedError
 
     @property
-    def default_task(self) -> str:
+    def default_task(self) -> TaskTypeName:
         return "binary"
 
     @property
@@ -2919,10 +3096,10 @@ class BaseMatchModel(BaseModel):
         self.num_negative_samples = num_negative_samples
         self.temperature = temperature
         self.similarity_metric = similarity_metric
-        primary_mode = self.training_modes[0] if self.training_modes else "pointwise"
-        if primary_mode not in self.support_training_modes:
+        self.primary_mode = self.training_modes[0] if self.training_modes else "pointwise"
+        if self.primary_mode not in self.support_training_modes:
             raise ValueError(
-                f"{self.model_name.upper()} does not support training_mode='{primary_mode}'. Supported modes: {self.support_training_modes}"
+                f"{self.model_name.upper()} does not support training_mode='{self.primary_mode}'. Supported modes: {self.support_training_modes}"
             )
         self.user_features_all = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
         self.item_features_all = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
@@ -2931,7 +3108,7 @@ class BaseMatchModel(BaseModel):
         self.head = RetrievalHead(
             similarity_metric=self.similarity_metric,
             temperature=self.temperature,
-            training_mode=primary_mode,
+            training_mode=self.primary_mode,
             apply_sigmoid=True,
         )
 
@@ -2951,6 +3128,7 @@ class BaseMatchModel(BaseModel):
         loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         loss_weights: int | float | list[int | float] | dict | str | None = None,
+        ignore_label: int | float | None = -1,
     ):
         """
         Configure the match model for training.
@@ -2964,14 +3142,14 @@ class BaseMatchModel(BaseModel):
             loss_params: Parameters for the loss function(s). e.g., {'reduction': 'mean'}.
             loss_weights: Weights for the loss function(s). e.g., 1.0 or [0.7, 0.3].
         """
-        default_loss_by_mode = {
+        default_loss_by_mode: dict[str, LossName] = {
             "pointwise": "bce",
             "pairwise": "bpr",
             "listwise": "sampled_softmax",
         }
 
-        effective_loss = loss
-        primary_mode = self.training_modes[0] if self.training_modes else "pointwise"
+        effective_loss: LossName | nn.Module | list[LossName | nn.Module] | None = loss
+        primary_mode = self.primary_mode
         if effective_loss is None:
             effective_loss = default_loss_by_mode[primary_mode]
         elif isinstance(effective_loss, str):
@@ -3002,6 +3180,7 @@ class BaseMatchModel(BaseModel):
             loss=effective_loss,
             loss_params=loss_params,
             loss_weights=loss_weights,
+            ignore_label=ignore_label,
         )
 
     def inbatch_logits(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
@@ -3055,7 +3234,7 @@ class BaseMatchModel(BaseModel):
         return self.head(user_emb, item_emb, similarity_fn=self.compute_similarity)
 
     def compute_loss(self, y_pred, y_true):
-        primary_mode = self.training_modes[0] if self.training_modes else "pointwise"
+        primary_mode = self.primary_mode
         if primary_mode == "pointwise":
             return super().compute_loss(y_pred, y_true)
 

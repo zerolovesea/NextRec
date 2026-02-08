@@ -48,6 +48,15 @@ DEFAULT_LEVEL_COLORS = {
     "CRITICAL": "bright_red",
 }
 
+GLOBAL_QUIET_LOGGERS = (
+    "onnxscript",
+    "onnxscript.optimizer",
+    "onnxscript.rewriter",
+    "onnxscript.rewriter.rules.common._collapse_slices",
+    "onnx_ir",
+    "onnx_ir.passes.common.unused_removal",
+)
+
 
 class AnsiFormatter(logging.Formatter):
     def __init__(
@@ -144,6 +153,10 @@ def setup_logger(
 
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+
+    # Globally suppress noisy third-party INFO logs (e.g. ONNX rewrite/folding internals)
+    for logger_name in GLOBAL_QUIET_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
     return logger
 

@@ -1,22 +1,63 @@
+# MMoE（Multi-gate Mixture-of-Experts）是一种经典的多任务学习模型框架，
+# 主要用于解决“多个相关任务需要共享信息，但又不能完全共享参数”的问题。
+#
+# 在推荐 / 广告等业务中，常见场景包括：
+#   - CTR / CVR / GMV / 停留时长等多目标联合优化
+#   - 不同任务相关但难度不同、数据分布不同
+#
+# 如果简单地对所有任务完全共享一个网络：
+#   - 容易出现梯度冲突
+#   - 一个任务的优化方向可能会伤害另一个任务（负迁移）
+#
+# MMoE 的核心思想是：
+#   - 用“多个专家网络”作为共享能力池，
+#   - 再由“任务专属的门控网络”决定：
+#      每个任务应该从哪些专家中、以多大权重获取信息。
+#
+# 这种机制不是硬切分，而是“软路由”：
+#   - 每个任务都会使用多个专家
+#   - 但不同任务对专家的依赖程度不同
+#
+# 整体前向计算流程如下：
+#   (1) 对稠密特征、稀疏特征和序列特征进行统一的 embedding / 特征编码
+#   (2) 所有专家网络（Expert MLP）接收相同的输入，
+#       分别进行特征变换，得到多组候选共享表示
+#   (3) 对于每一个任务：
+#       - 任务门控网络（Gate）输出对各专家的权重分布（通常为 softmax）
+#       - 对专家输出进行加权求和，得到该任务的专属表示
+#   (4) 加权后的任务表示送入对应的 Tower 网络与预测头，输出最终结果
+#
+# 这种设计带来的效果是：
+#   - 底层能力可以在专家之间共享
+#   - 高层表示可以根据任务需求进行差异化组合
+#
+# 主要优势：
+#   - 通过门控机制实现“软参数共享”，显著缓解多任务之间的负迁移
+#   - 不同任务可自动学习对专家的不同依赖关系，适配任务难度差异
+#   - 新增任务时只需增加 Tower 和 Gate，无需复制整套底层网络
+#   - 适合多目标、多任务的联合建模场景
+#   - 专家数量与规模可灵活调节，在效果与算力之间做权衡
+#
+
 model: mmoe
 
 params:
-  num_experts: 6  
+  num_experts: 6            # 专家网络数量（MMoE expert pool）
   
-  expert_mlp_params:
-    hidden_dims: [256, 128]        
-    activation: relu
-    dropout: 0.1               
-  
-  tower_mlp_params_list:
+  expert_mlp_params:        # 专家网络 MLP 参数
+    hidden_dims: [256, 128]  
+    activation: relu         
+    dropout: 0.1             
+
+  tower_mlp_params_list:    # 各任务 tower MLP 参数列表，需要修改为与任务数量一一对应
     - hidden_dims: [256, 128]           
-      activation: relu
-      dropout: 0.2
+      activation: relu       # 任务 1 tower 激活
+      dropout: 0.2           # 任务 1 tower dropout
     - hidden_dims: [256, 128]        
-      activation: relu
-      dropout: 0.2             
+      activation: relu       # 任务 2 tower 激活
+      dropout: 0.2           # 任务 2 tower dropout
   
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4         
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

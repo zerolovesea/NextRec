@@ -180,7 +180,7 @@ class ClassBalancedFocalLoss(nn.Module):
         self.reduction = reduction
         class_counts = torch.as_tensor(class_counts, dtype=torch.float32)
         effective_num = 1.0 - torch.pow(beta, class_counts)
-        weights = (1.0 - beta) / (effective_num + 1e-12)
+        weights = (1.0 - beta) / effective_num.clamp(min=1e-12)
         weights = weights / weights.sum() * len(weights)
         self.register_buffer("class_weights", weights)
 

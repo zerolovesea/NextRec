@@ -1,21 +1,82 @@
+# ESCM² 用于 PCVR / CTCVR 预估，面向 "曝光 → 点击 → 转化" 的典型链路。
+# 它是在 ESMM（Entire Space Multi-task Model）上做的因果/反事实改造：
+#
+#   - ESMM 通过 CTCVR = CTR × CVR 的多任务架构，让 CVR 共享 CTR 的 Embedding 在全空间训练，
+#     缓解了 CVR 样本稀疏问题，但仍存在两个根本性偏差：
+#     1. IEB（固有估计偏差）：CVR 模型只在点击样本上训练，但需在全空间预测，
+#        点击样本与全空间样本分布不一致导致选择偏差。
+#     2. PIP（曝光信息泄露）：位置、样式等曝光侧信息通过共享参数泄露给 CVR，
+#        造成"曝光特征影响转化"的虚假因果（如顶部位置点击率高但转化未必高）。
+#
+#   - ESCM² 的核心创新：在 ESMM 框架中引入"反事实风险最小化（CRM）"正则，
+#     通过 IPS（逆倾向加权）或 DR（双重稳健）方法，为未点击样本构建反事实监督信号，
+#     同时纠正 IEB 与 PIP 偏差，实现更无偏的 CVR 预估。 
+#
+# 什么是反事实正则？
+#   - 核心思想：回答"如果未点击的样本被点击了，其转化概率是多少？"
+#   - 实现方法：用倾向得分（propensity score，即 pCTR）重新加权损失函数，
+#     使点击样本的损失能代表全空间期望，从而让 CVR 模型在全空间无偏。
+#
+# 反事实正则如何起作用？（以 IPS 为例）
+#   - 步骤 1：用 CTR 塔预测倾向得分 pCTR = P(click|impression)
+#   - 步骤 2：对点击样本的 CVR 损失进行逆倾向加权：Loss_CVR^IPS = δ / pCTR
+#   - 步骤 3：加权后的损失近似全空间期望：E[δ/pCTR] ≈ E[全空间CVR损失]
+#   - 数学原理：IPS 通过重加权，使点击样本的分布"看起来像"全空间分布。
+#
+# 结构上包含三个优化目标（对应论文 Fig.4）：
+#   (1) Empirical Risk Minimizer：CTR 任务（全空间训练，P(click|impression)）
+#       作用：预测点击概率，同时作为倾向得分估计。
+#   (2) Global Risk Minimizer：CTCVR 任务（全空间训练，P(click,conversion|impression)）
+#       作用：保持 ESMM 的优势，建模点击与转化的联合概率。
+#   (3) Counterfactual Risk Minimizer：CVR 任务的反事实正则（IPS 或 DR）
+#       作用：校正 CVR 模型，使其在全空间无偏预估。
+#   三者共享同一套 embedding，利用 CTR 的丰富信号缓解稀疏性。 
+#
+# IPS 版本（ESCM²-IPS）：
+#   - 用 CTR 塔输出的 pCTR 作为倾向得分估计，
+#     对点击样本的 CVR 损失做逆倾向加权（inverse propensity scoring），
+#     加权因子为 1/pCTR。低 pCTR 的点击样本获得更高权重（稀有事件更珍贵）。
+#
+# DR 版本（ESCM²-DR）：
+#   - 在 IPS 基础上，增加一个"插补模型（imputation model）"，
+#     预测未点击样本的潜在转化概率（反事实结果）。
+#   - 损失组合：DR = IPS部分 + 插补误差校正部分
+#   - 双重稳健性：只要倾向得分模型（CTR）或插补模型其中之一准确，
+#     就能保证估计的无偏性，比 IPS 更稳定。 
+#
+# 训练目标（论文式样）：
+#   L = L_CTR  +  λ_g * L_CTCVR  +  λ_c * L_CVR^(IPS/DR)
+#   其中 L_CVR^(IPS/DR) 是反事实正则项，λ_g 和 λ_c 是超参数。 
+#
+# 适用场景：
+#   - 存在严重样本选择偏差的转化预估任务
+#     例如：推荐系统中，曝光位置强烈影响点击但独立于转化意愿的场景。
+#   - 需要高精度 CVR 预估的广告与电商系统
+#     例如：oCPX 出价、库存分配、ROI 优化等对转化率敏感的业务。
+#   - 多任务学习中有"曝光-点击-转化"链路的场景
+#     例如：同时优化点击率、转化率、观看时长等多目标。
+#   - 对模型偏差敏感、追求公平性的场景
+#     例如：避免因位置偏差导致优质商品得不到公平曝光。
+#
+
 model: escm
 
 params:
-  ctr_mlp_params:
-    hidden_dims: [128, 64]
-    activation: relu
-    dropout: 0.1
-  cvr_mlp_params:
-    hidden_dims: [128, 64]
-    activation: relu
-    dropout: 0.1
-  imp_mlp_params:
-    hidden_dims: [64]
-    activation: relu
-    dropout: 0.1
-  use_dr: false
+  ctr_mlp_params:           # CTR 塔参数，用于估计倾向得分 P(click|impression)
+    hidden_dims: [128, 64]  
+    activation: relu       
+    dropout: 0.1           
+  cvr_mlp_params:         # CVR 塔参数，用于预测转化概率 P(conversion|click)
+    hidden_dims: [128, 64]  
+    activation: relu        
+    dropout: 0.1           
+  imp_mlp_params:         # IMP 塔参数，用于 DR 版本的插补模型 P(conversion|impression, no click)
+    hidden_dims: [64]        
+    activation: relu       
+    dropout: 0.1           
+  use_dr: false             # 是否启用 DR/IPS 等反事实校正（ESCM²）
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6   # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5   # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6       # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4       # 线性/MLP 等 dense 参数的 L2 正则

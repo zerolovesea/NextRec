@@ -1,14 +1,67 @@
+# APG（Adaptive Parameter Generation Network）是一种面向多场景 / 多域 CTR 预估的模型，
+# 核心目标是解决「同一套模型参数难以同时适配不同场景分布」的问题。
+#
+# 在推荐 / 广告系统中，不同场景（如渠道、流量入口、业务线、用户状态）
+# 往往具有明显不同的数据分布和特征作用方式：
+#   - 直接为每个场景训练独立模型 → 成本高、数据稀疏
+#   - 完全共享参数 → 场景差异被抹平，效果受限
+#
+# APG 的核心思想是：
+#   - 不直接共享参数，而是根据“场景特征”动态生成模型参数
+#   - 同一个样本在不同场景下，会使用「不同但相关」的一组网络参数
+#
+# 模型整体由两部分组成：
+#   1. Parameter Generation Network（参数生成网络）
+#      - 以场景/域特征（如 channel、scene、business_type）作为输入
+#      - 通过多层 MLP 生成主干网络所需的权重参数
+#
+#   2. Prediction Network（预测主干网络）
+#      - 使用“当前样本场景对应的动态参数”进行前向计算
+#      - 完成 CTR / CVR 预测任务
+#
+# 这种设计使模型能够：
+#   - 在不同场景下自动调整参数表达
+#   - 同时保留跨场景共享的信息
+#   - 避免为每个场景维护一套独立模型
+#
+# 具体计算流程如下（对应论文设计）：
+#   (1) 从样本中抽取场景/域特征（scene_features），并进行 embedding 编码
+#   (2) 将场景 embedding 输入参数生成网络（MLP），
+#       逐层生成预测主干网络各层所需的权重参数
+#   (3) 对普通特征（稀疏特征 + 数值特征）进行常规 embedding / 拼接
+#   (4) 使用「由当前场景生成的动态参数」执行主干网络前向传播
+#   (5) 输出最终 CTR / CVR 预测结果
+#
+# 与传统多任务 / 多场景方法的区别：
+#   - 不依赖 hard sharing 或 soft sharing
+#   - 不需要人为设计共享层与私有层
+#   - 参数自适应生成，场景差异建模更细粒度
+#
+# 主要优势（论文结论）：
+#   - 能有效建模跨场景分布差异，提升多场景整体效果
+#   - 相比多模型方案，参数量更可控、训练更稳定
+#   - 对场景数量扩展友好，新增场景无需重新设计模型结构
+#
+# 适用场景：
+#   - 多渠道 / 多流量入口 CTR 预估
+#   - 强场景差异的推荐、广告系统
+#   - 希望在单模型框架下兼顾泛化与场景个性化的工业系统
+#
+# 论文来源：
+#   APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction
+#   https://arxiv.org/abs/2203.16218
+
 model: apg
 
 params:
-  mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.1
+  mlp_params:                # APG 主干层 MLP 参数
+    hidden_dims: [256, 128]  
+    activation: relu         
+    dropout: 0.1             
 
-  scene_features: [channel]
+  scene_features: [channel]  # 场景/域特征，用于生成 APG 的自适应参数，这里需要修改为实际数据中的场景/域特征字段名称，例如不同落地页，不同渠道等
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

@@ -1,16 +1,60 @@
+# ESMM（Entire Space Multi-task Model）是一种经典的多任务学习模型，
+# 主要用于解决推荐 / 广告场景中的 CVR 预估问题。
+#
+# 在真实业务中：
+#   - 曝光（impression）样本很多
+#   - 点击（click）样本较少
+#   - 转化（conversion）样本极度稀疏
+#
+# 传统 CVR 模型通常只在「已点击样本」上训练，
+# 这会带来两个核心问题：
+#   1. 样本选择偏差（只看点击用户，分布不一致）
+#   2. 转化标签稀疏，模型难以稳定训练
+#
+# ESMM 的核心思想是：
+#   - 在“曝光全空间”上，同时联合训练 CTR 和 CVR 两个子任务，
+#   - 用概率分解的方式，将难学的 CTCVR 拆成两个更容易学习的部分：
+#
+#     P(conversion | impression)
+#       = P(click | impression) × P(conversion | click)
+#
+# 其中：
+#   - CTR 任务学习：在曝光条件下被点击的概率
+#   - CVR 任务学习：在点击条件下发生转化的概率
+#   - 二者相乘得到 CTCVR，并在曝光样本上直接进行监督
+#
+# 整体计算流程如下：
+#   (1) 对曝光样本的稀疏特征 / 序列特征进行统一的 embedding 编码，
+#       embedding 在 CTR 塔与 CVR 塔之间共享
+#   (2) CTR 塔（MLP）输出 P(click | impression)
+#   (3) CVR 塔（MLP）输出 P(conversion | click)
+#   (4) 将 CTR × CVR 得到 CTCVR，
+#       使用曝光级别的转化标签进行训练，而不是只依赖点击样本
+#
+# 这种设计带来的好处是：
+#   - CTR 任务的数据充足、梯度稳定，可为 CVR 提供有效表征
+#   - CVR 不再局限于点击子集，显著缓解样本稀疏问题
+#   - 在曝光空间训练，避免了点击条件带来的样本选择偏差
+#
+# 主要优势：
+#   - 从根本上缓解 CVR 任务的样本选择偏差问题
+#   - 通过共享 embedding，将 CTR 的信号迁移到 CVR 任务
+#   - 采用概率分解，训练过程更稳定、更易收敛
+#   - 结构清晰，是工业界 CTCVR 预估的标准基线模型
+
 model: esmm
 
 params:
-  ctr_mlp_params:
-    hidden_dims: [128, 64]
-    activation: relu
-    dropout: 0.2
-  cvr_mlp_params:
-    hidden_dims: [128, 64]
-    activation: relu
-    dropout: 0.2
+  ctr_mlp_params:           # CTR 塔参数，用于估计倾向得分 P(click|impression)
+    hidden_dims: [128, 64]  
+    activation: relu        
+    dropout: 0.2            
+  cvr_mlp_params:           # CVR 塔参数，用于预测转化概率 P(conversion|click)
+    hidden_dims: [128, 64]  
+    activation: relu        
+    dropout: 0.2            
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6   # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5   # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6       # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4       # 线性/MLP 等 dense 参数的 L2 正则

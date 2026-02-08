@@ -426,24 +426,20 @@ def train_model(train_config_path: str) -> None:
         onnx_best_path = Path(model.best_path).with_suffix(".onnx")
         onnx_ckpt_path = Path(model.checkpoint_path).with_suffix(".onnx")
         onnx_batch_size = export_cfg.get("batch_size", 1)
-        onnx_opset = export_cfg.get("opset_version", 18)
         log_kv_lines(
             [
                 ("ONNX best path", onnx_best_path),
                 ("ONNX checkpoint path", onnx_ckpt_path),
                 ("Batch size", onnx_batch_size),
-                ("Opset", onnx_opset),
             ]
         )
         model.export_onnx(
             save_path=onnx_best_path,
             batch_size=onnx_batch_size,
-            opset_version=onnx_opset,
         )
         model.export_onnx(
             save_path=onnx_ckpt_path,
             batch_size=onnx_batch_size,
-            opset_version=onnx_opset,
         )
 
 
@@ -620,8 +616,6 @@ def predict_model(predict_config_path: str) -> None:
         num_processes = suggested
         if not streaming:
             num_processes = 1
-        if use_onnx:
-            num_processes = 1
     else:
         num_processes = int(num_processes_cfg)
     profile_enabled = bool(predict_cfg.get("profile", False))
@@ -703,8 +697,6 @@ def predict_model(predict_config_path: str) -> None:
     if num_processes > 1:
         if not streaming:
             raise ValueError("[NextRec CLI Error] num_processes > 1 requires streaming=true.")
-        if use_onnx:
-            raise ValueError("[NextRec CLI Error] num_processes > 1 is not supported with ONNX inference.")
         pred_data = str(data_path)
     else:
         pred_source = str(data_path) if streaming else df
@@ -743,7 +735,9 @@ def predict_model(predict_config_path: str) -> None:
             save_path=str(save_path),
             save_format=save_format,
             num_workers=effective_num_workers,
+            num_processes=num_processes,
             profiler=profiler,
+            processor=processor,
         )
     else:
         result = model.predict(

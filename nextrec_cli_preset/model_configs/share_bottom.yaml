@@ -1,20 +1,53 @@
+# Share-Bottom（硬共享底层）是多任务学习（MTL）中最经典、最基础的模型结构之一，
+# 常作为评估更复杂多任务模型（如 MMOE / PLE）的稳健基线。
+#
+# 它的核心思想非常直接：
+#   - 不同任务在底层使用同一套特征表示，
+#   - 在高层再通过各自的任务塔进行差异化建模。
+#
+# 这种“先共享、后分叉”的结构，假设各任务之间存在较强的相关性，
+# 例如：CTR / CVR、点击 / 停留时长、曝光 / 点击 / 转化等。
+#
+# 模型结构可以理解为三层：
+#   - 底层：学习通用特征表示（所有任务共享）
+#   - 中层：共享表示作为统一输入
+#   - 顶层：每个任务拥有独立的任务塔与预测头
+#
+# 整体计算流程如下：
+#   (1) 对稠密特征、稀疏特征和序列特征进行统一的 embedding 编码
+#   (2) 将拼接后的特征输入共享底层 MLP，
+#       学习对所有任务都有价值的通用表示
+#   (3) 各任务塔在共享表示基础上进行任务相关的非线性变换
+#   (4) 每个任务的预测头输出对应的预测结果
+#
+# 这种结构的关键作用在于：
+#   - 底层参数完全共享，相当于对多个任务进行“联合正则化”
+#   - 数据量较大的任务可以帮助数据稀疏任务学习更稳定的表示
+#   - 显著降低模型参数量与训练成本
+#
+# 主要优势：
+#   - 硬参数共享提供强正则化能力，能有效缓解过拟合
+#   - 相比为每个任务单独建模，参数量与计算成本更低
+#   - 结构简单、实现成本低、训练稳定
+#   - 非常适合作为多任务学习方法的对照与基线模型
+
 model: share_bottom
 
 params:
-  bottom_mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.2
+  bottom_mlp_params:          # 共享底层 MLP 参数
+    hidden_dims: [256, 128]   
+    activation: relu         
+    dropout: 0.2             
 
-  tower_mlp_params_list:
+  tower_mlp_params_list:    # 任务塔 MLP 参数列表，按任务顺序排列，数量需要修改为与任务数一致
     - hidden_dims: [96, 48]
-      activation: relu
-      dropout: 0.2
+      activation: relu       
+      dropout: 0.2           
     - hidden_dims: [128, 64]
-      activation: relu
-      dropout: 0.2
+      activation: relu       
+      dropout: 0.2           
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

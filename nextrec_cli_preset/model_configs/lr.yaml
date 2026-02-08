@@ -1,0 +1,23 @@
+# LR（Logistic Regression）是推荐/广告任务中最经典的线性基线模型。
+# 它将 dense / sparse / sequence 特征统一映射为数值向量后做线性加权：
+#   y = w^T x + b
+#
+# 与深度模型相比，LR 的表达能力更弱，但训练与推理极其高效，
+# 在稀疏高维场景中常作为：
+#   - 工业系统强基线
+#   - 新特征上线前的 sanity check
+#   - Wide&Deep 类模型中的 Wide 端
+#
+# 计算流程：
+#   (1) 稀疏/序列特征 embedding，稠密特征按配置投影或直连
+#   (2) 将全部特征向量拼接为线性输入
+#   (3) 线性层输出 logit，经任务头得到最终概率
+
+
+model: lr
+
+params:
+  embedding_l1_reg: 1.e-6   # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5   # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6       # 线性层等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4       # 线性层等 dense 参数的 L2 正则

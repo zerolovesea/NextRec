@@ -163,7 +163,12 @@ class ApproxNDCGLoss(nn.Module):
 
         ideal_dcg = self._ideal_dcg(labels, k)  # [B]
 
-        ndcg = approx_dcg / (ideal_dcg + 1e-10)  # [B]
+        # use clamp to avoid division by zero, and keep the sign for negative ideal DCG
+        ndcg = approx_dcg / torch.where(
+            ideal_dcg >= 0,
+            ideal_dcg.clamp(min=1e-10),
+            ideal_dcg.clamp(max=-1e-10),
+        )
         loss = 1.0 - ndcg
 
         if self.reduction == "mean":

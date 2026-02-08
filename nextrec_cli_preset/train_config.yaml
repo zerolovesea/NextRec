@@ -50,7 +50,6 @@ train:
 export_onnx:
   enable: false
   batch_size: 512
-  opset_version: 18
 
 # cd nextrec_cli_preset
 # nextrec --mode train --train_config train_config.yaml

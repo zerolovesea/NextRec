@@ -126,7 +126,7 @@ class CapsuleNetwork(nn.Module):
             if i < 2:
                 interest_capsule = torch.matmul(capsule_softmax_weight, item_eb_hat_iter)
                 cap_norm = torch.sum(torch.square(interest_capsule), -1, True)
-                scalar_factor = cap_norm / (1 + cap_norm) / torch.sqrt(cap_norm + 1e-9)
+                scalar_factor = cap_norm / (1 + cap_norm) / torch.sqrt(cap_norm.clamp(min=1e-9))
                 interest_capsule = scalar_factor * interest_capsule
 
                 delta_weight = torch.matmul(
@@ -138,7 +138,7 @@ class CapsuleNetwork(nn.Module):
             else:
                 interest_capsule = torch.matmul(capsule_softmax_weight, item_eb_hat)
                 cap_norm = torch.sum(torch.square(interest_capsule), -1, True)
-                scalar_factor = cap_norm / (1 + cap_norm) / torch.sqrt(cap_norm + 1e-9)
+                scalar_factor = cap_norm / (1 + cap_norm) / torch.sqrt(cap_norm.clamp(min=1e-9))
                 interest_capsule = scalar_factor * interest_capsule
 
         interest_capsule = torch.reshape(interest_capsule, (-1, self.interest_num, self.embedding_dim))

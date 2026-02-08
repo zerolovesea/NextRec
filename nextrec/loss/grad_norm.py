@@ -154,8 +154,8 @@ class GradNormLossWeighting:
                 base_initial = self.initial_losses
             else:
                 base_initial = loss_values
-            loss_ratios = loss_values / (base_initial + self.eps)
-            inv_rate = loss_ratios / (loss_ratios.mean() + self.eps)
+            loss_ratios = loss_values / base_initial.clamp(min=self.eps)
+            inv_rate = loss_ratios / loss_ratios.mean().clamp(min=self.eps)
             target = grad_norms.mean() * (inv_rate**self.alpha)
 
         grad_norm_loss = F.l1_loss(grad_norms, target.detach(), reduction="sum")
@@ -186,7 +186,7 @@ class GradNormLossWeighting:
             if not any_used:
                 total_norm = torch.tensor(self.eps, device=self.weights.device)
             else:
-                total_norm = torch.sqrt(sq_sum + self.eps)
+                total_norm = torch.sqrt(sq_sum.clamp(min=self.eps))
 
             grad_norms.append(total_norm)
 
@@ -206,7 +206,8 @@ class GradNormLossWeighting:
 
         with torch.no_grad():
             w = self.weights.clamp(min=self.eps)
-            w = w * self.nums_task / (w.sum() + self.eps)
+            safe_weight_sum = w.sum().clamp(min=self.eps)
+            w = w * self.nums_task / safe_weight_sum
             self.weights.copy_(w)
 
         self.pending_grad = None

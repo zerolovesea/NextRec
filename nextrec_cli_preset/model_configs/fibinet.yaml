@@ -1,16 +1,79 @@
+# FiBiNET（Feature Importance and Bilinear NETwork）是一种用于 CTR 预估的特征交互模型，
+# 重点解决两个问题：
+#   1. 不同特征字段的重要性并不相同（哪些字段更值得关注？）
+#   2. 特征之间的关系不仅是“是否相关”，还存在更复杂的组合模式
+#
+# FiBiNET 的核心思路可以概括为两点：
+#   - 用 SENET 自动学习“哪些特征字段更重要”
+#   - 用双线性交互（Bilinear Interaction）精细建模“字段与字段之间的关系”
+#
+# 模型整体结构如下：
+#   - 线性部分（LR）：建模单个特征的直接贡献
+#   - 特征交互部分（FiBi Interaction）：建模成对字段之间的组合关系
+#   - 深层 MLP：在显式交互特征基础上，学习更高阶的非线性模式
+#
+# 计算流程：
+#   (1) 对稀疏特征 / 序列特征进行 embedding 编码，每个特征字段对应一个向量表示
+#   (2) 将所有字段的 embedding 输入 SENET：
+#       - SENET 通过“压缩（Squeeze）-激励（Excitation）”结构，
+#         学习字段级的重要性权重
+#       - 根据权重对字段 embedding 进行重标定（重要字段放大，不重要字段抑制）
+#   (3) 在两路 embedding 上分别进行特征交互：
+#       - 原始 embedding：保留完整、未加权的特征表达
+#       - SENET 重标定 embedding：突出关键字段的组合关系
+#   (4) 将交互结果与线性部分拼接，输入 MLP，得到最终 CTR 预测
+#
+# 交互与 SENET 相关参数说明：
+#
+#   interaction_combo：
+#     - 控制“在哪一路 embedding 上做特征交互”
+#         第 1 位：是否在原始 embedding 上做交互
+#         第 2 位：是否在 SENET 重标定 embedding 上做交互
+#     - 取值示例：
+#         "10"：只在原始 embedding 上做交互
+#         "01"：只在重标定 embedding 上做交互
+#         "11"：两路 embedding 都做交互（信息最丰富，推荐配置）
+#
+#   bilinear_type：
+#     - 控制双线性交互的参数共享方式，影响模型容量与计算复杂度
+#     - 常见取值含义：
+#         field_all：
+#           所有字段对共享同一个双线性变换矩阵
+#           参数最少，泛化强，但表达能力较弱
+#         field_each：
+#           每个字段拥有独立的双线性变换矩阵
+#           参数最多，表达能力强，但更容易过拟合
+#         field_interaction：
+#           每个字段对拥有独立的变换矩阵
+#           在参数量与表达能力之间取得较好平衡（工业常用）
+#
+#   senet_reduction：
+#     - SENET 中“压缩层”的缩减比例（reduction ratio）
+#     - 控制字段重要性建模的瓶颈宽度
+#     - 数值越小：
+#         * SENET 参数越多，字段权重表达能力越强
+#         * 但计算开销和过拟合风险也更高
+#     - 常见经验值：2 ~ 4，字段数较多时通常取 3
+#
+# 主要优势：
+#   - SENET 自动学习字段级重要性，减少人工特征筛选
+#   - 双线性交互显式建模特征对关系，表达能力强于 FM / 内积交互
+#   - 原始 + 重标定双路交互，兼顾稳定性与表达能力
+#   - 线性与深层结构并行，兼顾“记忆能力”和“泛化能力”
+
 model: fibinet
 
 params:
   mlp_params:
     hidden_dims: [256, 128, 64]  
-    activation: relu            
+    activation: relu             #
     dropout: 0.2                 
 
-  interaction_combo: "11"           
-  bilinear_type: field_interaction  
-  senet_reduction: 3                
+  interaction_combo: "11"           # 交互组合方式("0": Hadamard, "1": Bilinear)
+  bilinear_type: field_interaction  # 双线性交互方式（field_all/field_each/field_interaction）
+  senet_reduction: 3                # SENET 压缩比例（reduction ratio）
 
-  embedding_l1_reg: 1.e-6      
-  embedding_l2_reg: 1.e-5       
-  dense_l1_reg: 1.e-6           
-  dense_l2_reg: 1.e-4           
+  embedding_l1_reg: 1.e-6       # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5       # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6           # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4           # 线性/MLP 等 dense 参数的 L2 正则

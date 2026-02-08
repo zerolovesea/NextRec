@@ -1,13 +1,56 @@
+# DCN（Deep & Cross Network）是一类经典的 CTR / CVR 预估模型，
+# 核心思想是：通过 Cross Network 显式构造特征之间的多阶交叉，
+# 同时可选引入 Deep（MLP）分支，学习更复杂的非线性关系。
+#
+# 与 FM 系模型不同，DCN 的交叉是“向量级、逐层递推”的多项式特征展开，
+# 可以在较少参数的情况下建模高阶组合关系。
+#
+# Cross 层的递推公式为：
+#   x_{l+1} = x_0 · (w_l^T x_l) + b_l + x_l
+#
+# 其中：
+#   - x_0 是原始输入特征向量（embedding + dense 拼接）
+#   - x_l 是第 l 层 Cross 的输出
+#   - w_l, b_l 是第 l 层可学习参数
+#
+# 每一层 Cross 都会将“原始特征 x_0”与“当前层特征 x_l”做显式交叉，
+# 使模型能够逐层学习更高阶的多项式特征组合。
+# Cross 层采用残差结构，有助于缓解梯度消失并提升训练稳定性。
+#
+# DCN 的整体结构由两条分支组成：
+#   1. Cross 分支：显式建模多阶特征交叉，参数规模随层数线性增长
+#   2. Deep 分支（可选）：通过 MLP 学习隐式高阶非线性交互
+#
+# 两条分支共享同一套 embedding 表示，避免重复特征工程和冗余参数。
+#
+# 整体计算流程如下：
+#   (1) 对稀疏特征 / 序列特征进行 embedding 编码，并与数值特征拼接成 x_0
+#   (2) 将 x_0 输入 Cross Network，通过多层残差交叉构造显式高阶特征
+#   (3) （可选）将 x_0 同时输入 Deep 分支（MLP），学习隐式非线性特征
+#   (4) 将 Cross 输出（以及 Deep 输出）进行拼接或融合
+#   (5) 经过线性层与预测层，输出最终 CTR / CVR 预估结果
+#
+# 主要优势：
+#   - 显式构造特征交叉，参数量随 Cross 层数线性增长，效率高
+#   - 多项式形式的交叉具备一定可解释性
+#   - 残差式 Cross 结构，训练稳定、对超参不敏感
+#   - Deep 分支可按需开启，灵活提升模型表达能力
+#   - 共享 embedding，减少特征工程与参数冗余
+#
+# 适用场景：
+#   - 特征交互结构相对明确、希望显式建模交叉关系的 CTR / CVR 任务
+#   - 作为工业推荐 / 广告系统中的稳定强基线模型
+
 model: dcn
 
 params:
-  cross_num: 3
-  mlp_params:
-    hidden_dims: [256, 128]
-    activation: relu
-    dropout: 0.2
+  cross_num: 3           	# Cross Network 层数（堆叠层数；层数越深可表达更高阶的显式多项式交互）
+  mlp_params:             	# Deep 分支 MLP 的隐藏层维度列表（不影响 Cross 分支）
+    hidden_dims: [256, 128]  # Deep 分支隐藏维度
+    activation: relu         # Deep 分支激活函数
+    dropout: 0.2             # Deep 分支 dropout
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4         
+  embedding_l1_reg: 1.e-6    # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5    # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6        # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4        # 线性/MLP 等 dense 参数的 L2 正则

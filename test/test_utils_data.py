@@ -3,6 +3,8 @@ import pytest
 import torch
 from pandas.testing import assert_frame_equal
 
+from nextrec.basic.features import DenseFeature, SparseFeature
+from nextrec.data.dataloader import RecDataLoader
 from nextrec.utils import data as data_utils
 
 
@@ -217,3 +219,46 @@ def test_read_table_orc(tmp_path):
     orc.write_table(pa.Table.from_pandas(df), str(orc_path))
     with pytest.raises(ValueError):
         data_utils.read_table(orc_path)
+
+
+def test_streaming_single_csv_sharded_keeps_all_rows(tmp_path):
+    rows = 121
+    df = pd.DataFrame(
+        {
+            "user_id": list(range(rows)),
+            "age": [float(i % 10) for i in range(rows)],
+            "label": [float(i % 2) for i in range(rows)],
+        }
+    )
+    csv_path = tmp_path / "single.csv"
+    df.to_csv(csv_path, index=False)
+
+    rec_loader = RecDataLoader(
+        dense_features=[DenseFeature(name="age", proj_dim=1)],
+        sparse_features=[SparseFeature(name="user_id", vocab_size=500, embedding_dim=8)],
+        target=["label"],
+        id_columns=["user_id"],
+    )
+
+    shard_ids = []
+    for shard_rank in (0, 1):
+        loader = rec_loader.create_dataloader(
+            data=str(csv_path),
+            batch_size=1,
+            shuffle=False,
+            streaming=True,
+            chunk_size=20,
+            num_workers=0,
+            shard_rank=shard_rank,
+            shard_count=2,
+        )
+        ids = []
+        for batch in loader:
+            id_batch = batch["ids"]["user_id"]
+            ids.extend([int(x) for x in id_batch.tolist()])
+        shard_ids.append(set(ids))
+
+    assert len(shard_ids[0]) > 0
+    assert len(shard_ids[1]) > 0
+    assert shard_ids[0].isdisjoint(shard_ids[1])
+    assert len(shard_ids[0] | shard_ids[1]) == rows
