@@ -47,7 +47,6 @@ class SummarySet:
     dense_l2_reg: float
     early_stop_patience: int
     max_gradient_norm: float | None
-    metrics_sample_limit: int | None
     session_id: str | None
     features_config_path: str
     checkpoint_path: str
@@ -394,7 +393,6 @@ class SummarySet:
             logger.info("Other Settings:")
             logger.info(f"  Early Stop Patience:   {self.early_stop_patience}")
             logger.info(f"  Max Gradient Norm:     {self.max_gradient_norm}")
-            logger.info(f"  Max Metrics Samples:   {self.metrics_sample_limit}")
             logger.info(f"  Session ID:            {self.session_id}")
             logger.info(f"  Features Config Path:  {self.features_config_path}")
             logger.info(f"  Latest Checkpoint:     {self.checkpoint_path}")

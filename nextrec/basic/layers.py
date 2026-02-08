@@ -348,7 +348,9 @@ class AveragePooling(nn.Module):
             # 0/1 matrix * x
             sum_pooling_matrix = torch.bmm(mask, x).squeeze(1)
             non_padding_length = mask.sum(dim=-1)
-            pooled = sum_pooling_matrix / (non_padding_length.float() + 1e-16)
+            # Use clamp(min=1.0) instead of +1e-16 for ONNX compatibility
+            # When sequence is all padding, sum=0 and clamp makes divisor=1, result=0
+            pooled = sum_pooling_matrix / non_padding_length.float().clamp(min=1.0)
         return pooled
 
 
@@ -887,5 +889,5 @@ class RMSNorm(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # RMS(x) = sqrt(mean(x^2) + eps)
         variance = torch.mean(x**2, dim=-1, keepdim=True)
-        x_normalized = x * torch.rsqrt(variance + self.eps)
+        x_normalized = x * torch.rsqrt(variance.clamp(min=self.eps))
         return self.weight * x_normalized

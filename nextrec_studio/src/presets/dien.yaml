@@ -1,0 +1,40 @@
+# DIEN（Deep Interest Evolution Network）用于 CTR 任务中的用户兴趣演化建模。
+# 它不是简单地聚合行为序列，而是分两阶段处理：
+#   1) Interest Extraction：GRU 提取兴趣状态轨迹
+#   2) Interest Evolution：AUGRU 在目标注意力引导下更新兴趣状态
+#
+# 相比 DIN 的“单次注意力聚合”，DIEN 能更好表达兴趣随时间变化的过程。
+# 在行为序列较长、兴趣漂移明显的场景通常更有效。
+#
+# 计算流程：
+#   (1) 将历史行为序列 embedding 输入 GRU，得到兴趣轨迹
+#   (2) 用候选 item 对兴趣轨迹计算注意力分数
+#   (3) 通过 AUGRU 按注意力强度演化兴趣
+#   (4) 融合演化兴趣 + 候选 item + 其他上下文特征，经 MLP 输出 CTR
+#   (5) 可选负采样辅助损失，增强序列动态学习
+#
+# 使用注意：
+#   - 必须指定行为序列特征名和候选 item 特征名
+#   - 若 use_negsampling=true，需提供 neg_behavior_feature_name
+
+model: dien
+
+params:
+  behavior_feature_name: hist_item_seq   # 需要修改：用户行为序列特征名（sequence）
+  candidate_feature_name: item           # 需要修改：候选物品特征名（sparse）
+  # neg_behavior_feature_name: hist_item_seq_neg  # 需要修改：仅当 use_negsampling=true 时必填
+  use_negsampling: false                 # 是否启用负采样辅助损失
+  aux_loss_weight: 1.0                   # 辅助损失权重（use_negsampling=true 时生效）
+  gru_hidden_size: 64                    # GRU / AUGRU 隐状态维度
+  attention_mlp_params:                  # 目标注意力网络参数
+    hidden_dims: [80, 40]
+    activation: sigmoid
+  mlp_params:                            # 最终预测 MLP 参数
+    hidden_dims: [256, 128]
+    activation: relu
+    dropout: 0.2
+
+  embedding_l1_reg: 1.e-6               # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5               # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6                   # GRU/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4                   # GRU/MLP 等 dense 参数的 L2 正则

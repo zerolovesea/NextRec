@@ -1,0 +1,30 @@
+# FFM（Field-aware Factorization Machines）是在 FM 基础上的增强模型。
+# 核心改进是“字段感知交互”：同一特征面对不同目标字段时，
+# 使用不同 embedding 参与二阶内积，从而更细粒度地建模跨字段关系。
+#
+# 与 FM 的差异：
+#   - FM：同一特征只维护 1 套二阶 embedding
+#   - FFM：同一特征面向不同字段维护多套 embedding（表达更强，参数更多）
+#
+# 计算流程：
+#   (1) 计算一阶线性项（dense + sparse/sequence）
+#   (2) 对字段对 (i, j) 计算 v_{i,f_j} · v_{j,f_i}
+#   (3) 一阶项与字段感知交互项相加，输出最终 logit
+#
+# 注：
+#   - 至少包含两个 sparse/sequence 特征，否则无法构造字段交互
+#   - 参与交互的特征 embedding_dim 必须一致
+#   - SequenceFeature 不支持 combiner='concat'
+#
+# 主要优点：
+#   - 对非对称字段交互刻画更充分
+#   - 在类别特征密集的 CTR 场景通常优于 FM
+#   - 保留显式二阶结构，便于解释与分析
+
+model: ffm
+
+params:
+  embedding_l1_reg: 1.e-6   # field-aware embedding 与一阶 embedding 的 L1 正则
+  embedding_l2_reg: 1.e-5   # field-aware embedding 与一阶 embedding 的 L2 正则
+  dense_l1_reg: 1.e-6       # 线性 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4       # 线性 dense 参数的 L2 正则

@@ -32,7 +32,7 @@ def normalize_task_loss(
         valid_count = torch.tensor(float(valid_count), device=task_loss.device)
     if not torch.is_tensor(total_count):
         total_count = torch.tensor(float(total_count), device=task_loss.device)
-    scale = valid_count.to(task_loss.dtype) / (total_count.to(task_loss.dtype) + eps)
+    scale = valid_count.to(task_loss.dtype) / total_count.to(task_loss.dtype).clamp(min=eps)
     return task_loss * scale
 
 

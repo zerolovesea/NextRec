@@ -120,7 +120,9 @@ class FileDataset(FeatureSet, IterableDataset):
 
         # assign files to each worker
         file_indices_all = list(range(self.total_files))
-        if shard_count > 1:
+        # For a single input file, keep it on every shard and split by chunk/row-group below.
+        # Otherwise, non-zero shards would receive no files and produce empty outputs.
+        if shard_count > 1 and self.total_files > 1:
             file_indices_all = [idx for idx in file_indices_all if (idx % shard_count) == shard_rank]
 
         if not file_indices_all:

@@ -1,37 +1,52 @@
+# POSO 通过个性化冷启动向量 `pc` 为推荐模型叠加逐层的门控系数，
+# 在每个全连接层或专家输出上乘以 gate(pc) 做元素级缩放，
+# 即使行为信号稀缺也能按用户画像调整隐藏表示。
+
+# 实现思路：
+#   (1) 用轻量两层 MLP 生成 gate(pc) = C * sigmoid(W2 * phi(W1 * pc + b1) + b2)
+#   (2) gate(pc) 对神经元逐元素放大或抑制
+#   (3) 原有任务门/塔不变，POSO 仅叠加个性化门控
+
+# 主要优点：
+# - 冷启动场景的可插拔个性化，无需重做骨干结构
+# - 每层/每专家独立门控，新增参数量小
+# - 兼容 MLP、MMoE 等多任务骨干，训练过程平稳
+# - 主特征做建模，PC 特征驱动门控，解耦表征与个性化信号
+
 model: poso
 
 feature_bindings:
-  main_dense_features: [user_active_days_7, user_ctr, item_price, item_popularity, time_since_last_click]
-  main_sparse_features: [item, gender, city, device, channel, age_bucket]
-  main_sequence_features: [hist_item_seq]
-  pc_sparse_features: [user_id]
+  main_dense_features: [user_active_days_7, user_ctr, item_price, item_popularity, time_since_last_click]  # 主干输入的稠密特征，需要修改为实际数据中的稠密特征字段名称
+  main_sparse_features: [item, gender, city, device, channel, age_bucket]                                  # 主干输入的稀疏特征，需要修改为实际数据中的稀疏特征字段名称
+  main_sequence_features: [hist_item_seq]                                                                  # 主干输入的序列特征，需要修改为实际数据中的序列特征字段名称
+  pc_sparse_features: [user_id]                                                                            # PC（冷启动/个性化）特征，需要修改为实际数据中的稀疏特征字段名称
 
 params:
-  architecture: mmoe  # mlp or mmoe
+  architecture: mmoe  # POSO 骨干结构：mlp 或 mmoe
 
-  num_experts: 6
-  expert_hidden_dims: [192, 96]
-  expert_activation: relu
-  expert_dropout: 0.1
-  expert_gate_hidden_dim: 32
-  expert_gate_scale_factor: 2.0
-  gate_use_softmax: true
+  num_experts: 6              # MMoE 专家数量
+  expert_hidden_dims: [192, 96]  # 专家网络隐藏维度
+  expert_activation: relu     # 专家网络激活函数
+  expert_dropout: 0.1         # 专家网络 dropout
+  expert_gate_hidden_dim: 32  # POSO 专家门控 MLP 隐藏维度
+  expert_gate_scale_factor: 2.0  # POSO 门控缩放系数 C（论文中的 gate(pc)）
+  gate_use_softmax: true      # 任务门控是否对专家权重做 softmax
 
-  gate_hidden_dim: 32
-  gate_scale_factor: 2.0
-  gate_activation: relu
-  gate_use_bias: true
+  gate_hidden_dim: 32         # POSO-MLP 层级门控隐藏维度
+  gate_scale_factor: 2.0      # POSO-MLP 门控缩放系数
+  gate_activation: relu       # POSO-MLP 门控激活函数
+  gate_use_bias: true         # POSO-MLP 门控是否使用 bias
 
-  tower_mlp_params_list:
+  tower_mlp_params_list:      # 任务塔 MLP 参数列表，按任务顺序排列，数量需要修改为与任务数一致
     - hidden_dims: [128, 64]
-      activation: relu
-      dropout: 0.2
-      norm_type: batch_norm
+      activation: relu        
+      dropout: 0.2            
+      norm_type: batch_norm   
     - hidden_dims: [160, 80]
-      activation: relu
-      dropout: 0.2
+      activation: relu        
+      dropout: 0.2            
 
-  embedding_l1_reg: 1.e-6
-  embedding_l2_reg: 1.e-5     
-  dense_l1_reg: 1.e-6
-  dense_l2_reg: 1.e-4
+  embedding_l1_reg: 1.e-6     # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5     # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6         # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4         # 线性/MLP 等 dense 参数的 L2 正则

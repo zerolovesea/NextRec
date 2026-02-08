@@ -70,7 +70,7 @@ def compute_pair_scores(model, data, batch_size: int = 512):
 
 def get_loss_list(
     loss: LossName | nn.Module | list[LossName | nn.Module] | None,
-    training_modes: TrainingModeName | list[TrainingModeName] | list[str],
+    training_modes: list[TrainingModeName],
     nums_task: int,
 ):
     default_losses = {

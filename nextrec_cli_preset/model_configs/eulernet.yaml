@@ -1,0 +1,32 @@
+# EulerNet 使用欧拉公式把特征映射到复数域进行交互建模。
+# 核心思想：把每个字段 embedding 分解为“幅值 + 相位”，
+# 再通过复数乘法实现高效多阶交互，最后映射回实数空间输出预测。
+#
+# 相比显式枚举交叉特征，EulerNet 用紧凑参数建模高阶关系，
+# 特别适合高维稀疏特征场景。
+#
+# 计算流程：
+#   (1) 对特征做 embedding，得到字段向量
+#   (2) 通过复空间映射层转成实部/虚部表示
+#   (3) 堆叠 Euler 交互层建模多阶关系
+#   (4) 实部与虚部分别线性回归并融合为 logit
+#   (5) 可选叠加一阶线性分支（use_linear=true）
+#
+# 使用注意：
+#   - 交互特征至少 2 个
+#   - 参与交互的特征 embedding_dim 必须一致
+#   - 若 dense 特征要参与交互，需在 feature_config 中设置 use_projection=true
+
+model: eulernet
+
+params:
+  num_layers: 2            # Euler 交互层层数（越深可建模更复杂交互）
+  num_orders: 8            # 每层输出的交互阶数/通道数
+  use_implicit: true       # 是否启用隐式交互分支（一般建议开启）
+  norm: ln                 # 层间归一化：bn / ln / null
+  use_linear: false        # 是否叠加一阶线性分支
+
+  embedding_l1_reg: 1.e-6  # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5  # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6      # 线性层等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4      # 线性层等 dense 参数的 L2 正则

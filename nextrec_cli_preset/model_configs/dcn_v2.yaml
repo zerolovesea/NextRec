@@ -1,0 +1,40 @@
+# DCNv2 是 DCN 的升级版本：
+# 在显式交叉网络中支持“矩阵交叉（matrix）”和“低秩专家混合交叉（mix）”，
+# 相比 v1 能建模更强的特征组合关系，同时保持较高参数效率。
+#
+# 整体由 Cross 分支 + Deep 分支构成，支持两种结构：
+#   - parallel：Cross 与 MLP 并行，最后拼接
+#   - stacked：先 Cross 再 MLP（此模式必须配置 mlp_params）
+#
+# cross_type 含义：
+#   - matrix：标准矩阵交叉，稳定、易调参
+#   - mix：低秩专家混合交叉，表达更强，参数更多
+#
+# 计算流程：
+#   (1) 特征 embedding 并拼接为输入向量
+#   (2) Cross 分支做显式高阶交叉
+#   (3) 可选 Deep 分支做隐式非线性建模
+#   (4) 融合后经线性层输出预测
+#
+# 主要优点：
+#   - 显式 + 隐式交互结合，效果稳定
+#   - mix 结构在大规模数据上通常更有上限
+#   - 并行/串行结构可根据延迟和效果需求灵活选择
+
+model: dcn_v2
+
+params:
+  cross_num: 3             # Cross 层层数
+  cross_type: matrix       # 交叉类型：matrix / mix
+  architecture: parallel   # 结构类型：parallel / stacked（stacked 需提供 mlp_params）
+  low_rank: 32             # 低秩维度（仅 cross_type=mix 时生效）
+  num_experts: 4           # 专家数量（仅 cross_type=mix 时生效）
+  mlp_params:              # Deep 分支参数
+    hidden_dims: [256, 128]
+    activation: relu
+    dropout: 0.2
+
+  embedding_l1_reg: 1.e-6  # embedding 参数的 L1 正则
+  embedding_l2_reg: 1.e-5  # embedding 参数的 L2 正则
+  dense_l1_reg: 1.e-6      # Cross/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 1.e-4      # Cross/MLP 等 dense 参数的 L2 正则
