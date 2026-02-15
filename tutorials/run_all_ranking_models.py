@@ -292,7 +292,7 @@ def main():
             {
                 "mlp_params": mlp_params,
                 "product_type": "inner",  # 内积类型,可设置为 "outer"
-                "outer_product_dim": 64,  # 外积维度
+                "outer_kernel_type": "mat",  # 外积核类型: mat/vec/num
             },
         ),
         # 双线性交互网络

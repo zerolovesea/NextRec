@@ -1,33 +1,68 @@
-# DCNv2 是 DCN 的升级版本：
-# 在显式交叉网络中支持“矩阵交叉（matrix）”和“低秩专家混合交叉（mix）”，
-# 相比 v1 能建模更强的特征组合关系，同时保持较高参数效率。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 14/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] R. Wang et al. DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems. KDD 2021.
+# URL: https://arxiv.org/abs/2008.13535
 #
-# 整体由 Cross 分支 + Deep 分支构成，支持两种结构：
-#   - parallel：Cross 与 MLP 并行，最后拼接
-#   - stacked：先 Cross 再 MLP（此模式必须配置 mlp_params）
+# DCN v2 enhances the original Deep & Cross Network by replacing the scalar cross
+# weights with vector-wise (matrix) parameters and a Mixture-of-Low-Rank-Experts
+# variant. The matrix cross (CrossNetV2) improves expressiveness with manageable
+# parameter growth, while CrossNetMix decomposes the matrix into low-rank factors and
+# gates across experts for stronger modeling at a similar cost. As in DCN, the cross
+# tower explicitly builds polynomial feature interactions and can be paired with a
+# deep MLP tower; their outputs are concatenated before a final linear head.
 #
-# cross_type 含义：
-#   - matrix：标准矩阵交叉，稳定、易调参
-#   - mix：低秩专家混合交叉，表达更强，参数更多
+# When parallel, it approximates the original DCN.
 #
-# 计算流程：
-#   (1) 特征 embedding 并拼接为输入向量
-#   (2) Cross 分支做显式高阶交叉
-#   (3) 可选 Deep 分支做隐式非线性建模
-#   (4) 融合后经线性层输出预测
+# Workflow:
+# - Embed sparse/sequence fields and concatenate with dense inputs
+# - Cross tower: choose matrix CrossNetV2 or low-rank CrossNetMix for explicit crosses
+# - Optional deep tower: MLP over the same flattened embeddings
+# - Fuse cross and deep outputs, then predict via a linear + prediction layer
 #
-# 主要优点：
-#   - 显式 + 隐式交互结合，效果稳定
-#   - mix 结构在大规模数据上通常更有上限
-#   - 并行/串行结构可根据延迟和效果需求灵活选择
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding layer + flatten -> input_flat: [Batch, Dim_embedding]
+# - Cross tower (matrix/mix): input_flat: [Batch, Dim_embedding] -> cross_out: [Batch, Dim_embedding]
+# - Parallel deep tower (optional): input_flat: [Batch, Dim_embedding] -> parallel_mlp -> parallel_out: [Batch, Hidden_parallel]
+# - Stacked deep tower (optional): cross_out: [Batch, Dim_embedding] -> stacked_mlp -> stacked_out: [Batch, Hidden_stacked]
+# - Fusion (crossnet_only): cross_out -> [Batch, Dim_embedding]
+# - Fusion (parallel): concat(cross_out, parallel_out) -> [Batch, Dim_embedding + Hidden_parallel]
+# - Fusion (stacked): stacked_out -> [Batch, Hidden_stacked]
+# - Fusion (stacked_parallel): concat(stacked_out, parallel_out) -> [Batch, Hidden_stacked + Hidden_parallel]
+# - Output: linear -> [Batch, 1] -> prediction head
+#
+# DCN v2 在原始 DCN 基础上，将标量交叉权重升级为向量/矩阵参数，并引入低秩专家混合
+# 的 CrossNetMix。矩阵交叉（CrossNetV2）在参数可控的前提下提升表达力，CrossNetMix
+# 通过低秩分解和 gating 进一步增强建模能力且保持参数效率。和 DCN 一样，交叉塔显式
+# 构造多项式交互，可并行或串联一个 MLP 深塔，最终拼接/输出到线性头做预测。
+#
+# 当并行时，近似等同于原始 DCN。
+#
+# 流程：
+# - 对稀疏/序列特征做 embedding，并与稠密特征拼接
+# - 交叉塔：可选矩阵 CrossNetV2 或低秩混合 CrossNetMix 显式构造交互
+# - 可选深塔：MLP 处理同一展平后的输入或交叉输出
+# - 融合交叉与深塔输出，经线性层和预测层得到最终得分
+#
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding层 + 展平 -> input_flat: [Batch, Dim_embedding]
+# - Cross 分支（matrix/mix）：input_flat: [Batch, Dim_embedding] -> cross_out: [Batch, Dim_embedding]
+# - Parallel 深塔（可选）：input_flat: [Batch, Dim_embedding] -> parallel_mlp -> parallel_out: [Batch, Hidden_parallel]
+# - Stacked 深塔（可选）：cross_out: [Batch, Dim_embedding] -> stacked_mlp -> stacked_out: [Batch, Hidden_stacked]
+# - 融合（crossnet_only）：cross_out -> [Batch, Dim_embedding]
+# - 融合（parallel）：concat(cross_out, parallel_out) -> [Batch, Dim_embedding + Hidden_parallel]
+# - 融合（stacked）：stacked_out -> [Batch, Hidden_stacked]
+# - 融合（stacked_parallel）：concat(stacked_out, parallel_out) -> [Batch, Hidden_stacked + Hidden_parallel]
+# - 输出：线性层 -> [Batch, 1] -> 预测层
 
 model: dcn_v2
 
 params:
   cross_num: 3             # Cross 层层数
-  cross_type: matrix       # 交叉类型：matrix / mix
-  architecture: parallel   # 结构类型：parallel / stacked（stacked 需提供 mlp_params）
-  low_rank: 32             # 低秩维度（仅 cross_type=mix 时生效）
+  cross_type: matrix       # 交叉类型：matrix / mix / low_rank
+  architecture: parallel   # 结构类型：crossnet_only / parallel / stacked / stacked_parallel
+  low_rank: 32             # 低秩维度（仅 cross_type=mix 或 low_rank 时生效）
   num_experts: 4           # 专家数量（仅 cross_type=mix 时生效）
   mlp_params:              # Deep 分支参数
     hidden_dims: [256, 128]

@@ -12,33 +12,21 @@ the same embeddings, avoiding manual feature engineering and delivering strong C
 performance with end-to-end training.
 
 Workflow:
-  (1) Shared embeddings encode sparse/sequence fields; dense features are concatenated
-  (2) Wide (LR) term models first-order signals
-  (3) FM term captures pairwise interactions via inner products
-  (4) Deep MLP learns higher-order interactions over concatenated embeddings
-  (5) Outputs from wide, FM, and deep parts are summed before the final prediction
-
-Key Advantages:
-- Joint explicit (FM) and implicit (MLP) interaction modeling
-- Shared embeddings remove the need for manual cross features
-- Simple to train end-to-end with minimal feature engineering
-- Strong baseline for CTR/CVR style ranking tasks
+- Shared embeddings encode sparse/sequence fields; dense features are concatenated
+- Wide (LR) term models first-order signals
+- FM term captures pairwise interactions via inner products
+- Deep MLP learns higher-order interactions over concatenated embeddings
+- Outputs from wide, FM, and deep parts are summed before the final prediction
 
 DeepFM 将 FM 的显式二阶特征交互与 MLP 的高阶非线性交互结合，三部分共享
 embedding，无需手工构造交叉特征即可端到端训练，常用于 CTR/CVR 预估。
 
 流程：
-  (1) 共享 embedding 处理稀疏/序列特征，稠密特征拼接
-  (2) Wide（LR）建模一阶信号
-  (3) FM 建模二阶交互
-  (4) MLP 学习高阶非线性交互
-  (5) Wide + FM + Deep 求和后进入预测
-
-主要优点：
-- 显式与隐式交互联合建模
-- 共享 embedding，减少人工交叉特征
-- 端到端训练简单，易于落地
-- CTR/CVR 任务的常用强基线
+- 共享 embedding 处理稀疏/序列特征，稠密特征拼接
+- Wide（LR）建模一阶信号
+- FM 建模二阶交互
+- MLP 学习高阶非线性交互
+- Wide + FM + Deep 求和后进入预测
 """
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
@@ -67,6 +55,14 @@ class DeepFM(BaseModel):
         mlp_params: dict | None = None,
         **kwargs,
     ):
+        """
+        Initialize DeepFM model.
+        初始化 DeepFM 模型。
+
+        Args:
+            mlp_params: Parameters for deep branch MLP, e.g. {"hidden_dims": [64, 32], "dropout": 0.2}.
+                深度分支 MLP 参数。例如 {"hidden_dims": [64, 32], "dropout": 0.2}。
+        """
 
         dense_features = dense_features or []
         sparse_features = sparse_features or []
@@ -104,7 +100,7 @@ class DeepFM(BaseModel):
 
         y_linear = self.linear(input_fm.flatten(start_dim=1))
         y_fm = self.fm(input_fm)
-        y_deep = self.mlp(input_deep)  # [B, 1]
+        y_deep = self.mlp(input_deep)  # [Batch, 1]
 
         y = y_linear + y_fm + y_deep
         return self.prediction_layer(y)

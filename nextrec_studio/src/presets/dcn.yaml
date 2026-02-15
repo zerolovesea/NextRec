@@ -1,45 +1,53 @@
-# DCN（Deep & Cross Network）是一类经典的 CTR / CVR 预估模型，
-# 核心思想是：通过 Cross Network 显式构造特征之间的多阶交叉，
-# 同时可选引入 Deep（MLP）分支，学习更复杂的非线性关系。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 07/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Wang R, Fu B, Fu G, et al. Deep & cross network for ad click predictions[C] //Proceedings of the ADKDD'17. 2017: 1-7.
+# URL: https://arxiv.org/abs/1708.05123
 #
-# 与 FM 系模型不同，DCN 的交叉是“向量级、逐层递推”的多项式特征展开，
-# 可以在较少参数的情况下建模高阶组合关系。
+# Deep & Cross Network (DCN) mixes explicit polynomial feature crosses with a deep
+# MLP branch to capture both low-order and high-order interactions for CTR-style
+# tasks. Cross Layers repeatedly apply x_{l+1} = x0 * (w_l^T x_l) + b_l + x_l,
+# which expands feature crosses with linear parameter growth, while the deep branch
+# learns nonlinear patterns on the same shared embeddings. The final prediction
+# concatenates (or solely uses) cross outputs before a linear head, offering a
+# balanced trade-off between interpretability and expressiveness.
 #
-# Cross 层的递推公式为：
-#   x_{l+1} = x_0 · (w_l^T x_l) + b_l + x_l
+# Workflow:
+# - Embed sparse/sequence features and concatenate with dense features
+# - Cross layers explicitly construct multi-order cross features in a residual form
+# - Optional MLP learns implicit high-order nonlinear interactions
+# - Fuse Cross (and Deep) outputs and feed into linear head for logit
+# - Prediction layer outputs binary CTR score
 #
-# 其中：
-#   - x_0 是原始输入特征向量（embedding + dense 拼接）
-#   - x_l 是第 l 层 Cross 的输出
-#   - w_l, b_l 是第 l 层可学习参数
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding layer + flatten -> [Batch, Dim_embedding]
+# - Cross tower: [Batch, Dim_embedding] -> stacked cross layers -> cross_out:[Batch, Dim_embedding]
+# - Deep tower (optional): [Batch, Dim_embedding] -> MLP -> deep_out[Batch, Hidden_dim]
+# - Fusion: concat(cross_out[Batch, Dim_embedding], deep_out[Batch, Hidden_dim]) -> [Batch, Dim_embedding + Hidden_dim]
+#   (or [Batch, Dim_embedding] if no deep tower)
+# - Output: linear -> [Batch, 1] -> prediction head
 #
-# 每一层 Cross 都会将“原始特征 x_0”与“当前层特征 x_l”做显式交叉，
-# 使模型能够逐层学习更高阶的多项式特征组合。
-# Cross 层采用残差结构，有助于缓解梯度消失并提升训练稳定性。
+# DCN（Deep & Cross Network）通过 Cross 层显式生成多项式特征交互，同时可选 Deep
+# 分支学习高阶非线性关系，两者共享 embedding。Cross 层按
+# x_{l+1} = x0 * (w_l^T x_l) + b_l + x_l 递推，参数线性增长且具解释性；
+# Deep 分支提升表达能力；最终将 Cross（及 Deep）结果送入线性层与预测层，形成兼具
+# 效率与效果的 CTR/CVR 预估模型。
 #
-# DCN 的整体结构由两条分支组成：
-#   1. Cross 分支：显式建模多阶特征交叉，参数规模随层数线性增长
-#   2. Deep 分支（可选）：通过 MLP 学习隐式高阶非线性交互
+# 流程：
+# - 对稀疏/序列特征做 embedding，并与稠密特征拼接
+# - Cross 层以残差形式显式构造多阶交叉特征
+# - 可选 MLP 学习隐式高阶非线性交互
+# - 将 Cross（及 Deep）输出融合后接线性头得到 logit
+# - 预测层输出二分类 CTR 分数
 #
-# 两条分支共享同一套 embedding 表示，避免重复特征工程和冗余参数。
-#
-# 整体计算流程如下：
-#   (1) 对稀疏特征 / 序列特征进行 embedding 编码，并与数值特征拼接成 x_0
-#   (2) 将 x_0 输入 Cross Network，通过多层残差交叉构造显式高阶特征
-#   (3) （可选）将 x_0 同时输入 Deep 分支（MLP），学习隐式非线性特征
-#   (4) 将 Cross 输出（以及 Deep 输出）进行拼接或融合
-#   (5) 经过线性层与预测层，输出最终 CTR / CVR 预估结果
-#
-# 主要优势：
-#   - 显式构造特征交叉，参数量随 Cross 层数线性增长，效率高
-#   - 多项式形式的交叉具备一定可解释性
-#   - 残差式 Cross 结构，训练稳定、对超参不敏感
-#   - Deep 分支可按需开启，灵活提升模型表达能力
-#   - 共享 embedding，减少特征工程与参数冗余
-#
-# 适用场景：
-#   - 特征交互结构相对明确、希望显式建模交叉关系的 CTR / CVR 任务
-#   - 作为工业推荐 / 广告系统中的稳定强基线模型
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding层 + 展平 -> [Batch, Dim_embedding]
+# - Cross [Batch, Dim_embedding] -> 多层显式交叉 -> cross_out: [Batch, Dim_embedding]
+# - Deep 分支（可选）：[Batch, Dim_embedding] -> MLP -> deep_out: [Batch, Hidden_dim]
+# - 融合：concat(cross_out[Batch, Dim_embedding], deep_out[Batch, Hidden_dim]) -> [Batch, Dim_embedding + Hidden_dim]
+#   （无 Deep 时为 [Batch, Dim_embedding]）
+# - 输出：线性层 -> [Batch, 1] -> 预测层
 
 model: dcn
 

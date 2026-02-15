@@ -1,3 +1,16 @@
+# Date: create on 01/01/2026
+# Checkpoint: edit on 07/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# [1] Zhao Z, Liu Y, Jin R, Zhu X, He X. HMOE: Improving Multi-Scenario Learning to Rank in E-commerce by Exploiting Task Relationships in the Label Space. Proceedings of the 29th ACM International Conference on Information & Knowledge Management (CIKM ’20), 2020, pp. 2069–2078.
+# URL: https://dl.acm.org/doi/10.1145/3340531.3412713
+# [2] MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation:
+# https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/
+#
+# Hierarchical Mixture-of-Experts (HMOE) extends MMOE with task-to-task
+# feature aggregation. Each task builds a tower representation from expert
+# mixtures, then a task-weight network mixes all tower features with
+# stop-gradient on non-target tasks to reduce negative transfer.
+
 model: hmoe
 
 params:

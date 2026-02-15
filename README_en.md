@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.5.10-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.5.11-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -37,17 +37,17 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 ## Why NextRec
 
 - **Multi-scenario coverage**: Ranking (CTR/CVR), retrieval, multi-task learning, and more marketing/rec models, with a continuously expanding model zoo.
-- **Unified feature engineering & data pipeline**: NextRec provide unified Dense/Sparse/Sequence feature definitions, DataProcessor, and batch-optimized RecDataLoader, matching offline feature training/inference in industrial big-data settings.
+- **Unified feature engineering & data pipeline**: NextRec provides unified Dense/Sparse/Sequence feature definitions, DataProcessor, and batch-optimized RecDataLoader, matching offline feature training/inference in industrial big-data settings.
 - **Developer-friendly experience**: `Stream processing/distributed training/inference` for `csv/parquet/pathlike` data, plus GPU/MPS acceleration and visualization support.
 - **Flexible CLI tooling**: Start training and inference via command line and config files for rapid experiment iteration and agile deployment.
-- **Efficient training & evaluation**: Standardized engine with optimizers, LR schedulers, early stopping, checkpoints, and detailed logging out of the box.
+- **Rich model annotations**: Detailed model background, implementation workflow, and tensor shape transformations to help learners quickly understand the architecture at first glance.
+- **Efficient training & evaluation**: Standardized engine with optimizers, LR schedulers, early stopping, checkpoints, and detailed logging (WandB/SwanLab/TensorBoard) out of the box.
 
 ## NextRec Progress
 
 - **03/02/2026** In v0.5.3, we introduced the NextRec Studio front-end project as a companion tool for the NextRec CLI, and provided a related [tutorial](nextrec_studio/README_en.md).
 - **28/01/2026** Added support for ONNX export and loading in v0.4.39, and significantly accelerated data preprocessing speed (up to 9x speedup)
 - **01/01/2026** Happy New Year! In v0.4.27, added support for multiple multi-task models: [APG](/nextrec/models/multi_task/apg.py), [ESCM](/nextrec/models/multi_task/escm.py), [HMoE](/nextrec/models/multi_task/hmoe.py), [Cross Stitch](/nextrec/models/multi_task/cross_stitch.py)
-- **28/12/2025** Added support for SwanLab and Weights & Biases in v0.4.21, configurable via the model `fit` method: `use_swanlab=True, swanlab_kwargs={"project": "NextRec","name":"tutorial_movielens_deepfm"},`
 - **21/12/2025** Added support for [GradNorm](/nextrec/loss/grad_norm.py) in v0.4.16, configurable via `loss_weight='grad_norm'` in the compile method
 - **12/12/2025** Added [RQ-VAE](/nextrec/models/representation/rqvae.py), a common module for generative retrieval in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](/nextrec_cli_preset/NextRec-CLI.md) and [reference code](/nextrec_cli_preset).
@@ -95,7 +95,7 @@ To dive deeper into NextRec framework details, Jupyter notebooks are available:
 
 ## 5-Minute Quick Start
 
-We provide a detailed quick-start guide and paired datasets to help you get familiar with different features of NextRec framework. In `datasets/` you'll find an e-commerce scenario test dataset like this:
+We provide a detailed quick-start guide and paired datasets to help you get familiar with different features of NextRec framework. In `dataset/` you'll find an e-commerce scenario test dataset like this:
 
 | user_id | item_id | dense_0     | dense_1     | dense_2     | dense_3    | dense_4     | dense_5     | dense_6     | dense_7     | sparse_0 | sparse_1 | sparse_2 | sparse_3 | sparse_4 | sparse_5 | sparse_6 | sparse_7 | sparse_8 | sparse_9 | sequence_0                                               | sequence_1                                                | label |
 |--------|---------|-------------|-------------|-------------|------------|-------------|-------------|-------------|-------------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|-----------------------------------------------------------|-----------------------------------------------------------|-------|
@@ -114,8 +114,10 @@ from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 df = pd.read_csv('dataset/ranking_task.csv')
 
-for col in df.columns and 'sequence' in col: # csv loads lists as text; convert them back to objects
-    df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
+# CSV loads list-like columns as strings; convert them back to Python lists
+for col in df.columns:
+    if 'sequence' in col:
+        df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
 
 # Define feature columns
 dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1) for i in range(8)]
@@ -126,7 +128,7 @@ sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'spars
 
 sequence_features = [
     SequenceFeature(name='sequence_0', vocab_size=int(df['sequence_0'].apply(lambda x: max(x)).max() + 1), embedding_dim=32, padding_idx=0, embedding_name='item_emb'),
-    SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sparse_0_emb'),]
+    SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sequence_1_emb'),]
 
 mlp_params = {
     "hidden_dims": [256, 128, 64],
@@ -138,24 +140,26 @@ model = DIN(
     dense_features=dense_features,
     sparse_features=sparse_features,
     sequence_features=sequence_features,
+    behavior_feature_name="sequence_0",
+    candidate_feature_name="item_id",
     mlp_params=mlp_params,
     attention_mlp_params={
         "hidden_dims": [80, 40],
         "activation": "sigmoid",
     },
     attention_use_softmax=True,
-    target='label',                                     # target variable
+    target=['label'],                                   # target variable
     device='cpu',                                         
     session_id="din_tutorial",                            # experiment id for logs
 )
 
 # Compile model; configure optimizer/loss/scheduler via compile()
 model.compile(
-            optimizer = "adam",
-            optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5},
-            loss = "focal",
-            loss_params={"gamma": 2.0, "alpha": 0.25},
-        )
+    optimizer="adam",
+    optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
+    loss="focal",
+    loss_params={"gamma": 2.0, "alpha": 0.25},
+)
 
 model.fit(
     train_data=df,
@@ -164,7 +168,7 @@ model.fit(
     batch_size=512,
     shuffle=True,
     user_id_column='user_id',            # used for GAUC
-    valid_ratio=0.2,                     # auto split validation (optional)
+    valid_split=0.2,                     # auto split validation (optional)
     num_workers=4,                       # DataLoader workers
     use_wandb=False,                     # enable W&B (optional)
     wandb_kwargs={"project": "NextRec", "name": "din_tutorial"},
@@ -198,11 +202,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.5.10, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.5.11, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.5.10. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.5.11. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -267,6 +271,15 @@ The current version is 0.5.10. All models and test code have been validated on t
 | [CrossStitch](nextrec/models/multi_task/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | Supported |
 | [ESCM](nextrec/models/multi_task/escm.py) | ESCM²: Entire Space Counterfactual Multi-Task Model for Post-Click Conversion Rate Estimation | Supported |
 | [HMOE](nextrec/models/multi_task/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | Supported |
+| [AITM](nextrec/models/multi_task/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | Supported |
+
+### Tree-based Models
+
+| Model | Notes | Status |
+| ------- | ------- | -------- |
+| [XGBoost](nextrec/models/tree_base/xgboost.py) | Adapter (requires `xgboost`) | Supported |
+| [LightGBM](nextrec/models/tree_base/lightgbm.py) | Adapter (requires `lightgbm`) | Supported |
+| [CatBoost](nextrec/models/tree_base/catboost.py) | Adapter (requires `catboost`) | Supported |
 
 ### Generative Models
 

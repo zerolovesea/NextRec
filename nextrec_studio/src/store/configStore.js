@@ -61,8 +61,7 @@ export const store = reactive({
     },
     export_onnx: {
       enable: false,
-      batch_size: 512,
-      opset_version: 18
+      batch_size: 512
     }
   },
   feature: {

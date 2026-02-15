@@ -1,43 +1,65 @@
-# MaskNet 是一种用于 CTR 预估的深度排序模型，
-# 主要目标是：让模型“按样本动态选择和强调有用特征”，
-# 而不是对所有样本使用同一套固定的特征交互方式。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 15/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Wang Z, She Q, Zhang J. MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask.
 #
-# 在传统的深度模型（如纯 MLP）中：
-#   - 特征之间主要通过加性和非线性变换进行交互
-#   - 所有样本共享同一套网络参数
-#   - 难以显式区分「当前样本中哪些特征更重要」
+# MaskNet was proposed by the Sina machine learning team and applied in the open-source code of the Twitter team.
+# The paper proposes a gating mechanism to perform feature selection on the input raw features,
+# improving feature mining capabilities.
 #
-# MaskNet 的核心思想是：
-#   - 基于当前样本的 embedding 表示，
-#   - 生成一个“实例相关（Instance-Guided）”的特征掩码（mask），
-#   - 通过逐元素乘法，对不同特征维度进行动态加权，
-#      放大关键信息、抑制无关或噪声特征。
+# Workflow:
+# - Build field-wise embeddings from dense/sparse/sequence features selected by `mask_features`.
+# - Flatten embeddings as mask generator input (`v_emb_flat`).
+# - Serial architecture:
+#   first block consumes field embeddings, subsequent blocks consume hidden states.
+# - Parallel architecture:
+#   each block consumes the same field embeddings, then concatenate block outputs and feed MLP.
+# - Apply output layer and task head for final prediction.
 #
-# 这种乘法交互可以理解为：
-#   - MLP 负责“生成规则”
-#   - mask 负责“按样本执行规则”
-#   - 相比纯加性结构，更容易建模高阶、条件化的特征关系
+# Dimension Flow:
+# - Input: dense[Batch], sparse[Batch], sequence[Batch, Length]
+# - Embedding: `field_emb`: [Batch, Field_num, Dim_field]
+# - Flatten for mask generation: `v_emb_flat`: [Batch, Field_num * Dim_field]
+# - Parallel:
+#   each block -> [Batch, Dim_block], concat -> [Batch, Num_blocks * Dim_block], final MLP -> `logit`: [Batch, 1]
+# - Serial:
+#   first block -> [Batch, Dim_block], hidden blocks -> [Batch, Dim_block], output layer -> `logit`: [Batch, 1]
+# - Output: task head(`logit`) -> [Batch, Task_total_dim] (binary single-task usually [Batch, 1])
 #
-# 每个 MaskBlock 的主要计算流程包括：
-#   (1) 使用当前隐藏表示，通过双层 MLP 生成 mask 向量
-#       （mask 的每一维对应一个特征维度的重要性权重）
-#   (2) 将 mask 与隐藏表示进行逐元素乘法，
-#       实现特征级别的门控与选择
-#   (3) 经过 Layer Normalization 与非线性变换，
-#       稳定训练并增强表达能力
+# By stacking (SerialMaskNet) or parallelizing (ParallelMaskNet) multiple
+# MaskBlocks, MaskNet enhances expressive power while remaining efficient,
+# improving CTR performance without heavy feature engineering.
 #
-# 根据 MaskBlock 的组织方式，MaskNet 支持两种结构：
-#   - Serial MaskNet：多个 MaskBlock 串联，逐层细化特征表示
-#   - Parallel MaskNet：多个 MaskBlock 并联，从不同视角建模特征交互
+# MaskNet 由新浪机器学习团队提出，并在Twitter团队的开源代码里得到了应用。论文提出了类似门控机制
+# 的方式，对输入的原始特征进行特征选择，以提高特征挖掘能力。
 #
-# 主要优势：
-#   - 通过乘法门控显式建模高阶特征交互，而不仅依赖加性 MLP
-#   - 针对每个样本自适应调整特征维度的重要性
-#   - 有效降低噪声特征对 CTR 预估的干扰
-#   - 在较少特征工程的情况下提升模型表达能力与效果
+# 与传统仅依赖 MLP 的加性特征交互不同，MaskNet 会根据每个样本的
+# embedding 表示生成一个个性化的 “mask” 向量，通过逐元素的乘法
+# 选择性地放大有效特征维度、抑制无关或噪声特征。
 #
-# 注：连续特征需要先经过 embedding 层映射到高维空间，
-# 再输入 MaskNet 进行处理，否则无法concat特征维度进行逐元素乘法。
+# 流程：
+# - 由 `mask_features`（dense/sparse/sequence）构建 field 级 embedding。
+# - 将 embedding 展平为 `v_emb_flat`，作为 Mask 生成器输入。
+# - 串行结构分支：
+#   首个 block 输入 field embedding，后续 block 输入 hidden 表示逐层细化。
+# - 并行结构分支：
+#   多个 block 并行建模后拼接，再送入 MLP。
+# - 最后经过输出层和任务头得到预测值。
+#
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding：`field_emb`：[Batch, Field_num, Dim_field]
+# - Mask输入展平：`v_emb_flat`：[Batch, Field_num * Dim_field]
+# - 并行结构分支：
+#   每个 block 输出 [Batch, Dim_block]，拼接为 [Batch, Num_blocks * Dim_block]，经 MLP 得 `logit`：[Batch, 1]
+# - 串行结构分支：
+#   首层 block 输出 [Batch, Dim_block]，后续 hidden block 保持 [Batch, Dim_block]，输出层得 `logit`：[Batch, 1]
+# - 输出：任务头(`logit`) -> [Batch, Task_total_dim]（单任务二分类通常为 [Batch, 1]）
+#
+# 通过串联（SerialMaskNet）或并联（ParallelMaskNet）
+# 多个 MaskBlock，MaskNet 在保持高效的同时显著增强了特征表达能力，
+# 在无需大量特征工程的情况下提升 CTR 模型性能。
 
 model: masknet
 

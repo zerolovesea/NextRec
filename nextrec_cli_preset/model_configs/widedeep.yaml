@@ -1,34 +1,27 @@
-# Wide & Deep 是一种经典的推荐 / 排序模型结构，
-# 通过同时建模「记忆能力」和「泛化能力」，解决纯线性模型或纯深度模型各自的局限。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 15/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Cheng H T, Koc L, Harmsen J, et al. Wide & Deep learning for recommender systems[C] //Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. 2016: 7-10.
+#   URL: https://arxiv.org/abs/1606.07792
 #
-# 在真实业务中常见两类信号：
-#   - 高频、稳定、强规则的共现关系（如：老用户 × 熟商品）
-#   - 低频、长尾、需要泛化的组合关系（如：新用户 × 新内容）
+# Wide & Deep blends a linear wide component (memorization of cross features) with a
+# deep neural network (generalization) sharing the same feature space. The wide part
+# captures co-occurrence patterns and manual crosses, while the deep part learns dense
+# representations and nonlinear interactions, improving both accuracy and coverage.
 #
-# Wide & Deep 将这两类信号拆分建模：
-#   1. Wide（宽线性部分）：负责“记忆”
-#      - 使用线性 / 逻辑回归
-#      - 可直接接收原始特征或人工构造的交叉特征
-#      - 擅长拟合出现频率高、规则明确的特征组合
+# Workflow:
+# - Wide: linear/logistic model over raw or embedded features
+# - Deep: embeddings plus dense features feed into an MLP
+# - Sum wide and deep logits, then apply the final prediction layer
 #
-#   2. Deep（深网络部分）：负责“泛化”
-#      - 将稀疏特征映射为 embedding
-#      - 与数值特征拼接后输入多层 MLP
-#      - 自动学习高阶、非线性的特征交互模式
+# Wide & Deep 同时使用宽线性部分（记忆共现/手工交叉）与深网络部分（泛化非线性交互），
+# 共享特征表示，既保留记忆能力又具备泛化能力，常用于 CTR/排序任务。
 #
-# 两个分支共享特征表示，最终联合预测，
-# 既能“记住”重要的历史共现关系，又能对未见过的组合进行合理泛化。
-#
-# 整体计算流程如下：
-#   (1) Wide 分支：对原始特征或人工交叉特征进行线性建模
-#   (2) Deep 分支：对稀疏特征做 embedding，与稠密特征拼接后送入 MLP
-#   (3) 将 Wide 与 Deep 两部分输出相加，得到最终预测结果
-#
-# 主要优势：
-#   - 同时覆盖记忆型信号与泛化型信号，效果稳定
-#   - 支持人工交叉特征与自动 embedding 联合使用
-#   - 结构清晰、训练简单，是 CTR / 排序任务的常用基线
-#   - Wide 与 Deep 共享特征空间，降低特征工程与维护成本
+# 流程：
+# - Wide：线性/逻辑回归建模原始或 embedding 后的特征
+# - Deep：embedding 与稠密特征输入 MLP
+# - 宽深输出求和后进入最终预测
 
 model: widedeep
 

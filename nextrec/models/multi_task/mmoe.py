@@ -1,44 +1,45 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Ma J, Zhao Z, Yi X, Chen J, Hong L, Chi E H. Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts. In: Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’18), 2018, pp. 1930–1939.
 URL: https://dl.acm.org/doi/10.1145/3219819.3220007
 
-Multi-gate Mixture-of-Experts (MMoE) extends shared-bottom multi-task learning by
-introducing multiple experts and task-specific softmax gates. Each task learns its
-own routing weights over the expert pool, enabling both shared and task-specialized
-representations while alleviating gradient conflicts across tasks.
+Multi-gate Mixture-of-Experts (MMoE) was proposed by Google in 2018 for multi-task learning scenarios
+where tasks are related but not identical. Compared to shared-bottom architecture, MMoE achieves soft
+routing through an "expert pool + task gating" mechanism: different tasks learn different weights over
+the same set of experts, allowing for a balance between shared information and task-specific representations,
+mitigating negative transfer and gradient conflicts.
 
-In each forward pass:
-  (1) Shared embeddings encode all dense/sparse/sequence features
-  (2) Each expert processes the same input to produce candidate shared representations
-  (3) Every task gate outputs a simplex over experts to softly route information
-  (4) The task-specific weighted sum is passed into its tower and prediction head
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding: all features -> input_flat: [Batch, Dim_embedding]
+- Experts: each expert(input_flat) -> [Batch, Dim_expert]
+- Stack experts: [Num_experts, Batch, Dim_expert]
+- Task gate: gate_t(input_flat) -> [Batch, Num_experts]
+- Weighted expert sum: [Batch, Num_experts] x [Batch, Num_experts, Dim_expert]
+  -> task_fea_t: [Batch, Dim_expert]
+- Task tower: tower_t(task_fea_t) -> [Batch, 1]
+- Concatenate logits: cat(tower_1 ... tower_T, dim=1) -> [Batch, Task_num]
+- Output head: [Batch, Task_num] -> task activations -> [Batch, Task_num]
 
-Key Advantages:
-- Soft parameter sharing reduces negative transfer between heterogeneous tasks
-- Gates let tasks adaptively allocate expert capacity based on their difficulty
-- Supports many tasks without duplicating full networks
-- Works with mixed feature types via unified embeddings
-- Simple to scale the number of experts or gates for capacity control
+MMoE由Google在2018年提出，用于“任务相关但不完全一致”的多任务学习场景。
+相较于 Shared-Bottom，MMoE 通过“专家池 + 任务门控”实现软路由：不同任务对同一组专家
+学习不同权重，从而在共享信息与任务特化之间取得平衡，缓解负迁移与梯度冲突。
 
-MMoE（Multi-gate Mixture-of-Experts）是多任务学习框架，通过多个专家网络与
-任务特定门控进行软路由，兼顾共享表示与任务特化，减轻梯度冲突问题。
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding：所有特征拼接展平 -> input_flat: [Batch, Dim_embedding]
+- 专家层：每个 expert(input_flat) -> [Batch, Dim_expert]
+- 专家堆叠：stack 后 -> [Num_experts, Batch, Dim_expert]
+- 任务门控：gate_t(input_flat) -> [Batch, Num_experts]
+- 专家加权汇聚：[Batch, Num_experts] 与 [Batch, Num_experts, Dim_expert] 加权求和
+  -> task_fea_t: [Batch, Dim_expert]
+- 任务塔：tower_t(task_fea_t) -> [Batch, 1]
+- 任务拼接：cat(tower_1 ... tower_T, dim=1) -> [Batch, Task_num]
+- 输出头：[Batch, Task_num] -> 各任务激活 -> [Batch, Task_num]
 
-一次前向流程：
-  (1) 共享 embedding 统一编码稠密、稀疏与序列特征
-  (2) 每个专家对相同输入进行特征变换，得到候选共享表示
-  (3) 每个任务的门控产生对专家的概率分布，完成软选择与加权
-  (4) 加权结果输入到对应任务的塔网络与预测头
-
-主要优点：
-- 软参数共享，缓解任务间负迁移
-- 按任务难度自适应分配专家容量
-- 便于扩展多任务，而无需复制完整网络
-- 支持多种特征类型的统一建模
-- 专家与门控数量可灵活调节以控制模型容量
 """
 
 import torch
@@ -84,6 +85,20 @@ class MMOE(BaseModel):
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ):
+        """
+        Initialize MMOE model.
+        初始化 MMOE 模型。
+
+        Args:
+            expert_mlp_params: Shared expert MLP parameters, e.g.
+                {"hidden_dims": [256, 128], "activation": "relu", "dropout": 0.1}.
+                专家网络 MLP 参数字典（所有任务共享同一组专家结构）。
+            num_experts: Number of experts in expert pool.
+                专家网络数量。
+            tower_mlp_params_list: Per-task tower MLP parameter list. Its length must
+                equal the number of tasks; each tower outputs one logit.
+                每个任务对应一个 tower 的参数列表，长度必须等于任务数；每个 tower 输出一个 logit。
+        """
 
         dense_features = dense_features or []
         sparse_features = sparse_features or []
@@ -121,6 +136,9 @@ class MMOE(BaseModel):
         input_dim = self.embedding.input_dim
 
         # Expert networks (shared by all tasks)
+        expert_mlp_params = expert_mlp_params.copy()
+        expert_mlp_params.pop("output_dim", None)
+
         self.experts = nn.ModuleList()
         for _ in range(num_experts):
             expert = MLP(input_dim=input_dim, output_dim=None, **expert_mlp_params)
@@ -142,37 +160,38 @@ class MMOE(BaseModel):
         # Task-specific towers
         self.towers = nn.ModuleList()
         for tower_mlp_params in tower_mlp_params_list:
-            tower = MLP(input_dim=expert_output_dim, output_dim=1, **tower_mlp_params)
+            tower_params = tower_mlp_params.copy()
+            # Ignore optional output_dim in params to avoid duplicate kwargs conflict.
+            tower_params.pop("output_dim", None)
+            tower = MLP(input_dim=expert_output_dim, output_dim=1, **tower_params)
             self.towers.append(tower)
         self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["experts", "gates", "towers"])
 
     def forward(self, x):
-        # Get all embeddings and flatten
+        # Embedding flatten: [Batch, Dim_embedding]
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
 
-        # Expert outputs: [num_experts, B, expert_dim]
+        # Expert outputs:
+        # each expert(input_flat): [Batch, Dim_expert]
+        # stacked experts: [Num_experts, Batch, Dim_expert]
         expert_outputs = [expert(input_flat) for expert in self.experts]
-        expert_outputs = torch.stack(expert_outputs, dim=0)  # [num_experts, B, expert_dim]
+        expert_outputs = torch.stack(expert_outputs, dim=0)
+        expert_outputs_t = expert_outputs.permute(1, 0, 2)  # [Batch, Num_experts, Dim_expert]
 
-        # Task-specific processing
+        # Task-specific routing and towers
         task_outputs = []
         for task_idx in range(self.nums_task):
-            # Gate weights for this task: [B, num_experts]
-            gate_weights = self.gates[task_idx](input_flat)  # [B, num_experts]
+            gate_weights = self.gates[task_idx](input_flat)  # [Batch, Num_experts]
+            gate_weights = gate_weights.unsqueeze(2)  # [Batch, Num_experts, 1]
+            # Weighted expert sum -> task_fea_t: [Batch, Dim_expert]
+            gated_output = torch.sum(gate_weights * expert_outputs_t, dim=1)
 
-            # Weighted sum of expert outputs
-            # gate_weights: [B, num_experts, 1]
-            # expert_outputs: [num_experts, B, expert_dim]
-            gate_weights = gate_weights.unsqueeze(2)  # [B, num_experts, 1]
-            expert_outputs_t = expert_outputs.permute(1, 0, 2)  # [B, num_experts, expert_dim]
-            gated_output = torch.sum(gate_weights * expert_outputs_t, dim=1)  # [B, expert_dim]
-
-            # Tower output
-            tower_output = self.towers[task_idx](gated_output)  # [B, 1]
+            # tower_t: [Batch, Dim_expert] -> [Batch, 1]
+            tower_output = self.towers[task_idx](gated_output)
             task_outputs.append(tower_output)
 
-        # Stack outputs: [B, nums_task]
-        y = torch.cat(task_outputs, dim=1)
-        return self.prediction_layer(y)
+        # Concatenate logits: [Batch, Task_num]
+        y = torch.cat(task_outputs, dim=1)  # [Batch, Task_num]
+        return self.prediction_layer(y)  # [Batch, Task_num]

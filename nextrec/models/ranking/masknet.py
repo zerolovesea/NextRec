@@ -1,55 +1,67 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Wang Z, She Q, Zhang J. MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask.
 
-MaskNet is a CTR prediction model that introduces instance-guided,
-feature-wise multiplicative interactions into deep ranking networks.
-Instead of relying solely on additive feature interactions from MLPs,
-MaskNet generates a personalized “mask” vector for each instance based
-on its embedding representation. This mask selectively scales hidden
-features through element-wise multiplication, enabling the network to
-emphasize informative dimensions and suppress irrelevant noise.
+MaskNet was proposed by the Sina machine learning team and applied in the open-source code of the Twitter team.
+The paper proposes a gating mechanism to perform feature selection on the input raw features,
+improving feature mining capabilities.
 
-Each MaskBlock consists of:
-  (1) Instance-Guided Mask Generation (two-layer MLP)
-  (2) Feature-wise Multiplication with hidden representations
-  (3) Layer Normalization and nonlinear transformation
+Workflow:
+- Build field-wise embeddings from dense/sparse/sequence features selected by `mask_features`.
+- Flatten embeddings as mask generator input (`v_emb_flat`).
+- Serial architecture:
+  first block consumes field embeddings, subsequent blocks consume hidden states.
+- Parallel architecture:
+  each block consumes the same field embeddings, then concatenate block outputs and feed MLP.
+- Apply output layer and task head for final prediction.
+
+Dimension Flow:
+- Input: dense[Batch], sparse[Batch], sequence[Batch, Length]
+- Embedding: `field_emb`: [Batch, Field_num, Dim_field]
+- Flatten for mask generation: `v_emb_flat`: [Batch, Field_num * Dim_field]
+- Parallel:
+  each block -> [Batch, Dim_block], concat -> [Batch, Num_blocks * Dim_block], final MLP -> `logit`: [Batch, 1]
+- Serial:
+  first block -> [Batch, Dim_block], hidden blocks -> [Batch, Dim_block], output layer -> `logit`: [Batch, 1]
+- Output: task head(`logit`) -> [Batch, Task_total_dim] (binary single-task usually [Batch, 1])
 
 By stacking (SerialMaskNet) or parallelizing (ParallelMaskNet) multiple
 MaskBlocks, MaskNet enhances expressive power while remaining efficient,
 improving CTR performance without heavy feature engineering.
 
-Key Advantages:
-- Learns higher-order interactions via multiplicative gating
-- Instance-adaptive feature importance modulation
-- Better discrimination of informative vs. noisy dimensions
-- Flexible architecture for both sequential and parallel design
-
-MaskNet 是一种用于 CTR 预估的模型，它在深度排序网络中引入了
-基于实例（Instance-Guided）的特征级逐元素（Feature-wise）
-乘法交互机制。
+MaskNet 由新浪机器学习团队提出，并在Twitter团队的开源代码里得到了应用。论文提出了类似门控机制
+的方式，对输入的原始特征进行特征选择，以提高特征挖掘能力。
 
 与传统仅依赖 MLP 的加性特征交互不同，MaskNet 会根据每个样本的
 embedding 表示生成一个个性化的 “mask” 向量，通过逐元素的乘法
 选择性地放大有效特征维度、抑制无关或噪声特征。
 
-每个 MaskBlock 包含以下关键步骤：
-  (1) 基于当前样本 embedding 的双层 MLP Mask 生成
-  (2) Mask 与隐藏表示之间的逐元素乘法交互
-  (3) Layer Normalization 与非线性变换
+流程：
+- 由 `mask_features`（dense/sparse/sequence）构建 field 级 embedding。
+- 将 embedding 展平为 `v_emb_flat`，作为 Mask 生成器输入。
+- 串行结构分支：
+  首个 block 输入 field embedding，后续 block 输入 hidden 表示逐层细化。
+- 并行结构分支：
+  多个 block 并行建模后拼接，再送入 MLP。
+- 最后经过输出层和任务头得到预测值。
+
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding：`field_emb`：[Batch, Field_num, Dim_field]
+- Mask输入展平：`v_emb_flat`：[Batch, Field_num * Dim_field]
+- 并行结构分支：
+  每个 block 输出 [Batch, Dim_block]，拼接为 [Batch, Num_blocks * Dim_block]，经 MLP 得 `logit`：[Batch, 1]
+- 串行结构分支：
+  首层 block 输出 [Batch, Dim_block]，后续 hidden block 保持 [Batch, Dim_block]，输出层得 `logit`：[Batch, 1]
+- 输出：任务头(`logit`) -> [Batch, Task_total_dim]（单任务二分类通常为 [Batch, 1]）
 
 通过串联（SerialMaskNet）或并联（ParallelMaskNet）
 多个 MaskBlock，MaskNet 在保持高效的同时显著增强了特征表达能力，
 在无需大量特征工程的情况下提升 CTR 模型性能。
 
-核心优势：
-- 通过乘法门控学习高阶特征交互关系
-- 针对每个样本自适应调整特征重要性
-- 有效区分信息特征与噪声特征
-- 支持灵活的串行与并行网络结构设计
 """
 
 import torch
@@ -70,7 +82,7 @@ class InstanceGuidedMask(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, v_emb_flat: torch.Tensor) -> torch.Tensor:
-        # v_emb_flat: [batch, features count * embedding_dim]
+        # v_emb_flat: [Batch, features count * embedding_dim]
         x = self.fc1(v_emb_flat)
         x = F.relu(x)
         v_mask = self.fc2(x)
@@ -101,11 +113,11 @@ class MaskBlockOnEmbedding(nn.Module):
     # different from MaskBlockOnHidden: input is field embeddings
     def forward(self, field_emb: torch.Tensor, v_emb_flat: torch.Tensor) -> torch.Tensor:
         B = field_emb.size(0)
-        norm_emb = self.ln_emb(field_emb)  # [B, features count, embedding_dim]
-        norm_emb_flat = norm_emb.view(B, -1)  # [B, features count * embedding_dim]
-        v_mask = self.mask_gen(v_emb_flat)  # [B, features count * embedding_dim]
-        v_masked_emb = v_mask * norm_emb_flat  # [B, features count * embedding_dim]
-        hidden = self.ffn(v_masked_emb)  # [B, hidden_dim]
+        norm_emb = self.ln_emb(field_emb)  # [Batch, features count, embedding_dim]
+        norm_emb_flat = norm_emb.view(B, -1)  # [Batch, features count * embedding_dim]
+        v_mask = self.mask_gen(v_emb_flat)  # [Batch, features count * embedding_dim]
+        v_masked_emb = v_mask * norm_emb_flat  # [Batch, features count * embedding_dim]
+        hidden = self.ffn(v_masked_emb)  # [Batch, hidden_dim]
         hidden = self.ln_hid(hidden)
         hidden = F.relu(hidden)
 
@@ -138,7 +150,7 @@ class MaskBlockOnHidden(nn.Module):
 
     # different from MaskBlockOnEmbedding: input is hidden representation
     def forward(self, hidden_in: torch.Tensor, v_emb_flat: torch.Tensor) -> torch.Tensor:
-        norm_hidden = self.ln_input(hidden_in)
+        norm_hidden = self.ln_input(hidden_in)  # [Batch, hidden_dim]
         v_mask = self.mask_gen(v_emb_flat)
         v_masked_hid = v_mask * norm_hidden
         out = self.ffn(v_masked_hid)
@@ -171,10 +183,29 @@ class MaskNet(BaseModel):
         mlp_params: dict | None = None,
         **kwargs,
     ):
+        """
+        Initialize MaskNet model.
+        初始化 MaskNet 模型。
+
+        Args:
+            architecture: Mask block topology, supports "serial" and "parallel".
+                "serial" 为串行堆叠，"parallel" 为并行多分支。
+            num_blocks: Number of mask blocks. In serial mode, total depth is this value.
+                在串行模式下表示总 block 数；并行模式下表示并行分支数。
+            mask_hidden_dim: Hidden dimension of the two-layer instance-guided mask generator.
+                两层 Mask 生成器的隐藏维度。
+            block_hidden_dim: Output hidden dimension of each mask block.
+                每个 MaskBlock 的输出维度。
+            block_dropout: Dropout rate applied after each block output.
+                每个 block 输出后的 dropout 比例。
+            mlp_params: Parameters for the final MLP in parallel mode,
+                e.g. {"hidden_dims": [256, 128], "dropout": 0.2}.
+                并行结构末端 MLP 参数；例如 {"hidden_dims": [256, 128], "dropout": 0.2}。
+        """
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
-        mlp_params = mlp_params or {}
+        mlp_params = dict(mlp_params or {})
 
         super().__init__(
             dense_features=dense_features,
@@ -190,19 +221,51 @@ class MaskNet(BaseModel):
         self.sequence_features = sequence_features
         self.mask_features = self.all_features  # use all features for masking
         assert len(self.mask_features) > 0, "MaskNet requires at least one feature for masking."
-        self.embedding = EmbeddingLayer(features=self.mask_features)
         self.num_fields = len(self.mask_features)
-        self.embedding_dim = self.mask_features[0].embedding_dim
-        assert self.embedding_dim is not None, "MaskNet requires mask_features to have 'embedding_dim' defined."
+        first_feature = self.mask_features[0]
+        if isinstance(first_feature, SequenceFeature):
+            if first_feature.combiner == "concat":
+                if first_feature.max_len is None:
+                    raise ValueError(
+                        f"MaskNet requires SequenceFeature('{first_feature.name}') to set max_len when combiner='concat'."
+                    )
+                self.embedding_dim = first_feature.embedding_dim * first_feature.max_len
+            else:
+                self.embedding_dim = first_feature.embedding_dim
+        elif isinstance(first_feature, SparseFeature):
+            self.embedding_dim = first_feature.embedding_dim
+        elif isinstance(first_feature, DenseFeature):
+            self.embedding_dim = (
+                first_feature.embedding_dim if first_feature.use_projection else first_feature.input_dim
+            )
+        else:
+            raise TypeError(f"Unsupported feature type for MaskNet: {type(first_feature)}")
 
         for f in self.mask_features:
-            edim = f.embedding_dim
-            if edim is None or edim != self.embedding_dim:
-                feat_name = f.name if hasattr(f, "name") else type(f)
+            if isinstance(f, SequenceFeature):
+                if f.combiner == "concat":
+                    if f.max_len is None:
+                        raise ValueError(
+                            f"MaskNet requires SequenceFeature('{f.name}') to set max_len when combiner='concat'."
+                        )
+                    edim = f.embedding_dim * f.max_len
+                else:
+                    edim = f.embedding_dim
+            elif isinstance(f, SparseFeature):
+                edim = f.embedding_dim
+            elif isinstance(f, DenseFeature):
+                edim = f.embedding_dim if f.use_projection else f.input_dim
+            else:
+                raise TypeError(f"Unsupported feature type for MaskNet: {type(f)}")
+            if edim != self.embedding_dim:
+                feat_name = f.name
                 raise ValueError(
-                    f"MaskNet expects identical embedding_dim across all mask_features, but got {edim} for feature {feat_name}."
+                    "MaskNet expects identical effective field dimensions across all mask_features, "
+                    f"but got {edim} for feature {feat_name} (expected {self.embedding_dim}). "
+                    "For SequenceFeature(combiner='concat'), effective dim is embedding_dim * max_len."
                 )
 
+        self.embedding = EmbeddingLayer(features=self.mask_features)
         self.v_emb_dim = self.num_fields * self.embedding_dim
         self.architecture = architecture.lower()
         assert self.architecture in (
@@ -248,6 +311,12 @@ class MaskNet(BaseModel):
                     for _ in range(self.num_blocks)
                 ]
             )
+            mlp_output_dim = mlp_params.get("output_dim", 1)
+            if mlp_output_dim != 1:
+                raise ValueError(
+                    f"MaskNet(parallel) expects mlp_params['output_dim']=1 to match TaskHead input, but got {mlp_output_dim}."
+                )
+            mlp_params["output_dim"] = 1
             self.final_mlp = MLP(input_dim=self.num_blocks * block_hidden_dim, **mlp_params)
             self.output_layer = None
         self.prediction_layer = TaskHead(task_type=self.task)
@@ -255,7 +324,7 @@ class MaskNet(BaseModel):
         if self.architecture == "serial":
             self.register_regularization_weights(
                 embedding_attr="embedding",
-                include_modules=["mask_blocks", "output_layer"],
+                include_modules=["first_block", "hidden_blocks", "output_layer"],
             )
         else:
             self.register_regularization_weights(
@@ -264,23 +333,26 @@ class MaskNet(BaseModel):
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         field_emb = self.embedding(x=x, features=self.mask_features, squeeze_dim=False)
-        B = field_emb.size(0)
-        v_emb_flat = field_emb.view(B, -1)  # flattened embeddings
+        # field_emb: [Batch, Field_num, Dim_field]
+        batch_size = field_emb.size(0)
+        v_emb_flat = field_emb.view(batch_size, -1)
+        # v_emb_flat: [Batch, Field_num * Dim_field]
 
         if self.architecture == "parallel":
             block_outputs = []
             for block in self.mask_blocks:
-                h = block(field_emb, v_emb_flat)  # [B, block_hidden_dim]
+                h = block(field_emb, v_emb_flat)
+                # h: [Batch, Dim_block]
                 h = self.block_dropout(h)
                 block_outputs.append(h)
-            concat_hidden = torch.cat(block_outputs, dim=-1)
-            logit = self.final_mlp(concat_hidden)  # [B, 1]
+            concat_hidden = torch.cat(block_outputs, dim=-1)  # [Batch, Num_blocks * Dim_block]
+            logit = self.final_mlp(concat_hidden)  # [Batch, 1]
         else:
-            hidden = self.first_block(field_emb, v_emb_flat)
+            hidden = self.first_block(field_emb, v_emb_flat)  # [Batch, Dim_block]
             hidden = self.block_dropout(hidden)
             for block in self.hidden_blocks:
-                hidden = block(hidden, v_emb_flat)
+                hidden = block(hidden, v_emb_flat)  # [Batch, Dim_block]
                 hidden = self.block_dropout(hidden)
-            logit = self.output_layer(hidden)  # [B, 1]
-        y = self.prediction_layer(logit)
+            logit = self.output_layer(hidden)  # [Batch, 1]
+        y = self.prediction_layer(logit)  # [Batch, Task_total_dim]
         return y

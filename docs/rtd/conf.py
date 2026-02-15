@@ -11,7 +11,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "nextrec"))
 project = "NextRec"
 copyright = "2026, Yang Zhou"
 author = "Yang Zhou"
-release = "0.5.10"
+release = "0.5.11"
 
 extensions = [
     "myst_parser",

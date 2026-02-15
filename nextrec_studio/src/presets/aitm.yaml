@@ -1,0 +1,71 @@
+# Date: create on 15/02/2026
+# Checkpoint: edit on 15/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Xi D, Chen Z, Yan P, Zhang Y, Zhu Y, Zhuang F, Chen Y. Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising. Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining (KDD ’21), 2021, pp. 3745–3755.
+# URL: https://arxiv.org/abs/2105.08489
+# - [2] MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation: https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/
+# - [3] Torch Rechub AITM Implementation: https://github.com/datawhalechina/torch-rechub/blob/main/torch_rechub/models/multi_task/aitm.py
+#
+# Attentive Information Transfer Multi-Task Model (AITM) was proposed by Meituan, Zhejiang University,
+# and other institutions in KDD 2021 for multi-task conversion funnel scenarios with explicit sequential dependencies,
+# e.g. impression -> click -> add-to-cart -> purchase.
+# Compared to modeling each task independently, AITM is a framework with two main components:
+# AITMTransfer for transferring information between tasks, and a sequential monotonic calibrator
+# to constrain the predicted probabilities of later stages not to exceed those of earlier stages.
+# Behavior Expectation Calibrator (BEC), which is used to improve the accuracy of end-to-end conversion identification.
+#
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding: all features -> input_flat: [Batch, Dim_embedding]
+# - Task bottoms: bottom_i(input_flat) -> task_feat_i: [Batch, Dim_bottom]
+# - Transfer i-1 -> i:
+#   prev_proj(task_feat_{i-1}) -> [Batch, Dim_bottom]
+#   stack([prev, curr], dim=1) -> [Batch, 2, Dim_bottom]
+#   attention(Q/K/V) over 2 slots -> transfer_feat_i: [Batch, Dim_bottom]
+# - Task towers: tower_i(task_feat_i) -> logit_i: [Batch, 1]
+# - Concatenate logits: cat(logit_1 ... logit_T, dim=1) -> [Batch, Task_num]
+# - Output head: task activation (binary sigmoid) -> y_pred: [Batch, Task_num]
+# - Calibrator loss: penalize relu(p_{i+1} - p_i) to enforce funnel monotonicity
+#
+# AITM 由美团，浙江大学等机构发表在KDD2021，面向具有明确阶段顺序依赖的多任务转化漏斗场景，
+# 例如曝光 -> 点击 -> 加购 -> 购买。
+# 与各任务独立建模相比，AITM是一个框架，包含两个主要部分：AITMTransfer用于在任务之间传递信息，
+# 以及一个顺序单调校准器用于约束后续阶段的预测概率不超过前序阶段。
+# 行为期望校准器（BEC），它用于提高端到端转化识别的准确性。
+#
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding：所有特征拼接展平 -> input_flat: [Batch, Dim_embedding]
+# - 各任务底层塔：bottom_i(input_flat) -> task_feat_i: [Batch, Dim_bottom]
+# - 迁移模块 i-1 -> i：
+#   prev_proj(task_feat_{i-1}) -> [Batch, Dim_bottom]
+#   stack([prev, curr], dim=1) -> [Batch, 2, Dim_bottom]
+#   在 2 个信息槽上做 Q/K/V 注意力 -> transfer_feat_i: [Batch, Dim_bottom]
+# - 任务塔：tower_i(task_feat_i) -> logit_i: [Batch, 1]
+# - 拼接 logits：cat(logit_1 ... logit_T, dim=1) -> [Batch, Task_num]
+# - 输出头：按任务类型做激活（binary 使用 sigmoid）-> y_pred: [Batch, Task_num]
+# - 校准约束：惩罚 relu(p_{i+1} - p_i)，鼓励后序阶段概率不超过前序阶段
+
+model: aitm
+
+params:
+  bottom_mlp_params:         # 可为单个 dict（所有任务共享配置）或每任务 list[dict]
+    hidden_dims: [256, 128]
+    activation: relu
+    dropout: 0.1
+
+  tower_mlp_params_list:     # 长度必须与任务数一致
+    - hidden_dims: [128, 64]
+      activation: relu
+      dropout: 0.2
+    - hidden_dims: [128, 64]
+      activation: relu
+      dropout: 0.2
+
+  calibrator_alpha: 0.1      # 序关系约束损失权重，0 表示关闭
+
+  embedding_l1_reg: 1.e-6
+  embedding_l2_reg: 1.e-5
+  dense_l1_reg: 1.e-6
+  dense_l2_reg: 1.e-4

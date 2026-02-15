@@ -1,52 +1,58 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1754-1763.
-  URL: https://arxiv.org/abs/1803.05170
+    (https://arxiv.org/abs/1803.05170)
 
-xDeepFM is a CTR prediction model that unifies explicit and implicit
-feature interaction learning. It extends DeepFM by adding the
-Compressed Interaction Network (CIN) to explicitly model high-order
-interactions at the vector-wise level, while an MLP captures implicit
-non-linear crosses. A linear term retains first-order signals, and all
-three parts are learned jointly end-to-end.
+xDeepFM was proposed by Lian et al. in KDD18 to unify explicit and implicit feature interaction learning within a single framework.
+Building on the Embedding + MLP architecture, it introduces an additional CIN (Compressed Interaction Network)
+that explicitly captures high-order crossed features via convolution over outer products of field embeddings.
+The linear part retains first-order information, the deep part (MLP) models implicit non-linear interactions,
+and all three branches are trained end-to-end.
 
-In the forward pass:
-  (1) Embedding Layer: transforms sparse/sequence fields into dense vectors
-  (2) Linear Part: captures first-order contributions of sparse/sequence fields
-  (3) CIN: explicitly builds higher-order feature crosses via convolution over
-      outer products of field embeddings, with optional split-half connections
-  (4) Deep Part (MLP): models implicit, non-linear interactions across all fields
-  (5) Combination: sums outputs from linear, CIN, and deep branches before the
-      task-specific prediction layer
+Workflows:
+- Embedding Layer: transforms sparse/sequence fields into dense vectors
+- Linear Part: captures first-order contributions of sparse/sequence fields
+- CIN: explicitly builds higher-order feature crosses via convolution over
+    outer products of field embeddings, with optional split-half connections
+- Deep Part (MLP): models implicit, non-linear interactions across all fields
+- Combination: sums outputs from linear, CIN, and deep branches before the
+    task-specific prediction layer
 
-Key Advantages:
-- Jointly learns first-order, explicit high-order, and implicit interactions
-- CIN offers interpretable vector-wise crosses with controlled complexity
-- Deep branch enhances representation power for non-linear patterns
-- End-to-end optimization eliminates heavy manual feature engineering
-- Flexible design supports both sparse and sequence features
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Linear/CIN embedding: sparse + sequence -> input_linear: [Batch, Field_num, Dim_field]
+- Linear branch: flatten(input_linear) -> linear_input: [Batch, Field_num * Dim_field] -> y_linear: [Batch, 1]
+- CIN branch: input_linear: [Batch, Field_num, Dim_field] -> CIN -> y_cin: [Batch, 1]
+- Deep embedding: dense + sparse + sequence -> input_deep: [Batch, Dim_deep]
+- Deep branch: input_deep: [Batch, Dim_deep] -> MLP -> y_deep: [Batch, 1]
+- Fusion: y_linear + y_cin + y_deep -> y: [Batch, 1]
+- Output: y -> prediction layer -> [Batch, 1]
 
-xDeepFM 是一个 CTR 预估模型，将显式与隐式的特征交互学习统一到同一框架。
-在 DeepFM 的基础上，额外引入了 CIN（Compressed Interaction Network）
-显式建模高阶向量级交互，同时 MLP 负责隐式非线性交互，线性部分保留一阶信号，
-三者联合训练。
+xDeepFM由中科大、北大与微软合作发表于KDD18，将显式与隐式的特征交互学习统一到同一框架。
+在延续Embedding + MLP的架构上，额外引入了 CIN（Compressed Interaction Network）
+CIN通过对字段嵌入做外积并卷积，显式捕获高阶交叉特征。
+线性部分保留一阶信息，深层部分（MLP）建模隐式非线性交互，三者端到端联合训练。
 
-前向流程：
-  (1) 嵌入层：将稀疏/序列特征映射为稠密向量
-  (2) 线性部分：建模稀疏/序列特征的一阶贡献
-  (3) CIN：通过对字段嵌入做外积并卷积，显式捕获高阶交叉，可选 split-half 以控参
-  (4) 深层部分（MLP）：对所有特征进行隐式非线性交互建模
-  (5) 融合：线性、CIN、MLP 输出求和后进入任务预测层
+流程：
+- 嵌入层：将稀疏/序列特征映射为稠密向量
+- 线性部分：建模稀疏/序列特征的一阶贡献
+- CIN：通过对字段嵌入做外积并卷积，显式捕获高阶交叉，可选 split-half 以控参
+- 深层部分（MLP）：对所有特征进行隐式非线性交互建模
+- 融合：线性、CIN、MLP 输出求和后进入任务预测层
 
-主要优点：
-- 同时学习一阶、显式高阶、隐式交互
-- CIN 提供可解释的向量级交叉并可控复杂度
-- 深层分支提升非线性表达能力
-- 端到端训练降低人工特征工程需求
-- 兼容稀疏与序列特征的建模
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- 线性/CIN embedding：sparse + sequence -> input_linear: [Batch, Field_num, Dim_field]
+- 线性分支：flatten(input_linear) -> linear_input: [Batch, Field_num * Dim_field] -> y_linear: [Batch, 1]
+- CIN分支：input_linear: [Batch, Field_num, Dim_field] -> CIN -> y_cin: [Batch, 1]
+- 深层 embedding：dense + sparse + sequence -> input_deep: [Batch, Dim_deep]
+- 深层分支：input_deep: [Batch, Dim_deep] -> MLP -> y_deep: [Batch, 1]
+- 融合：y_linear + y_cin + y_deep -> y: [Batch, 1]
+- 输出：y -> 预测层 -> [Batch, 1]
+
 """
 
 import torch
@@ -63,8 +69,22 @@ from nextrec.utils.types import TaskTypeInput
 class CIN(nn.Module):
     """Compressed Interaction Network from xDeepFM (Lian et al., 2018)."""
 
-    def __init__(self, input_dim, cin_size, split_half=True):
+    def __init__(self, input_dim: int, cin_size: list[int], split_half: bool = True):
         super().__init__()
+        if input_dim <= 0:
+            raise ValueError("[xDeepFM Error]: CIN input_dim must be > 0.")
+        if len(cin_size) == 0:
+            raise ValueError("[xDeepFM Error]: cin_size must contain at least one layer size.")
+        if any(size <= 0 for size in cin_size):
+            raise ValueError(f"[xDeepFM Error]: all cin_size values must be positive, got {cin_size}.")
+        if split_half:
+            odd_sizes = [size for size in cin_size[:-1] if size % 2 != 0]
+            if odd_sizes:
+                raise ValueError(
+                    "[xDeepFM Error]: split_half=True requires every non-last CIN layer size to be even, "
+                    f"got cin_size={cin_size}."
+                )
+
         self.num_layers = len(cin_size)
         self.split_half = split_half
         self.conv_layers = torch.nn.ModuleList()
@@ -124,8 +144,35 @@ class xDeepFM(BaseModel):
         split_half: bool = True,
         **kwargs,
     ):
+        """
+        Initialize xDeepFM model.
+        初始化 xDeepFM 模型。
 
-        cin_size = cin_size or [128, 128]
+        Args:
+            mlp_params: Parameters for deep branch MLP, e.g.
+                {"hidden_dims": [256, 128, 64], "dropout": 0.2, "activation": "relu"}.
+                深层分支 MLP 参数，例如 {"hidden_dims": [256, 128, 64], "dropout": 0.2, "activation": "relu"}。
+            cin_size: Hidden layer sizes of CIN, e.g. [128, 128].
+                CIN 隐层大小列表，例如 [128, 128]。
+                When split_half=True, every non-last layer size must be even.
+                当 split_half=True 时，除最后一层外都必须为偶数。
+            split_half: Whether to split half of CIN feature maps to hidden path.
+                是否在 CIN 中使用 split-half 连接策略。
+
+        Notes:
+            - Linear/CIN branches require at least one sparse or sequence feature.
+            - All sparse/sequence fields used by CIN must share the same effective output dimension.
+              SequenceFeature with combiner='concat' changes effective field dimension and may violate this constraint.
+            - 线性/CIN 分支至少需要一个 sparse 或 sequence 特征。
+            - CIN 使用的 sparse/sequence 字段必须具有相同的有效输出维度；
+              SequenceFeature 的 combiner='concat' 会改变字段有效维度，可能触发维度不一致错误。
+        """
+
+        if cin_size is None:
+            cin_size = [128, 128]
+        elif len(cin_size) == 0:
+            raise ValueError("[xDeepFM Error]: cin_size cannot be empty. Use positive layer sizes such as [128, 128].")
+
         mlp_params = mlp_params or {}
 
         super(xDeepFM, self).__init__(
@@ -145,9 +192,25 @@ class xDeepFM(BaseModel):
 
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.deep_features)
+        if len(self.linear_features) == 0:
+            raise ValueError(
+                "[xDeepFM Error]: requires at least one sparse or sequence feature for linear/CIN branches."
+            )
+
+        linear_field_dims = [self.embedding.compute_output_dim([feature]) for feature in self.linear_features]
+        if len(set(linear_field_dims)) != 1:
+            feature_dims = ", ".join(
+                f"{feature.name}:{dim}" for feature, dim in zip(self.linear_features, linear_field_dims)
+            )
+            raise ValueError(
+                "[xDeepFM Error]: CIN expects all sparse/sequence fields to share the same effective embedding "
+                f"dimension for squeeze_dim=False, but got [{feature_dims}]. "
+                "SequenceFeature with combiner='concat' changes field dimension (embedding_dim * max_len) and is "
+                "not supported unless all linear/CIN fields have the same effective dimension."
+            )
 
         # Linear part
-        linear_dim = sum([f.embedding_dim for f in self.linear_features])
+        linear_dim = self.embedding.compute_output_dim(self.linear_features)
         self.linear = LR(linear_dim)
 
         # CIN part: Compressed Interaction Network
@@ -155,28 +218,28 @@ class xDeepFM(BaseModel):
         self.cin = CIN(input_dim=num_fields, cin_size=cin_size, split_half=split_half)
 
         # Deep part: DNN
-        deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
-        dense_input_dim = sum([(f.embedding_dim if f.embedding_dim is not None else 1) or 1 for f in dense_features])
-        self.mlp = MLP(input_dim=deep_emb_dim_total + dense_input_dim, **mlp_params)
+        self.mlp = MLP(input_dim=self.embedding.compute_output_dim(self.deep_features), **mlp_params)
         self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear", "cin", "mlp"])
 
     def forward(self, x):
-        # Get embeddings for linear and CIN (sparse features only)
+        # input_linear: [Batch, Field_num, Dim_field]
         input_linear = self.embedding(x=x, features=self.linear_features, squeeze_dim=False)
 
-        # Linear part
+        # linear_input: [Batch, Field_num * Dim_field] -> y_linear: [Batch, 1]
         y_linear = self.linear(input_linear.flatten(start_dim=1))
 
-        # CIN part
+        # CIN branch: [Batch, Field_num, Dim_field] -> y_cin: [Batch, 1]
         y_cin = self.cin(input_linear)  # [B, 1]
 
-        # Deep part
+        # input_deep: [Batch, Dim_deep]
         input_deep = self.embedding(x=x, features=self.deep_features, squeeze_dim=True)
+        # Deep branch: [Batch, Dim_deep] -> y_deep: [Batch, 1]
         y_deep = self.mlp(input_deep)  # [B, 1]
 
-        # Combine all parts
+        # Fusion: [Batch, 1] + [Batch, 1] + [Batch, 1] -> [Batch, 1]
         y = y_linear + y_cin + y_deep
+        # Output: [Batch, 1] -> task-specific prediction
         return self.prediction_layer(y)

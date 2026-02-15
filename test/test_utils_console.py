@@ -92,6 +92,45 @@ def test_display_metrics_table_rich_path():
     )
 
 
+def test_display_metrics_table_file_export_preserves_long_metric_names(tmp_path):
+    log_path = tmp_path / "metrics.log"
+    root_logger = logging.getLogger()
+    previous_level = root_logger.level
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(handler)
+    try:
+        console_utils.display_metrics_table(
+            epoch=1,
+            epochs=1,
+            split="valid",
+            loss=0.1,
+            metrics={
+                "topk_recall@5": 0.2,
+                "topk_recall@10": 0.3,
+                "topk_precision@5": 0.4,
+                "topk_precision@10": 0.5,
+            },
+            target_names=None,
+            base_metrics=[
+                "topk_recall@5",
+                "topk_recall@10",
+                "topk_precision@5",
+                "topk_precision@10",
+            ],
+        )
+    finally:
+        root_logger.removeHandler(handler)
+        handler.close()
+        root_logger.setLevel(previous_level)
+
+    text = log_path.read_text(encoding="utf-8")
+    assert "topk_recall@10" in text
+    assert "topk_precision@10" in text
+    assert "topk_recall@…" not in text
+    assert "topk_precisio…" not in text
+
+
 def test_progress_iterable(monkeypatch):
     class DummyProgress:
         def __init__(self, *args, **kwargs):

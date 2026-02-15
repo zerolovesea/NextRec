@@ -351,7 +351,19 @@ def display_metrics_table(
     metric_names = preferred_order + sorted(remaining)
 
     for metric_name in metric_names:
-        table.add_column(metric_name, justify="right")
+        table.add_column(metric_name, justify="right", overflow="fold")
+
+    def estimate_export_width() -> int:
+        # Keep metric headers intact in file logs by sizing console width to table content.
+        task_width = max([len("Task")] + [len(str(task_name)) for task_name in task_order], default=4)
+        col_widths: list[int] = [task_width]
+        if include_loss:
+            col_widths.append(max(len("loss"), 8))
+        for metric_name in metric_names:
+            col_widths.append(max(len(metric_name), 8))
+        col_count = len(col_widths)
+        estimated = sum(width + 2 for width in col_widths) + col_count + 1
+        return max(120, estimated)
 
     def fmt(value: float | None) -> str:
         if value is None:
@@ -391,7 +403,7 @@ def display_metrics_table(
 
     Console().print(table)
 
-    record_console = Console(file=io.StringIO(), record=True, width=120)
+    record_console = Console(file=io.StringIO(), record=True, width=estimate_export_width())
     record_console.print(table)
     table_text = record_console.export_text(styles=False).rstrip()
 

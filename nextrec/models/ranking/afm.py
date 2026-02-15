@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 14/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Xiao J, Ye H, He X, et al. Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks
@@ -12,28 +12,38 @@ It retains FM’s linear (first-order) component for sparsity-friendly modeling,
 while using an attention network to reweight the element-wise product of field
 embeddings before aggregation.
 
-In each forward pass:
-  (1) Embed each field and compute pairwise element-wise products v_i ⊙ v_j
-  (2) Pass interactions through an attention MLP (ReLU + projection) to score them
-  (3) Softmax-normalize scores to obtain interaction weights
-  (4) Weighted sum of interactions -> linear projection -> add FM first-order term
+Workflow:
+- Embed each field and compute pairwise element-wise products v_i ⊙ v_j
+- Pass interactions through an attention MLP (ReLU + projection) to score them
+- Softmax-normalize scores to obtain interaction weights
+- Weighted sum of interactions -> linear projection -> add FM first-order term
 
-Key Advantages:
-- Learns which feature pairs contribute most via attention weights
-- Keeps FM efficiency and interpretability by preserving first-order terms
-- Softmax-normalized reweighting reduces noise from uninformative interactions
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding layer -> [Batch, Field_num, Dim_embedding]
+- Interaction layer: [Batch, Field_num, Dim_embedding] -> pairwise element-wise product -> [Batch, Pair_num, Dim_embedding]
+- Attention branch: [Batch, Pair_num, Dim_embedding] -> MLP + softmax -> att_weight: [Batch, Pair_num, 1]
+- AFM branch: sum(att_weight * pair_out) -> [Batch, Dim_embedding] -> linear projection -> y_afm: [Batch, 1]
+- First-order branch: dense/sparse/sequence first-order terms -> y_linear: [Batch, 1]
+- Fusion: y_linear: [Batch, 1] + y_afm: [Batch, 1] -> [Batch, 1]
+- Output: [Batch, 1] -> prediction layer
 
 AFM 在 FM 的二阶交互上引入注意力，为每个特征对学习重要性权重；同时保留 FM 的一阶项，
-保持对稀疏特征的友好与可解释性。具体流程：
-  (1) 对各字段做 embedding，并计算所有特征对的元素积 v_i ⊙ v_j
-  (2) 经由注意力 MLP（ReLU + 线性映射）得到交互得分
-  (3) 通过 softmax 归一化交互得分，得到权重
-  (4) 将加权交互求和、线性映射，再与一阶项相加得到最终预测
+保持对稀疏特征的友好与可解释性。
 
-主要优点：
-- 注意力显式告诉哪些特征对更重要
-- 保留 FM 的效率和可解释性
-- softmax 归一化减弱噪声交互的影响
+流程：
+- 对各字段做 embedding，并计算所有特征对的元素积 v_i ⊙ v_j
+- 经由注意力 MLP（ReLU + 线性映射）得到交互得分
+- 通过 softmax 归一化交互得分，得到权重
+- 将加权交互求和、线性映射，再与一阶项相加得到最终预测
+
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding layer-> [Batch, Field_num, Dim_embedding]
+- 交互层：[Batch, Field_num, Dim_embedding] -> 两两元素积 -> [Batch, Pair_num, Dim_embedding]
+- 注意力分支：[Batch, Pair_num, Dim_embedding] -> MLP + softmax -> att_weight: [Batch, Pair_num, 1]
+- AFM 分支：sum(att_weight * pair_out) -> [Batch, Dim_embedding] -> 线性层 -> y_afm: [Batch, 1]
+- 一阶分支：dense/sparse/sequence 一阶项 -> y_linear: [Batch, 1]
+- 融合：y_linear: [Batch, 1] + y_afm: [Batch, 1] -> [Batch, 1]
+- 输出：[Batch, 1] -> 预测层
 """
 
 import torch
@@ -66,6 +76,17 @@ class AFM(BaseModel):
         attention_dropout: float = 0.0,
         **kwargs,
     ):
+        """
+        Initialize AFM model.
+        初始化 AFM 模型。
+
+        Args:
+            attention_dim: Hidden dimension of AFM attention network. e.g. 32.
+                AFM 注意力网络的隐藏层维度，例如 32。
+            attention_dropout: Dropout rate applied after attention-weighted
+                interaction aggregation. e.g. 0.0.
+                注意力加权交互聚合后的 dropout 比例，例如 0.0。
+        """
 
         dense_features = dense_features or []
         sparse_features = sparse_features or []
@@ -89,12 +110,19 @@ class AFM(BaseModel):
         if any(f.embedding_dim != self.embedding_dim for f in self.fm_features):
             raise ValueError("All FM features must share the same embedding_dim for AFM.")
 
-        self.embedding = EmbeddingLayer(features=self.fm_features)  # [Batch, Field, Dim ]
+        self.embedding = EmbeddingLayer(features=self.fm_features)  # [Batch, Field, Dim_embedding]
 
-        # First-order terms: dense linear + one hot embeddings
+        # [2026.02.14 perf] index of upper triangle without diagonal for pairwise interactions
+        self.num_fields = len(self.fm_features)
+        pair_i, pair_j = torch.triu_indices(self.num_fields, self.num_fields, offset=1)
+        self.register_buffer("pair_i", pair_i, persistent=False)
+        self.register_buffer("pair_j", pair_j, persistent=False)
+
+        # First-order terms: dense linear + one hot embeddings + bias
+        self.bias = nn.Parameter(torch.zeros(1))
         self.dense_features = list(dense_features)
         dense_input_dim = sum([f.input_dim for f in self.dense_features])
-        self.linear_dense = nn.Linear(dense_input_dim, 1, bias=True) if dense_input_dim > 0 else None
+        self.linear_dense = nn.Linear(dense_input_dim, 1, bias=False) if dense_input_dim > 0 else None
 
         # First-order term: sparse/sequence features one-hot
         # **INFO**: source paper does not contain sequence features in experiments,
@@ -135,9 +163,11 @@ class AFM(BaseModel):
         self.embedding_params.extend(emb.weight for emb in self.first_order_embeddings.values())
 
     def forward(self, x):
-        field_emb = self.embedding(x=x, features=self.fm_features, squeeze_dim=False)  # [B, F, D]
+        field_emb = self.embedding(
+            x=x, features=self.fm_features, squeeze_dim=False
+        )  # [Batch, Field_num, Dim_embedding]
         batch_size = field_emb.size(0)
-        y_linear = torch.zeros(batch_size, 1, device=field_emb.device)
+        y_linear = torch.zeros(batch_size, 1, device=field_emb.device) + self.bias
 
         # First-order dense part
         if self.linear_dense is not None:
@@ -151,19 +181,18 @@ class AFM(BaseModel):
         for feature in self.fm_features:
             emb = self.first_order_embeddings[feature.embedding_name]
             if isinstance(feature, SparseFeature):
-                term = emb(x[feature.name].long())  # [B, 1]
+                term = emb(x[feature.name].long())  # [Batch, 1]
             else:  # SequenceFeature
-                seq_input = x[feature.name].long()  # [B, 1]
+                seq_input = x[feature.name].long()  # [Batch, 1]
                 if feature.max_len is not None:
                     seq_input = seq_input[:, -feature.max_len :]
-                mask = self.input_mask(x, feature, seq_input).squeeze(1)  # [B, 1]
-                seq_weight = emb(seq_input).squeeze(-1)  # [B, L]
-                term = (seq_weight * mask).sum(dim=1, keepdim=True)  # [B, 1]
+                mask = self.input_mask(x, feature, seq_input).squeeze(1)  # [Batch, 1]
+                seq_weight = emb(seq_input).squeeze(-1)  # [Batch, Seq_len]
+                term = (seq_weight * mask).sum(dim=1, keepdim=True)  # [Batch, 1]
             first_order_terms.append(term)
         if first_order_terms:
             y_linear = y_linear + torch.sum(torch.cat(first_order_terms, dim=1), dim=1, keepdim=True)
 
-        interactions = []
         feature_values = []
         for feature in self.fm_features:
             value = x.get(f"{feature.name}_value")
@@ -174,23 +203,16 @@ class AFM(BaseModel):
                     seq_input = x[feature.name].long()
                     if feature.max_len is not None:
                         seq_input = seq_input[:, -feature.max_len :]
-                    value = self.input_mask(x, feature, seq_input).sum(dim=2)  # [B, 1]
+                    value = self.input_mask(x, feature, seq_input).sum(dim=2)  # [Batch, 1]
                 else:
                     value = torch.ones(batch_size, 1, device=field_emb.device)
             feature_values.append(value)
-        feature_values_tensor = torch.cat(feature_values, dim=1).unsqueeze(-1)  # [B, F, 1]
+        feature_values_tensor = torch.cat(feature_values, dim=1).unsqueeze(-1)  # [Batch, Field_num, 1]
         field_emb = field_emb * feature_values_tensor
 
-        num_fields = field_emb.shape[1]
-        for i in range(num_fields - 1):
-            vi = field_emb[:, i, :]
-            for j in range(i + 1, num_fields):
-                vj = field_emb[:, j, :]
-                interactions.append(vi * vj)
-
-        pair_tensor = torch.stack(interactions, dim=1)  # [B, num_pairs, D]
+        pair_tensor = field_emb[:, self.pair_i, :] * field_emb[:, self.pair_j, :]  # [Batch, num_pairs, Dim_embedding]
         attention_scores = torch.relu(self.attention_linear(pair_tensor))
-        attention_scores = self.attention_p(attention_scores)  # [B, num_pairs, 1]
+        attention_scores = self.attention_p(attention_scores)  # [Batch, num_pairs, 1]
         attention_weights = torch.softmax(attention_scores, dim=1)
 
         weighted_sum = torch.sum(attention_weights * pair_tensor, dim=1)

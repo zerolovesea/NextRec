@@ -1,46 +1,59 @@
-# PEPNet（Parameter and Embedding Personalized Network）是一类
-# 面向多场景/多用户个性化推荐的双重个性化建模方法，
-# 主要目标是：
-#   - 不同用户对特征的关注程度不同（需要个性化特征选择）
-#   - 不同用户的决策模式不同（需要个性化模型参数）
-#   - 在多场景/多域任务中，保持模型个性化能力
+# Date: create on 01/01/2026
+# Checkpoint: edit on 15/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Chang J, Zhang C, Hui Y, Leng D, Niu Y, Song Y, Gai K. PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information. In: Proceedings of the 29th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’23), 2023.
+# URL: https://arxiv.org/abs/2302.01115
+# - [2] MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation: https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/
 #
-# PEPNet 的核心创新是双重个性化模块：
+# PEPNet was proposed by Kuaishou team in 2023 for multi-task recommendation with significant
+# distribution shifts across scenarios/domains and user/item priors.
+# It consists of two levels of personalization:
+# 1) EPNet: feature-level gate to modulate the shared backbone embedding.
+# 2) PPNet: layer-wise parameter gate for each task tower, conditioned on priors.
+# This helps reduce cross-scenario mismatch while keeping multi-task sharing.
 #
-#   1. EPNet（Embedding Personalized Network）：
-#      - 输入：用户个性化特征（用户ID、画像等）
-#      - 输出：每个特征Field的权重标量
-#      - 作用：对原始特征Embedding进行逐特征加权
-#              让模型对不同用户关注不同的特征
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding: all features -> dnn_input: [Batch, Dim_input]
+# - Domain context: domain_features -> domain_emb: [Batch, Dim_domain]
+# - Task prior context:
+#   cat(domain_emb, user_emb?, item_emb?) -> task_sf_emb: [Batch, Dim_prior]
+# - EPNet gate input:
+#   cat(dnn_input_detach, domain_emb) -> [Batch, Dim_input + Dim_domain]
+# - EPNet output:
+#   ep_gate: [Batch, Dim_input], o_ep = ep_gate * dnn_input -> [Batch, Dim_input]
+# - PPNet (for each task t):
+#   gate_input_t = cat(task_sf_emb, o_ep_detach) -> [Batch, Dim_prior + Dim_input]
+#   tower_t(o_ep, gate_input_t) -> logit_t: [Batch, 1]
+# - Logit concat:
+#   cat(logit_1 ... logit_T, dim=1) -> [Batch, Task_num]
+# - Output head:
+#   [Batch, Task_num] -> task activations -> [Batch, Task_num]
 #
-#   2. PPNet（Parameter Personalized Network）：
-#      - 输入：用户个性化特征
-#      - 输出：主干网络MLP每层参数的偏移量 ΔW
-#      - 作用：将共享参数调整为个性化参数：
-#              W_personalized = W_shared + ΔW_user
-#              让不同用户拥有不同的决策函数
+# PEPNet由快手团队发布于2023，用于多任务推荐场景，用于处理
+# 样本在不同场景/域、用户与物品先验上差异明显的情况。它包含两级个性化机制：
+# 1）EPNet：在特征层面对共享输入进行门控；
+# 2）PPNet：在任务塔每一层进行条件参数门控。
+# 两者结合可在保留任务共享的同时缓解跨场景分布偏移。
 #
-# 整体计算流程：
-#   (1) 从用户特征分别生成 EPNet 权重和 PPNet 参数偏移
-#   (2) 用 EPNet 权重对原始特征Embedding进行缩放
-#   (3) 将加权后的特征输入主干MLP（使用共享参数+PPNet偏移）
-#   (4) 得到个性化预测结果
-#
-# 直观理解：
-#   - EPNet：控制"看什么"（关注哪些特征）
-#   - PPNet：控制"怎么看"（如何组合这些特征）
-#   两者结合实现深度个性化
-#
-# 主要优势：
-#   - 特征级和参数级的双重个性化，建模更精细
-#   - EPNet/PPNet网络轻量，推理开销小
-#   - 可插拔设计，易于集成到现有模型
-#   - 有效缓解多场景数据分布差异
-#
-# 适用场景：
-#   - 用户兴趣差异显著的多场景推荐
-#   - 需要深度个性化的排序系统
-#   - 多域统一模型的个性化增强
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding：所有特征拼接展平 -> dnn_input: [Batch, Dim_input]
+# - 场景上下文：domain_features -> domain_emb: [Batch, Dim_domain]
+# - 任务先验上下文：
+#   cat(domain_emb, user_emb?, item_emb?) -> task_sf_emb: [Batch, Dim_prior]
+# - EPNet 门控输入：
+#   cat(dnn_input_detach, domain_emb) -> [Batch, Dim_input + Dim_domain]
+# - EPNet 输出：
+#   ep_gate: [Batch, Dim_input], o_ep = ep_gate * dnn_input -> [Batch, Dim_input]
+# - 每个任务的 PPNet：
+#   gate_input_t = cat(task_sf_emb, o_ep_detach) -> [Batch, Dim_prior + Dim_input]
+#   tower_t(o_ep, gate_input_t) -> logit_t: [Batch, 1]
+# - 任务拼接：
+#   cat(logit_1 ... logit_T, dim=1) -> [Batch, Task_num]
+# - 输出头：
+#   [Batch, Task_num] -> 各任务激活 -> [Batch, Task_num]
 
 model: pepnet
 

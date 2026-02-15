@@ -1,62 +1,14 @@
-# Cross-Stitch Network 是一种经典的多任务学习（Multi-Task Learning, MTL）模型，
-# 核心思想是：通过在多个任务网络的中间层插入可学习的线性组合单元，
-# 让每个任务的中间表示成为所有任务上一表示的线性组合，从而自动学习任务间的信息共享模式。
+# Date: create on 01/01/2026
+# Checkpoint: edit on 07/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Misra I, Shrivastava A, Gupta A, Hebert M. Cross-Stitch Networks for Multi-Task Learning. Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR 2016), 2016, pp. 3994–4003.
+# URL: https://www.cv-foundation.org/openaccess/content_cvpr_2016/html/Misra_Cross-Stitch_Networks_for_CVPR_2016_paper.html
+# - [2] MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation: https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/
 #
-# 与常见 MTL 方式的区别：
-#   - Hard Sharing：底层完全共享，任务特异性不足，容易产生负迁移
-#   - Soft Sharing：任务独立但通过正则化间接共享，信息流动不够直接
-#   - Cross-Stitch：通过可学习的线性组合矩阵，显式控制任务间的信息流动强度
-#
-# Cross-Stitch 的关键组件是 Cross-Stitch Unit：
-#   对于两个任务A和B，在某一层的计算为：
-#     [输出_A]   =   [ α_AA   α_AB ]   *   [输入_A]
-#     [输出_B]       [ α_BA   α_BB ]       [输入_B]
-#   其中α是可学习参数，α_AA表示任务A保留自身信息的比例，α_AB表示任务A从任务B获取信息的比例。
-#
-# 原论文中的两种主要结构：
-#   1. 共享底层 + 上层分支（通过Cross-Stitch连接）
-#   2. 完全独立分支 + 多层Cross-Stitch交织
-#
-# 在 CTR / CVR 等多任务场景中的常见应用方式：
-#   - 点击率（CTR）+ 转化率（CVR）联合建模
-#   - 主任务 + 多个辅助任务协同训练
-#   - 任务间存在相关性但数据分布不同的场景
-#
-# 基于Cross-Stitch思想在推荐系统中的一种实用实现：
-#
-#   1. 共享特征提取层（可选）
-#      - 学习任务间通用的底层特征表示
-#      - 减少参数冗余，提高计算效率
-#
-#   2. 任务私有分支
-#      - 每个任务拥有独立的MLP网络
-#      - 建模任务特定的特征变换
-#
-#   3. Cross-Stitch 融合层
-#      - 在指定层位置，对各任务的中间特征进行线性组合
-#      - 学习参数α_ij表示任务i从任务j获取信息的比例
-#
-#   4. 任务塔网络
-#      - 每个任务有独立的输出层
-#      - 输出各自任务的预测结果
-#
-# 整体计算流程（原论文典型结构）：
-#   (1) 输入经过初始层后，进入各个任务分支
-#   (2) 在多个网络层位置插入Cross-Stitch单元
-#   (3) 每个Cross-Stitch单元将上一层所有任务的输出线性组合为下一层各任务的输入
-#   (4) 最终通过任务特定输出层得到预测结果
-#
-# 主要优势：
-#   - 自动学习任务间共享结构，减少人工设计成本
-#   - 可解释性强：α参数直观反映任务间信息流动强度
-#   - 灵活平衡任务共性与特性，有效缓解负迁移
-#   - 参数效率高，训练稳定
-#
-# 适用场景：
-#   - 任务相关但不完全一致的多任务学习
-#   - 数据分布不均衡，希望通过多任务互相促进
-#   - 需要理解任务间关系的可解释性场景
-#   - CTR、CVR、观看时长等多目标联合建模
+# Cross-Stitch networks mix task-specific representations with a learnable
+# linear combination at each layer, enabling soft sharing while preserving
+# task-specific subspaces.
 
 model: cross_stitch
 

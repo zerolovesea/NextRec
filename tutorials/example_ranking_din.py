@@ -106,7 +106,6 @@ sparse_features.extend(
 
 # 定义序列特征
 # sequence_0: 用户历史浏览物品序列,与 item_id 共享 embedding (item_emb)
-# sequence_1: 用户历史行为序列,与 sparse_0 共享 embedding (sparse_0_emb)
 sequence_features = [
     SequenceFeature(
         name="sequence_0",
@@ -120,7 +119,7 @@ sequence_features = [
         vocab_size=int(df["sequence_1"].apply(lambda x: max(x)).max() + 1),
         embedding_dim=16,
         padding_idx=0,
-        embedding_name="sparse_0_emb",  # 与 sparse_0 共享 embedding
+        embedding_name="sequence_1_emb",
     ),
 ]
 

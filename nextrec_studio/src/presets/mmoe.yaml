@@ -1,43 +1,43 @@
-# MMoE（Multi-gate Mixture-of-Experts）是一种经典的多任务学习模型框架，
-# 主要用于解决“多个相关任务需要共享信息，但又不能完全共享参数”的问题。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 15/02/2026
+# Author: Yang Zhou,zyaztec@gmail.com
+# Reference:
+# - [1] Ma J, Zhao Z, Yi X, Chen J, Hong L, Chi E H. Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts. In: Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’18), 2018, pp. 1930–1939.
+# URL: https://dl.acm.org/doi/10.1145/3219819.3220007
 #
-# 在推荐 / 广告等业务中，常见场景包括：
-#   - CTR / CVR / GMV / 停留时长等多目标联合优化
-#   - 不同任务相关但难度不同、数据分布不同
+# Multi-gate Mixture-of-Experts (MMoE) was proposed by Google in 2018 for multi-task learning scenarios
+# where tasks are related but not identical. Compared to shared-bottom architecture, MMoE achieves soft
+# routing through an "expert pool + task gating" mechanism: different tasks learn different weights over
+# the same set of experts, allowing for a balance between shared information and task-specific representations,
+# mitigating negative transfer and gradient conflicts.
 #
-# 如果简单地对所有任务完全共享一个网络：
-#   - 容易出现梯度冲突
-#   - 一个任务的优化方向可能会伤害另一个任务（负迁移）
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding: all features -> input_flat: [Batch, Dim_embedding]
+# - Experts: each expert(input_flat) -> [Batch, Dim_expert]
+# - Stack experts: [Num_experts, Batch, Dim_expert]
+# - Task gate: gate_t(input_flat) -> [Batch, Num_experts]
+# - Weighted expert sum: [Batch, Num_experts] x [Batch, Num_experts, Dim_expert]
+#   -> task_fea_t: [Batch, Dim_expert]
+# - Task tower: tower_t(task_fea_t) -> [Batch, 1]
+# - Concatenate logits: cat(tower_1 ... tower_T, dim=1) -> [Batch, Task_num]
+# - Output head: [Batch, Task_num] -> task activations -> [Batch, Task_num]
 #
-# MMoE 的核心思想是：
-#   - 用“多个专家网络”作为共享能力池，
-#   - 再由“任务专属的门控网络”决定：
-#      每个任务应该从哪些专家中、以多大权重获取信息。
+# MMoE由Google在2018年提出，用于“任务相关但不完全一致”的多任务学习场景。
+# 相较于 Shared-Bottom，MMoE 通过“专家池 + 任务门控”实现软路由：不同任务对同一组专家
+# 学习不同权重，从而在共享信息与任务特化之间取得平衡，缓解负迁移与梯度冲突。
 #
-# 这种机制不是硬切分，而是“软路由”：
-#   - 每个任务都会使用多个专家
-#   - 但不同任务对专家的依赖程度不同
-#
-# 整体前向计算流程如下：
-#   (1) 对稠密特征、稀疏特征和序列特征进行统一的 embedding / 特征编码
-#   (2) 所有专家网络（Expert MLP）接收相同的输入，
-#       分别进行特征变换，得到多组候选共享表示
-#   (3) 对于每一个任务：
-#       - 任务门控网络（Gate）输出对各专家的权重分布（通常为 softmax）
-#       - 对专家输出进行加权求和，得到该任务的专属表示
-#   (4) 加权后的任务表示送入对应的 Tower 网络与预测头，输出最终结果
-#
-# 这种设计带来的效果是：
-#   - 底层能力可以在专家之间共享
-#   - 高层表示可以根据任务需求进行差异化组合
-#
-# 主要优势：
-#   - 通过门控机制实现“软参数共享”，显著缓解多任务之间的负迁移
-#   - 不同任务可自动学习对专家的不同依赖关系，适配任务难度差异
-#   - 新增任务时只需增加 Tower 和 Gate，无需复制整套底层网络
-#   - 适合多目标、多任务的联合建模场景
-#   - 专家数量与规模可灵活调节，在效果与算力之间做权衡
-#
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding：所有特征拼接展平 -> input_flat: [Batch, Dim_embedding]
+# - 专家层：每个 expert(input_flat) -> [Batch, Dim_expert]
+# - 专家堆叠：stack 后 -> [Num_experts, Batch, Dim_expert]
+# - 任务门控：gate_t(input_flat) -> [Batch, Num_experts]
+# - 专家加权汇聚：[Batch, Num_experts] 与 [Batch, Num_experts, Dim_expert] 加权求和
+#   -> task_fea_t: [Batch, Dim_expert]
+# - 任务塔：tower_t(task_fea_t) -> [Batch, 1]
+# - 任务拼接：cat(tower_1 ... tower_T, dim=1) -> [Batch, Task_num]
+# - 输出头：[Batch, Task_num] -> 各任务激活 -> [Batch, Task_num]
 
 model: mmoe
 

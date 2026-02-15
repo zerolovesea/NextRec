@@ -1,50 +1,61 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Chang J, Zhang C, Hui Y, Leng D, Niu Y, Song Y, Gai K. PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information. In: Proceedings of the 29th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’23), 2023.
 URL: https://arxiv.org/abs/2302.01115
 - [2] MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation: https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/
 
-PEPNet (Parameter and Embedding Personalized Network) is a multi-task learning
-model that personalizes both input features and layer transformations with
-context (scene/domain, user, item). It applies a shared feature gate to the
-backbone embedding and then uses per-task gated MLP blocks (PPNet blocks) whose
-gates are conditioned on task-specific context. This enables task-aware routing
-at both feature and layer levels, improving adaptation across scenarios/tasks.
+PEPNet was proposed by Kuaishou team in 2023 for multi-task recommendation with significant
+distribution shifts across scenarios/domains and user/item priors.
+It consists of two levels of personalization:
+1) EPNet: feature-level gate to modulate the shared backbone embedding.
+2) PPNet: layer-wise parameter gate for each task tower, conditioned on priors.
+This helps reduce cross-scenario mismatch while keeping multi-task sharing.
 
-Workflow:
-  (1) Embed all features and build the backbone input
-  (2) Build task context embedding from domain/user/item features
-  (3) Feature gate masks backbone input using domain context
-  (4) Each task tower applies layer-wise gates conditioned on context + backbone embedding output
-  (5) Task heads produce per-task predictions
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding: all features -> dnn_input: [Batch, Dim_input]
+- Domain context: domain_features -> domain_emb: [Batch, Dim_domain]
+- Task prior context:
+  cat(domain_emb, user_emb?, item_emb?) -> task_sf_emb: [Batch, Dim_prior]
+- EPNet gate input:
+  cat(dnn_input_detach, domain_emb) -> [Batch, Dim_input + Dim_domain]
+- EPNet output:
+  ep_gate: [Batch, Dim_input], o_ep = ep_gate * dnn_input -> [Batch, Dim_input]
+- PPNet (for each task t):
+  gate_input_t = cat(task_sf_emb, o_ep_detach) -> [Batch, Dim_prior + Dim_input]
+  tower_t(o_ep, gate_input_t) -> logit_t: [Batch, 1]
+- Logit concat:
+  cat(logit_1 ... logit_T, dim=1) -> [Batch, Task_num]
+- Output head:
+  [Batch, Task_num] -> task activations -> [Batch, Task_num]
 
-Key Advantages:
-- Two-level personalization: feature gate + layer gates
-- Context-driven routing for multi-scenario/multi-task recommendation
-- Task towers share embeddings while adapting via gates
-- Gate input uses stop-grad on backbone embedding output for stable training
-- Compatible with heterogeneous features via unified embeddings
+PEPNet由快手团队发布于2023，用于多任务推荐场景，用于处理
+样本在不同场景/域、用户与物品先验上差异明显的情况。它包含两级个性化机制：
+1）EPNet：在特征层面对共享输入进行门控；
+2）PPNet：在任务塔每一层进行条件参数门控。
+两者结合可在保留任务共享的同时缓解跨场景分布偏移。
 
-PEPNet（Parameter and Embedding Personalized Network）通过场景/用户/物品等上下文
-对输入特征与网络层进行双层门控个性化。先用共享特征门控调整主干输入，再在每个
-任务塔中使用条件门控的 MLP 层（PPNet block），实现任务与场景感知的逐层路由。
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding：所有特征拼接展平 -> dnn_input: [Batch, Dim_input]
+- 场景上下文：domain_features -> domain_emb: [Batch, Dim_domain]
+- 任务先验上下文：
+  cat(domain_emb, user_emb?, item_emb?) -> task_sf_emb: [Batch, Dim_prior]
+- EPNet 门控输入：
+  cat(dnn_input_detach, domain_emb) -> [Batch, Dim_input + Dim_domain]
+- EPNet 输出：
+  ep_gate: [Batch, Dim_input], o_ep = ep_gate * dnn_input -> [Batch, Dim_input]
+- 每个任务的 PPNet：
+  gate_input_t = cat(task_sf_emb, o_ep_detach) -> [Batch, Dim_prior + Dim_input]
+  tower_t(o_ep, gate_input_t) -> logit_t: [Batch, 1]
+- 任务拼接：
+  cat(logit_1 ... logit_T, dim=1) -> [Batch, Task_num]
+- 输出头：
+  [Batch, Task_num] -> 各任务激活 -> [Batch, Task_num]
 
-流程：
-  (1) 对全部特征做 embedding，得到主干输入
-  (2) 由场景/用户/物品特征构建任务上下文向量
-  (3) 共享特征门控按场景调制主干输入
-  (4) 任务塔逐层门控，结合上下文与主干 embedding 输出进行路由
-  (5) 任务头输出各任务预测结果
-
-主要优点：
-- 特征级与层级双重个性化
-- 上下文驱动的多场景/多任务适配
-- 共享 embedding 的同时通过门控实现任务定制
-- 对主干 embedding 输出 stop-grad，提高训练稳定性
-- 统一 embedding 支持多类特征
 """
 
 from __future__ import annotations
@@ -190,6 +201,29 @@ class PEPNet(BaseModel):
         use_bias: bool = True,
         **kwargs,
     ) -> None:
+        """
+        Initialize PEPNet model.
+        初始化 PEPNet 模型。
+
+        Args:
+            mlp_params: Shared PPNet tower MLP settings, e.g.
+                {"hidden_dims": [256, 128], "activation": "relu", "dropout": 0.0, "norm_type": "none"}.
+                PPNet 任务塔的 MLP 配置。
+            feature_gate_mlp_params: EPNet gate MLP settings, e.g.
+                {"hidden_dim": 128, "activation": "relu", "dropout": 0.0, "use_bn": False}.
+                EPNet 特征门控网络配置。
+            gate_mlp_params: PPNet per-layer gate MLP settings, e.g.
+                {"hidden_dim": None, "activation": "relu", "dropout": 0.0, "use_bn": False}.
+                PPNet 各层门控网络配置。
+            domain_features: Domain/scene feature name(s) used by EPNet and prior context.
+                场景/域特征名，至少需要提供一个。
+            user_features: Optional user prior feature name(s).
+                用户先验特征名（可选）。
+            item_features: Optional item prior feature name(s).
+                物品先验特征名（可选）。
+            use_bias: Whether to enable bias terms in linear layers.
+                是否在线性层中启用 bias。
+        """
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
@@ -287,22 +321,29 @@ class PEPNet(BaseModel):
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["epnet", "ppnet_blocks"])
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
-        dnn_input = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
-        domain_emb = self.embedding(x=x, features=self.domain_features, squeeze_dim=True).detach()
+        dnn_input = self.embedding(x=x, features=self.all_features, squeeze_dim=True)  # [Batch, Dim_input]
+        domain_emb = self.embedding(
+            x=x, features=self.domain_features, squeeze_dim=True
+        ).detach()  # [Batch, Dim_domain]
 
-        task_parts = [domain_emb]
+        task_parts = [domain_emb]  # first prior block: [Batch, Dim_domain]
         if self.user_features:
-            task_parts.append(self.embedding(x=x, features=self.user_features, squeeze_dim=True).detach())
+            task_parts.append(
+                self.embedding(x=x, features=self.user_features, squeeze_dim=True).detach()
+            )  # [Batch, Dim_user]
         if self.item_features:
-            task_parts.append(self.embedding(x=x, features=self.item_features, squeeze_dim=True).detach())
-        task_sf_emb = torch.cat(task_parts, dim=-1)
+            task_parts.append(
+                self.embedding(x=x, features=self.item_features, squeeze_dim=True).detach()
+            )  # [Batch, Dim_item]
+        task_sf_emb = torch.cat(task_parts, dim=-1)  # [Batch, Dim_prior]
 
-        gate_input = torch.cat([dnn_input.detach(), domain_emb], dim=-1)
-        dnn_input = self.epnet(gate_input) * dnn_input
+        gate_input = torch.cat([dnn_input.detach(), domain_emb], dim=-1)  # [Batch, Dim_input + Dim_domain]
+        dnn_input = self.epnet(gate_input) * dnn_input  # [Batch, Dim_input] (o_ep)
 
         task_logits = []
         for block in self.ppnet_blocks:
-            task_logits.append(block(o_ep=dnn_input, o_prior=task_sf_emb))
+            # gate_input_t is built inside PPNet as cat(task_sf_emb, o_ep_detach): [Batch, Dim_prior + Dim_input]
+            task_logits.append(block(o_ep=dnn_input, o_prior=task_sf_emb))  # each logit_t: [Batch, 1]
 
-        y = torch.cat(task_logits, dim=1)
-        return self.prediction_layer(y)
+        y = torch.cat(task_logits, dim=1)  # [Batch, Task_num]
+        return self.prediction_layer(y)  # [Batch, Task_num]

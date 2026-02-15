@@ -2,6 +2,7 @@
 Unit Tests for Multi-Task Models
 
 This module contains unit tests for all multi-task learning models including:
+- AITM (Attentive Information Transfer Multi-Task)
 - ShareBottom (Shared-Bottom Multi-Task Learning)
 - MMOE (Multi-gate Mixture-of-Experts)
 - PLE (Progressive Layered Extraction)
@@ -24,6 +25,7 @@ import pytest
 import torch
 
 from nextrec.models.multi_task.esmm import ESMM
+from nextrec.models.multi_task.aitm import AITM
 from nextrec.models.multi_task.mmoe import MMOE
 from nextrec.models.multi_task.pepnet import PEPNet
 from nextrec.models.multi_task.ple import PLE
@@ -174,6 +176,86 @@ class TestShareBottom:
             assert_model_output_range(task_output, 0.0, 1.0)
 
         logger.info("ShareBottom task outputs test successful")
+
+
+class TestAITM:
+    """Test suite for AITM (Attentive Information Transfer Multi-Task)"""
+
+    def test_aitm_initialization(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        device,
+    ):
+        """Test AITM model initialization"""
+        logger.info("=" * 80)
+        logger.info("Testing AITM initialization")
+        logger.info("=" * 80)
+
+        model = AITM(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            bottom_mlp_params={"hidden_dims": [128, 64], "dropout": 0.1, "activation": "relu"},
+            tower_mlp_params_list=[
+                {"hidden_dims": [32], "dropout": 0.1, "activation": "relu"},
+                {"hidden_dims": [32], "dropout": 0.1, "activation": "relu"},
+            ],
+            calibrator_alpha=0.1,
+            target=["label_ctr", "label_cvr"],
+            task=["binary", "binary"],
+            device=device,
+        )
+
+        assert model is not None
+        assert model.model_name == "AITM"
+        assert model.nums_task == 2
+        num_params = count_parameters(model)
+        assert num_params > 0
+
+    def test_aitm_forward_pass(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_multitask_batch_data,
+        device,
+        batch_size,
+        set_random_seed,
+    ):
+        """Test AITM forward pass with attentive transfer"""
+        logger.info("=" * 80)
+        logger.info("Testing AITM forward pass")
+        logger.info("=" * 80)
+
+        model = AITM(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            bottom_mlp_params={"hidden_dims": [64], "dropout": 0.0, "activation": "relu"},
+            tower_mlp_params_list=[
+                {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
+                {"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
+            ],
+            calibrator_alpha=0.1,
+            target=["label_ctr", "label_cvr"],
+            task=["binary", "binary"],
+            device=device,
+        )
+
+        data = {k: v.to(device) for k, v in sample_multitask_batch_data.items() if not k.startswith("label")}
+        output = run_model_inference(model, data)
+
+        assert_model_output_shape(output, (batch_size, 2), "AITM output shape")
+        assert_model_output_range(output, 0.0, 1.0)
+        assert_no_nan_or_inf(output, "AITM output")
+
+        calib_loss = model.compute_calibrator_loss(output)
+        assert calib_loss.ndim == 0
+        assert calib_loss.item() >= 0
+
+        logger.info("AITM forward pass successful")
 
 
 class TestMMOE:
@@ -773,6 +855,28 @@ class TestMultiTaskModelsComparison:
 
         sb_output = run_model_inference(share_bottom, data)
         assert_model_output_shape(sb_output, (batch_size, nums_task))
+
+        # Test AITM
+        aitm = AITM(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            bottom_mlp_params={
+                "hidden_dims": [32],
+                "dropout": 0.0,
+                "activation": "relu",
+            },
+            tower_mlp_params_list=[
+                {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
+                {"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
+            ],
+            target=["task1", "task2"],
+            task=["binary", "binary"],
+            device=device,
+        )
+
+        aitm_output = run_model_inference(aitm, data)
+        assert_model_output_shape(aitm_output, (batch_size, nums_task))
 
         # Test MMOE
         mmoe = MMOE(

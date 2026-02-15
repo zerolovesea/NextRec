@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Rendle S. Factorization machines[C]//ICDM. 2010: 995-1000.
@@ -11,31 +11,21 @@ is embedded into a latent vector; FM models the dot product of every pair of
 embeddings and sums them along with a linear term, enabling strong performance
 with sparse high-dimensional data and minimal feature engineering.
 
-Pipeline:
-  (1) Embed sparse and sequence fields into low-dimensional vectors
-  (2) Compute linear logit over concatenated embeddings
-  (3) Compute pairwise interaction logit via factorized dot products
-  (4) Sum linear + interaction terms and apply prediction layer
-
-Key Advantages:
-- Models pairwise interactions efficiently (O(nk) vs. O(n^2))
-- Works well on sparse inputs without handcrafted crosses
-- Simple architecture with strong baseline performance
+Workflow:
+- Embed sparse and sequence fields into low-dimensional vectors
+- Compute linear logit over concatenated embeddings
+- Compute pairwise interaction logit via factorized dot products
+- Sum linear + interaction terms and apply prediction layer
 
 FM 是一种通过分解二阶特征交互矩阵、以线性复杂度建模特征对的 CTR 模型。
 每个特征映射为低维向量，FM 对任意特征对进行内积求和并叠加线性项，
 无需复杂特征工程即可在稀疏高维场景取得稳健效果。
 
-处理流程：
-  (1) 对稀疏/序列特征做 embedding
-  (2) 计算线性部分的 logit
-  (3) 计算嵌入对之间的二阶交互 logit
-  (4) 线性项与交互项求和，再通过预测层输出
-
-主要优点：
-- 线性复杂度建模二阶交互，效率高
-- 对稀疏特征友好，减少人工特征交叉
-- 结构简单、表现强健，常作 CTR 基线
+流程：
+- 对稀疏/序列特征做 embedding
+- 计算线性部分的 logit
+- 计算嵌入对之间的二阶交互 logit
+- 线性项与交互项求和，再通过预测层输出
 """
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature

@@ -1,6 +1,6 @@
 """
 Date: create on 28/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Dai S, Lin H, Zhao Z, Lin J, Wu H, Wang Z, Yang S, Liu J. POSO: Personalized Cold Start Modules for Large-scale Recommender Systems. arXiv preprint arXiv:2108.04690, 2021.
@@ -11,31 +11,10 @@ personalized cold-start vector `pc` that gates hidden units layer by layer. Each
 connected layer or expert output is multiplied by gate(pc), letting the backbone adapt
 its hidden representations to user profiles even when behavioral signals are scarce.
 
-Core idea:
-  (1) A lightweight two-layer MLP maps `pc` to gate(pc) = C * sigmoid(W2 * phi(W1 * pc + b1) + b2)
-  (2) gate(pc) scales each hidden unit element-wise, masking or amplifying features
-  (3) Existing task gates/towers remain intact; POSO only overlays personalization
-
-Key advantages:
-- Plug-and-play personalization for cold-start users without redesigning the backbone
-- Per-layer/expert gating with minimal additional parameters
-- Compatible with plain MLP towers and MMoE structures, keeping training stable
-- Works with split features: main features feed the backbone, PC features drive gates
-
 POSO 通过个性化冷启动向量 `pc` 为推荐模型叠加逐层的门控系数，
 在每个全连接层或专家输出上乘以 gate(pc) 做元素级缩放，
 即使行为信号稀缺也能按用户画像调整隐藏表示。
 
-实现思路：
-  (1) 用轻量两层 MLP 生成 gate(pc) = C * sigmoid(W2 * phi(W1 * pc + b1) + b2)
-  (2) gate(pc) 对神经元逐元素放大或抑制
-  (3) 原有任务门/塔不变，POSO 仅叠加个性化门控
-
-主要优点：
-- 冷启动场景的可插拔个性化，无需重做骨干结构
-- 每层/每专家独立门控，新增参数量小
-- 兼容 MLP、MMoE 等多任务骨干，训练过程平稳
-- 主特征做建模，PC 特征驱动门控，解耦表征与个性化信号
 """
 
 from __future__ import annotations

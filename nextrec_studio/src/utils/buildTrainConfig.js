@@ -76,7 +76,10 @@ export function buildTrainConfig(trainState) {
   }
 
   if (trainState.export_onnx && trainState.export_onnx.enable) {
-    output.export_onnx = { ...trainState.export_onnx };
+    output.export_onnx = {
+      enable: true,
+      batch_size: trainState.export_onnx.batch_size
+    };
   }
 
   return dumpYaml(output);

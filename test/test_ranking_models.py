@@ -34,6 +34,7 @@ from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.models.ranking.afm import AFM
 from nextrec.models.ranking.autoint import AutoInt
 from nextrec.models.ranking.dcn import DCN
+from nextrec.models.ranking.dcn_v2 import DCNv2
 from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.models.ranking.dien import DIEN
 from nextrec.models.ranking.din import DIN
@@ -1027,6 +1028,89 @@ class TestDCN:
         logger.info(f"DCN with {cross_num} cross layers test successful")
 
 
+class TestDCNv2:
+    """Test suite for DCNv2 (Deep & Cross Network v2)."""
+
+    @pytest.mark.parametrize(
+        "architecture,mlp_params",
+        [
+            ("crossnet_only", None),
+            ("parallel", None),
+            ("parallel", {"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"}),
+            ("stacked", {"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"}),
+            ("stacked_parallel", {"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"}),
+        ],
+    )
+    def test_dcn_v2_forward_with_architectures(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+        architecture,
+        mlp_params,
+    ):
+        model = DCNv2(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            cross_num=3,
+            cross_type="matrix",
+            architecture=architecture,
+            mlp_params=mlp_params,
+            target=["label"],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        output = run_model_inference(model, data)
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+        assert_no_nan_or_inf(output, f"DCNv2 output ({architecture})")
+
+    def test_dcn_v2_stacked_requires_mlp_params(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        device,
+    ):
+        with pytest.raises(ValueError, match="Stacked architecture requires mlp_params"):
+            DCNv2(
+                dense_features=sample_dense_features,
+                sparse_features=sample_sparse_features,
+                sequence_features=sample_sequence_features,
+                architecture="stacked",
+                mlp_params=None,
+                target=["label"],
+                device=device,
+            )
+
+    def test_dcn_v2_supports_low_rank_alias(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+    ):
+        model = DCNv2(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            cross_type="low_rank",
+            architecture="parallel",
+            mlp_params={"hidden_dims": [32], "activation": "relu", "dropout": 0.0},
+            target=["label"],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        output = run_model_inference(model, data)
+        assert_model_output_shape(output, (batch_size,))
+
+
 class TestxDeepFM:
     """Test suite for xDeepFM (Extreme Deep Factorization Machine)"""
 
@@ -1283,6 +1367,106 @@ class TestDIEN:
         assert aux_loss.item() >= 0.0
         logger.info("DIEN negative sampling auxiliary loss path successful")
 
+    def test_dien_other_sparse_excludes_candidate(self, device):
+        """Test DIEN other sparse features are selected by name, not by index."""
+        dense_features = [DenseFeature(name="age", proj_dim=1)]
+        sparse_features = [
+            SparseFeature(name="user_id", vocab_size=1000, embedding_dim=16),
+            SparseFeature(name="candidate_item", vocab_size=5000, embedding_dim=32),
+            SparseFeature(name="gender", vocab_size=3, embedding_dim=4),
+        ]
+        sequence_features = [
+            SequenceFeature(
+                name="behavior_sequence",
+                vocab_size=5000,
+                max_len=10,
+                embedding_dim=32,
+                padding_idx=0,
+            )
+        ]
+        model = DIEN(
+            dense_features=dense_features,
+            sparse_features=sparse_features,
+            sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
+            gru_hidden_size=32,
+            mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
+            target=["label"],
+            device=device,
+        )
+        assert [f.name for f in model.other_sparse_features] == ["user_id", "gender"]
+
+    def test_dien_dense_projection_forward(self, device, batch_size):
+        """Test DIEN handles dense projection dimensions correctly in forward pass."""
+        dense_features = [DenseFeature(name="dense_vec", input_dim=2, proj_dim=4)]
+        sparse_features = [
+            SparseFeature(name="user_id", vocab_size=1000, embedding_dim=8),
+            SparseFeature(name="candidate_item", vocab_size=5000, embedding_dim=8),
+        ]
+        sequence_features = [
+            SequenceFeature(
+                name="behavior_sequence",
+                vocab_size=5000,
+                max_len=10,
+                embedding_dim=8,
+                padding_idx=0,
+            )
+        ]
+        model = DIEN(
+            dense_features=dense_features,
+            sparse_features=sparse_features,
+            sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
+            gru_hidden_size=8,
+            mlp_params={"hidden_dims": [16], "dropout": 0.0, "activation": "relu"},
+            target=["label"],
+            device=device,
+        )
+
+        data = {
+            "dense_vec": torch.randn(batch_size, 2).to(device),
+            "user_id": torch.randint(1, 1000, (batch_size,)).to(device),
+            "candidate_item": torch.randint(1, 5000, (batch_size,)).to(device),
+            "behavior_sequence": torch.randint(0, 5000, (batch_size, 10)).to(device),
+        }
+        output = run_model_inference(model, data)
+        assert_model_output_shape(output, (batch_size,), "DIEN dense projection output")
+        assert_model_output_range(output, 0.0, 1.0)
+        assert_no_nan_or_inf(output, "DIEN dense projection output")
+
+    def test_dien_packed_gru_with_zero_length_rows(self, dien_features, device, batch_size):
+        """Test DIEN packed GRU path handles rows with all-padding behavior sequence."""
+        dense_features, sparse_features, sequence_features = dien_features
+        model = DIEN(
+            dense_features=dense_features,
+            sparse_features=sparse_features,
+            sequence_features=sequence_features,
+            behavior_feature_name="behavior_sequence",
+            candidate_feature_name="candidate_item",
+            gru_hidden_size=32,
+            attention_mlp_params={"hidden_dims": [64, 32]},
+            mlp_params={"hidden_dims": [64], "dropout": 0.0, "activation": "relu"},
+            target=["label"],
+            device=device,
+        )
+
+        data = {
+            "price": torch.randn(batch_size, 1).to(device),
+            "age": torch.randn(batch_size, 1).to(device),
+            "user_id": torch.randint(1, 1000, (batch_size,)).to(device),
+            "gender": torch.randint(1, 3, (batch_size,)).to(device),
+            "candidate_item": torch.randint(1, 5000, (batch_size,)).to(device),
+            "behavior_sequence": torch.randint(1, 5000, (batch_size, 30)).to(device),
+        }
+        data["behavior_sequence"][0] = 0
+
+        output = run_model_inference(model, data)
+        assert_model_output_shape(output, (batch_size,), "DIEN packed GRU output")
+        assert_model_output_range(output, 0.0, 1.0)
+        assert_no_nan_or_inf(output, "DIEN packed GRU output")
+
 
 class TestFiBiNET:
     """Test suite for FiBiNET"""
@@ -1404,11 +1588,10 @@ class TestFFM:
 class TestPNN:
     """Test suite for PNN"""
 
-    @pytest.mark.parametrize("product_type,outer_dim", [("inner", None), ("outer", 8)])
+    @pytest.mark.parametrize("product_type", ["inner", "outer"])
     def test_pnn_forward_pass(
         self,
         product_type,
-        outer_dim,
         sample_sparse_features,
         sample_sequence_features,
         sample_batch_data,
@@ -1421,7 +1604,6 @@ class TestPNN:
             sequence_features=sample_sequence_features,
             mlp_params=mlp_params,
             product_type=product_type,
-            outer_product_dim=outer_dim,
             target=["label"],
             device=device,
         )

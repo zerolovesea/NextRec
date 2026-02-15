@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.5.10-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.5.11-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -35,16 +35,16 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 
 ## Why NextRec
 - **多场景推荐能力**：覆盖排序（CTR/CVR）、召回、多任务学习、生成式召回等推荐/营销模型，持续跟进业界进展。
-- **统一的特征工程与数据流水线**：NextRec框架提供了统一的特征定义、可持久化的数据处理、批处理优化，符合工业大数据Spark/Hive场景下，基于离线特征的模型训练推理流程。
+- **统一的特征工程与数据流水线**：提供了统一的特征定义、可持久化的数据处理、批处理优化，符合工业大数据Spark/Hive场景下，基于离线特征的模型训练推理流程。
 - **友好的工程体验**：支持多种格式数据(`csv/parquet/pathlike`)的流式处理/分布式训练/推理与可视化指标监控，方便业务算法工程师和推荐算法学习者快速复现实验。
 - **灵活的命令行工具**：支持通过命令行和配置文件，一键启动训练和推理进程，方便快速实验迭代和敏捷部署。
-- **高效训练与评估**：内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理，开箱即用。
+- **丰富的模型注解**：提供了详细的模型背景介绍，实现流程，维度变化注释，方便学习者第一时间快速了解模型架构。
+- **高效训练与评估**：内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理（Wandb/Swanlab/Tensorboard），开箱即用。
 
 ## NextRec近期进展
 - **03/02/2026** 在v0.5.3中，我们引入了NextRec Studio前端项目，初期作为NextRec CLI的配套辅助工具使用，并提供了相关[教程](nextrec_studio/README.md)
 - **28/01/2026** 在v0.4.39中加入了对onnx导出和加载的支持，并大大加速了数据预处理速度（最高9x加速）
 - **01/01/2026** 新年好，在v0.4.27中加入了多个多目标模型的支持：[APG](nextrec/models/multi_task/apg.py), [ESCM](nextrec/models/multi_task/escm.py), [HMoE](nextrec/models/multi_task/hmoe.py), [Cross Stitch](nextrec/models/multi_task/cross_stitch.py)
-- **28/12/2025** 在v0.4.21中加入了对SwanLab和Wandb的支持，通过model的`fit`方法进行配置：`use_swanlab=True, swanlab_kwargs={"project": "NextRec","name":"tutorial_movielens_deepfm"},`
 - **21/12/2025** 在v0.4.16中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
 - **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/representation/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](/nextrec_cli_preset/NextRec-CLI_zh.md)和[教学代码](/nextrec_cli_preset)
@@ -91,7 +91,7 @@ pip install nextrec # or pip install -e .
 
 ## 5分钟快速上手
 
-我们提供了详细的上手指南和配套数据集，帮助您熟悉NextRec框架的不同功能。我们在`datasets/`路径下提供了一个来自电商场景的测试数据集，数据示例如下：
+我们提供了详细的上手指南和配套数据集，帮助您熟悉NextRec框架的不同功能。我们在`dataset/`路径下提供了一个来自电商场景的测试数据集，数据示例如下：
 
 | user_id | item_id | dense_0     | dense_1     | dense_2     | dense_3    | dense_4     | dense_5     | dense_6     | dense_7     | sparse_0 | sparse_1 | sparse_2 | sparse_3 | sparse_4 | sparse_5 | sparse_6 | sparse_7 | sparse_8 | sparse_9 | sequence_0                                               | sequence_1                                                | label |
 |--------|---------|-------------|-------------|-------------|------------|-------------|-------------|-------------|-------------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|-----------------------------------------------------------|-----------------------------------------------------------|-------|
@@ -109,8 +109,10 @@ from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 df = pd.read_csv('dataset/ranking_task.csv')
 
-for col in df.columns and 'sequence' in col: # csv默认将列表读取成文本，我们需要将其转化为对象
-    df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
+# csv 默认将列表读取成文本，我们需要将其转化为对象
+for col in df.columns:
+    if 'sequence' in col:
+        df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
 
 # 我们需要将不同特征进行定义
 dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1) for i in range(8)]
@@ -121,7 +123,7 @@ sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'spars
 
 sequence_features = [
     SequenceFeature(name='sequence_0', vocab_size=int(df['sequence_0'].apply(lambda x: max(x)).max() + 1), embedding_dim=32, padding_idx=0, embedding_name='item_emb'),
-    SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sparse_0_emb'),]
+    SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sequence_1_emb'),]
 
 mlp_params = {
     "hidden_dims": [256, 128, 64],
@@ -141,18 +143,18 @@ model = DIN(
         "activation": "sigmoid",
     },
     attention_use_softmax=True,
-    target='label',                                     # 目标变量
+    target=['label'],                                   # 目标变量
     device='cpu',                                         
     session_id="din_tutorial",                            # 实验id，用于存放训练日志
 )
 
 # 编译模型，优化器/损失/学习率调度器统一在 compile 中设置
 model.compile(
-            optimizer = "adam",
-            optimizer_params = {"lr": 1e-3, "weight_decay": 1e-5},
-            loss = "focal",
-            loss_params={"gamma": 2.0, "alpha": 0.25},
-        )
+    optimizer="adam",
+    optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
+    loss="focal",
+    loss_params={"gamma": 2.0, "alpha": 0.25},
+)
 
 model.fit(
     train_data=df,
@@ -161,7 +163,7 @@ model.fit(
     batch_size=512,
     shuffle=True,
     user_id_column='user_id',            # 用于计算GAUC的id列
-    valid_ratio=0.2,                     # 自动划分验证集（可选）
+    valid_split=0.2,                     # 自动划分验证集（可选）
     num_workers=4,                       # DataLoader 并行数
     use_wandb=False,                     # 启用 Wandb（可选）
     wandb_kwargs={"project": "NextRec", "name": "din_tutorial"},
@@ -195,11 +197,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.5.10，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.5.11，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.5.10，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.5.11，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -262,6 +264,15 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | [CrossStitch](nextrec/models/multi_task/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | 已支持 |
 | [ESCM](nextrec/models/multi_task/escm.py) | ESCM²: Entire Space Counterfactual Multi-Task Model for Post-Click Conversion Rate Estimation | 已支持 |
 | [HMOE](nextrec/models/multi_task/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | 已支持 |
+| [AITM](nextrec/models/multi_task/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | 已支持 |
+
+### 树模型
+
+| 模型 | 说明 | 状态 |
+| ------ | ------ | ------ |
+| [XGBoost](nextrec/models/tree_base/xgboost.py) | XGBoost adapter (requires `xgboost`) | 已支持 |
+| [LightGBM](nextrec/models/tree_base/lightgbm.py) | LightGBM adapter (requires `lightgbm`) | 已支持 |
+| [CatBoost](nextrec/models/tree_base/catboost.py) | CatBoost adapter (requires `catboost`) | 已支持 |
 
 ### 生成式模型
 

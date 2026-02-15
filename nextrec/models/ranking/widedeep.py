@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Cheng H T, Koc L, Harmsen J, et al. Wide & Deep learning for recommender systems[C] //Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. 2016: 7-10.
@@ -12,29 +12,18 @@ captures co-occurrence patterns and manual crosses, while the deep part learns d
 representations and nonlinear interactions, improving both accuracy and coverage.
 
 Workflow:
-  (1) Wide: linear/logistic model over raw or embedded features
-  (2) Deep: embeddings plus dense features feed into an MLP
-  (3) Sum wide and deep logits, then apply the final prediction layer
-
-Key Advantages:
-- Balances memorization (wide) and generalization (deep)
-- Compatible with manual crosses and automatically learned embeddings
-- Simple architecture with strong baselines for CTR/ranking
-- Shared feature space reduces duplication and engineering overhead
+- Wide: linear/logistic model over raw or embedded features
+- Deep: embeddings plus dense features feed into an MLP
+- Sum wide and deep logits, then apply the final prediction layer
 
 Wide & Deep 同时使用宽线性部分（记忆共现/手工交叉）与深网络部分（泛化非线性交互），
 共享特征表示，既保留记忆能力又具备泛化能力，常用于 CTR/排序任务。
 
 流程：
-  (1) Wide：线性/逻辑回归建模原始或 embedding 后的特征
-  (2) Deep：embedding 与稠密特征输入 MLP
-  (3) 宽深输出求和后进入最终预测
+- Wide：线性/逻辑回归建模原始或 embedding 后的特征
+- Deep：embedding 与稠密特征输入 MLP
+- 宽深输出求和后进入最终预测
 
-主要优点：
-- 兼顾记忆与泛化
-- 支持手工交叉与自动 embedding 联合
-- 结构简单，基线性能稳定
-- 共享特征空间，减少工程开销
 """
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature

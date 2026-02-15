@@ -2,7 +2,7 @@
 Layer implementations used across NextRec.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 14/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from itertools import combinations
-from typing import Literal
+from typing import Literal, Sequence
 
 import math
 import torch
@@ -269,7 +269,7 @@ class EmbeddingLayer(nn.Module):
 
     def compute_output_dim(
         self,
-        features: list[DenseFeature | SequenceFeature | SparseFeature] | None = None,
+        features: Sequence[DenseFeature | SequenceFeature | SparseFeature] | None = None,
     ) -> int:
         """Compute the output dimension of the embedding layer."""
         all_features = list(features) if features is not None else self.features
@@ -295,6 +295,134 @@ class EmbeddingLayer(nn.Module):
     @property
     def input_dim(self) -> int:
         return self.output_dim
+
+
+class FieldAwareEmbeddingLayer(nn.Module):
+    """Field-aware embedding tables for FFM-style interactions."""
+
+    def __init__(
+        self,
+        features: Sequence[SparseFeature | SequenceFeature],
+    ):
+        super().__init__()
+        self.features = list(features)
+        if len(self.features) == 0:
+            raise ValueError("[FieldAwareEmbeddingLayer Error]: features cannot be empty.")
+
+        dim = self.features[0].embedding_dim
+        if any(feature.embedding_dim != dim for feature in self.features):
+            raise ValueError(
+                "[FieldAwareEmbeddingLayer Error]: all sparse/sequence features must share the same embedding_dim."
+            )
+
+        for feature in self.features:
+            if not isinstance(feature, (SparseFeature, SequenceFeature)):
+                raise TypeError(
+                    f"[FieldAwareEmbeddingLayer Error]: unsupported feature type {type(feature)}. Only SparseFeature and SequenceFeature are allowed."
+                )
+            if isinstance(feature, SequenceFeature) and feature.combiner == "concat":
+                raise ValueError(
+                    f"[FieldAwareEmbeddingLayer Error]: SequenceFeature '{feature.name}' with combiner='concat' is not supported."
+                )
+
+        self.embed_dict = nn.ModuleDict()
+        for src_feature in self.features:
+            for tgt_feature in self.features:
+                key = self.field_aware_key(src_feature, tgt_feature)
+                self.embed_dict[key] = self.build_embedding(src_feature)
+
+        self.input_mask = InputMask()
+        self.mean_pool = AveragePooling()
+        self.sum_pool = SumPooling()
+
+    @staticmethod
+    def field_aware_key(
+        src_feature: SparseFeature | SequenceFeature, tgt_feature: SparseFeature | SequenceFeature
+    ) -> str:
+        # Use field names rather than embedding_name to keep per-field parameters independent.
+        return f"{src_feature.name}__to__{tgt_feature.name}"
+
+    def build_embedding(self, feature: SparseFeature | SequenceFeature) -> nn.Embedding:
+        if feature.pretrained_weight is not None:
+            weight = feature.pretrained_weight
+            if weight.shape != (feature.vocab_size, feature.embedding_dim):
+                raise ValueError(
+                    f"[FieldAwareEmbeddingLayer Error]: Pretrained weight for '{feature.embedding_name}' has shape {weight.shape}, expected ({feature.vocab_size}, {feature.embedding_dim})."
+                )
+            embedding = nn.Embedding.from_pretrained(
+                embeddings=weight,
+                freeze=feature.freeze_pretrained,
+                padding_idx=feature.padding_idx,
+            )
+            embedding.weight.requires_grad = feature.trainable and not feature.freeze_pretrained
+            return embedding
+
+        embedding = nn.Embedding(
+            num_embeddings=feature.vocab_size,
+            embedding_dim=feature.embedding_dim,
+            padding_idx=feature.padding_idx,
+        )
+        embedding.weight.requires_grad = feature.trainable
+        initialization = get_initializer(
+            init_type=feature.init_type,
+            activation="linear",
+            param=feature.init_params,
+        )
+        initialization(embedding.weight)
+        return embedding
+
+    def embed_for_field(
+        self,
+        x: dict[str, torch.Tensor],
+        src_feature: SparseFeature | SequenceFeature,
+        tgt_feature: SparseFeature | SequenceFeature,
+    ) -> torch.Tensor:
+        key = self.field_aware_key(src_feature, tgt_feature)
+        embedding = self.embed_dict[key]
+
+        if isinstance(src_feature, SparseFeature):
+            feature_input = x[src_feature.name].long()
+            if feature_input.dim() > 1:
+                feature_input = feature_input.view(feature_input.size(0), -1)
+                if feature_input.size(1) != 1:
+                    raise ValueError(
+                        f"[FieldAwareEmbeddingLayer Error]: Sparse feature '{src_feature.name}' expects 1 id per sample, got shape {tuple(x[src_feature.name].shape)}."
+                    )
+                feature_input = feature_input.squeeze(1)
+            return embedding(feature_input)
+
+        seq_input = x[src_feature.name].long()
+        if seq_input.dim() == 1:
+            seq_input = seq_input.unsqueeze(-1)
+        if src_feature.max_len is not None:
+            seq_input = seq_input[:, -src_feature.max_len :]
+        seq_emb = embedding(seq_input)  # [B, L, D]
+        mask = self.input_mask(x, src_feature, seq_input)
+
+        if src_feature.combiner == "mean":
+            return self.mean_pool(seq_emb, mask)
+        if src_feature.combiner == "sum":
+            return self.sum_pool(seq_emb, mask)
+        raise ValueError(
+            f"[FieldAwareEmbeddingLayer Error]: Unsupported combiner '{src_feature.combiner}' for sequence feature '{src_feature.name}'."
+        )
+
+    def forward(
+        self,
+        x: dict[str, torch.Tensor],
+        source_features: Sequence[SparseFeature | SequenceFeature] | None = None,
+        target_features: Sequence[SparseFeature | SequenceFeature] | None = None,
+    ) -> torch.Tensor:
+        source_features = list(source_features) if source_features is not None else self.features
+        target_features = list(target_features) if target_features is not None else self.features
+        if len(source_features) == 0 or len(target_features) == 0:
+            raise ValueError("[FieldAwareEmbeddingLayer Error]: source_features and target_features cannot be empty.")
+
+        source_outputs = []
+        for src_feature in source_features:
+            target_outputs = [self.embed_for_field(x, src_feature, tgt_feature) for tgt_feature in target_features]
+            source_outputs.append(torch.stack(target_outputs, dim=1))
+        return torch.stack(source_outputs, dim=1)
 
 
 class InputMask(nn.Module):
@@ -808,6 +936,7 @@ class AttentionPoolingLayer(nn.Module):
         hidden_units: list = [80, 40],
         activation: ActivationName = "sigmoid",
         use_softmax: bool = False,
+        dropout: float = 0.0,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
@@ -819,6 +948,7 @@ class AttentionPoolingLayer(nn.Module):
         for hidden_unit in hidden_units:
             layers.append(nn.Linear(input_dim, hidden_unit))
             layers.append(activation_layer(activation, emb_size=hidden_unit))
+            layers.append(nn.Dropout(p=dropout))
             input_dim = hidden_unit
         layers.append(nn.Linear(input_dim, 1))
         self.attention_net = nn.Sequential(*layers)
@@ -866,6 +996,9 @@ class AttentionPoolingLayer(nn.Module):
         if self.use_softmax:
             # softmax over seq_len
             attention_weights = F.softmax(attention_scores, dim=1)  # (B, L, 1)
+            if mask is not None:
+                attention_weights = attention_weights * mask
+            attention_weights = torch.nan_to_num(attention_weights, nan=0.0)
         else:
             attention_weights = torch.sigmoid(attention_scores)
             if mask is not None:

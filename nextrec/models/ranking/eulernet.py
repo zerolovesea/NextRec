@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 14/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Zhao Z, Zhang H, Tang H, et al. EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula. (SIGIR 2021)
@@ -13,21 +13,48 @@ amplitudes and summing phases. The resulting complex representation is
 converted back to real-valued features for a linear readout, optionally
 paired with a linear term for first-order signals.
 
-Pipeline:
-  (1) Embed sparse/sequence features with a shared embedding dimension
-  (2) Map embeddings to complex vectors via amplitude/phase transforms
-  (3) Multiply complex vectors across fields (Euler interaction)
-  (4) Concatenate real & imaginary parts and apply a linear regression head
-  (5) Optionally add a linear term and apply the prediction layer
+Workflow:
+- Embedding layer maps interaction features into field embeddings
+- ComplexSpaceMapping converts each field embedding to (real, imaginary)
+- Stacked EulerInteractionLayer performs explicit + optional implicit interactions
+- Real/imag outputs are flattened and projected to one logit
+- Optional first-order linear branch is added before task head
 
-Key Advantages:
-- Efficient higher-order interaction modeling via complex multiplication
-- Compact representation without explicit cross-feature enumeration
-- Works well on sparse high-dimensional feature spaces
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Interaction embedding: interaction_features -> field_emb: [Batch, Field_num, Dim_embedding]
+- Complex mapping: field_emb: [Batch, Field_num, Dim_embedding] -> (r, p): [Batch, Field_num, Dim_embedding]
+- Euler interaction stack:
+  - Layer 1: (r, p): [Batch, Field_num, Dim_embedding] -> [Batch, Order_num, Dim_embedding]
+  - Layer 2..L: (r, p): [Batch, Order_num, Dim_embedding] -> [Batch, Order_num, Dim_embedding]
+- Euler readout: flatten(r/p) -> [Batch, Order_num * Dim_embedding] -> w/w_im -> y_euler: [Batch, 1]
+- Linear branch (optional): all linear features -> linear_input: [Batch, Dim_linear] -> y_linear: [Batch, 1]
+- Fusion: y_euler: [Batch, 1] (+ y_linear: [Batch, 1]) -> [Batch, 1]
+- Output: [Batch, 1] -> prediction layer
 
 EulerNet 使用欧拉公式将特征嵌入映射到复数域，通过复数相乘实现高效的
 特征交互建模，再将复数表示转回实数向量做线性回归，并可选叠加线性项
 以保留一阶信号。
+
+流程：
+- Embedding 层把交互特征映射为字段向量
+- ComplexSpaceMapping 将每个字段向量映射为复数实部/虚部
+- 堆叠 EulerInteractionLayer 做显式 + 可选隐式交互
+- 将实部/虚部展平后分别线性映射并融合成 logit
+- 可选叠加一阶线性分支，再进入任务预测头
+
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- 交互特征 embedding：interaction_features -> field_emb: [Batch, Field_num, Dim_embedding]
+- 复数映射：field_emb: [Batch, Field_num, Dim_embedding] -> (r, p): [Batch, Field_num, Dim_embedding]
+- Euler 交互层堆叠：
+  - 第1层：(r, p): [Batch, Field_num, Dim_embedding] -> [Batch, Order_num, Dim_embedding]
+  - 第2..L层：(r, p): [Batch, Order_num, Dim_embedding] -> [Batch, Order_num, Dim_embedding]
+- Euler 读出：flatten(r/p) -> [Batch, Order_num * Dim_embedding] -> w/w_im -> y_euler: [Batch, 1]
+- 线性分支（可选）：线性特征展平 -> linear_input: [Batch, Dim_linear] -> y_linear: [Batch, 1]
+- 融合：y_euler: [Batch, 1] (+ y_linear: [Batch, 1]) -> [Batch, 1]
+- 输出：[Batch, 1] -> 预测层
+
 """
 
 from __future__ import annotations
@@ -46,12 +73,15 @@ from nextrec.utils.types import TaskTypeInput
 class EulerInteractionLayer(nn.Module):
     """
     Paper-aligned Euler Interaction Layer.
+    对齐论文公式的 Euler 交互层。
 
     Input:  r, p  (rectangular form) as tensors with shape [B, m, d]
             where each field j is complex feature: r_j + i p_j.
+    输入：r, p（复数的直角坐标形式），形状 [B, m, d]。
 
     Output: r_out, p_out as tensors with shape [B, n, d]
             representing {o_k}_{k=1..n} (Eq.15) which can be stacked.
+    输出：r_out, p_out，形状 [B, n, d]，可继续堆叠下一层。
     """
 
     def __init__(
@@ -201,7 +231,30 @@ class EulerNet(BaseModel):
         use_linear: bool = False,
         **kwargs,
     ):
+        """
+        Initialize EulerNet model.
+        初始化 EulerNet 模型。
 
+        Args:
+            num_layers: Number of stacked Euler interaction layers.
+                Euler 交互层堆叠层数。
+            num_orders: Number of interaction orders/channels per layer.
+                每层的交互阶数/通道数。
+            use_implicit: Whether to enable implicit interaction branch.
+                是否启用隐式交互分支。
+            norm: Inter-layer normalization type: "bn", "ln", or None.
+                层间归一化方式："bn"、"ln" 或 None。
+            use_linear: Whether to add first-order linear branch.
+                是否叠加一阶线性分支。
+
+        Notes:
+            - At least two interaction features are required.
+              至少需要两个参与交互的特征。
+            - All interaction features must share the same embedding dimension.
+              参与交互的特征 embedding 维度必须一致。
+            - Dense features participate in interaction branch only when `use_projection=True`.
+              Dense 特征仅在 `use_projection=True` 时进入交互分支。
+        """
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
@@ -268,19 +321,27 @@ class EulerNet(BaseModel):
         self.register_regularization_weights(embedding_attr="embedding", include_modules=modules)
 
     def forward(self, x):
+        # Interaction branch input: [Batch, Field_num, Dim_embedding]
         field_emb = self.embedding(x=x, features=self.interaction_features, squeeze_dim=False)
+        # Euler interaction branch output: [Batch, 1]
         y_euler = self.euler_forward(field_emb)
 
         if self.use_linear and self.linear is not None:
+            # Linear branch input: [Batch, Dim_linear] -> output: [Batch, 1]
             linear_input = self.embedding(x=x, features=self.linear_features, squeeze_dim=True)
             y_euler = y_euler + self.linear(linear_input)
 
+        # Final output: [Batch, 1] -> task prediction layer
         return self.prediction_layer(y_euler)
 
     def euler_forward(self, field_emb: torch.Tensor) -> torch.Tensor:
+        # Complex mapping: [Batch, Field_num, Dim_embedding] -> two tensors with same shape
         r, p = self.mapping(field_emb)
+        # Layer 1: Field_num -> Order_num, Layer 2..L: Order_num -> Order_num
         for layer in self.layers:
             r, p = layer(r, p)
+        # Flatten real/imag parts: [Batch, Order_num, Dim_embedding] -> [Batch, Order_num * Dim_embedding]
         r_flat = r.reshape(r.size(0), self.num_orders * self.embedding_dim)
         p_flat = p.reshape(p.size(0), self.num_orders * self.embedding_dim)
+        # Two readout projections merged into one logit: [Batch, 1]
         return self.w(r_flat) + self.w_im(p_flat)

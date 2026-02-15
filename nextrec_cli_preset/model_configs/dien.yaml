@@ -1,21 +1,58 @@
-# DIEN（Deep Interest Evolution Network）用于 CTR 任务中的用户兴趣演化建模。
-# 它不是简单地聚合行为序列，而是分两阶段处理：
-#   1) Interest Extraction：GRU 提取兴趣状态轨迹
-#   2) Interest Evolution：AUGRU 在目标注意力引导下更新兴趣状态
+# Date: create on 09/11/2025
+# Author: Yang Zhou, zyaztec@gmail.com
+# Checkpoint: edit on 14/02/2026
+# Reference:
+# - [1] Zhou G, Mou N, Fan Y, et al. Deep interest evolution network for click-through rate prediction[C] // Proceedings of the AAAI conference on artificial intelligence. 2019, 33(01): 5941-5948. (https://arxiv.org/abs/1809.03672)
 #
-# 相比 DIN 的“单次注意力聚合”，DIEN 能更好表达兴趣随时间变化的过程。
-# 在行为序列较长、兴趣漂移明显的场景通常更有效。
+# Dien (Deep Interest Evolution Network) is an improved version of DIN (Deep Interest Network).
+# While DIN captures the relative importance of user behaviors with respect to the target item using attention,
+# it treats the extracted user interests as independent and does not model their dynamic evolution.
+# DIEN focuses on modeling the evolution of user interests over time and introduces new network structures to capture this process.
+# It includes an interest extraction layer with an auxiliary loss to enhance the accuracy of interest
+# representation, and an interest evolution layer to better capture the dynamic changes in user interests.
 #
-# 计算流程：
-#   (1) 将历史行为序列 embedding 输入 GRU，得到兴趣轨迹
-#   (2) 用候选 item 对兴趣轨迹计算注意力分数
-#   (3) 通过 AUGRU 按注意力强度演化兴趣
-#   (4) 融合演化兴趣 + 候选 item + 其他上下文特征，经 MLP 输出 CTR
-#   (5) 可选负采样辅助损失，增强序列动态学习
+# The overall architecture of DIEN first embeds the categorical features and processes the sequential features.
+# Then it concatenates the candidate feature embedding, the result from processing the sequential features,
+# and the continuous features, and feeds them into an MLP for prediction.
 #
-# 使用注意：
-#   - 必须指定行为序列特征名和候选 item 特征名
-#   - 若 use_negsampling=true，需提供 neg_behavior_feature_name
+# Workflow:
+# - Behavior embeddings -> DynamicGRU -> interest trajectory
+# - Target-aware attention scores highlight behaviors relevant to the candidate
+# - AUGRU modulates GRU updates with attention to emphasize impactful behaviors
+# - Final evolved interest, candidate embedding, and context features -> MLP -> CTR
+#
+# Dimension Flow:
+# - Input: candidate id[Batch] + behavior sequence[Batch, Length] + optional context features[Batch, Dim_context]
+# - Embedding: candidate -> [Batch, Dim_candidate], behavior -> [Batch, Length, Dim_behavior]
+# - Interest extraction: behavior embedding: [Batch, Length, Dim_behavior] -> DynamicGRU -> interest_states: [Batch, Length, Dim_hidden]
+# - Target attention: (candidate, interest_t) -> attention score per step -> att_weights: [Batch, Length, 1]
+# - Interest evolution: (interest_states, att_weights) -> AUGRU -> final_interest: [Batch, Dim_hidden]
+# - Fusion: concat(candidate[Batch, Dim_candidate], final_interest[Batch, Dim_hidden], other features) -> [Batch, Dim_total]
+# - Output: MLP -> [Batch, 1] -> prediction head
+#
+# DIEN是DIN模型的改进版本。DIN模型使用基于注意力模型来捕获目标项目的相对兴趣。
+# 但是用户的兴趣是不断进化的，而DIN抽取的用户兴趣之间是独立无关联的，没有捕获到兴趣的动态进化性。
+# 因此DIEN更关注兴趣演化的过程，并提出了新的网络结构来建模兴趣进化的过程。
+# 设计了兴趣抽取层，并通过计算一个辅助loss，来提升兴趣表达的准确性。
+# 设计了兴趣进化层，来更加准确的表达用户兴趣的动态变化性。
+#
+# 整体结构上，先对类别特征做embedding，对序列特征处理。然后将类别特征embedding向量，
+# 序列特征处理之后的结果，以及连续特征进行拼接，输入到mlp网路中进行预测
+#
+# 流程：
+# - 行为 embedding 输入 DynamicGRU，得到兴趣轨迹
+# - 目标相关的注意力得分突出关键行为
+# - AUGRU 用注意力调制更新，抑制无关历史噪声
+# - 最终演化兴趣 + 候选 embedding + 其他上下文特征，经 MLP 输出 CTR
+#
+# 维度变化：
+# - 输入：candidate id[Batch] + 行为序列[Batch, Length] + 可选上下文特征[Batch, Dim_context]
+# - Embedding：candidate -> [Batch, Dim_candidate]，behavior -> [Batch, Length, Dim_behavior]
+# - 兴趣抽取：behavior embedding: [Batch, Length, Dim_behavior] -> DynamicGRU -> interest_states: [Batch, Length, Dim_hidden]
+# - 目标注意力：(candidate, interest_t) -> 每步注意力分数 -> att_weights: [Batch, Length, 1]
+# - 兴趣演化：(interest_states, att_weights) -> AUGRU -> final_interest: [Batch, Dim_hidden]
+# - 融合：concat(candidate[Batch, Dim_candidate], final_interest[Batch, Dim_hidden], 其他特征) -> [Batch, Dim_total]
+# - 输出：MLP -> [Batch, 1] -> 预测层
 
 model: dien
 

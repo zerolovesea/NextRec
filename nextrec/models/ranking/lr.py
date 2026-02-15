@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Hosmer D W, Lemeshow S, Sturdivant R X. Applied Logistic Regression.
@@ -11,31 +11,22 @@ learns a single linear logit. Despite its simplicity, LR is strong for
 high-dimensional sparse data and is commonly used as a baseline or a "wide"
 component in hybrid models.
 
-Pipeline:
-  (1) Embed sparse/sequence fields; project dense fields if configured
-  (2) Concatenate all feature vectors into a single linear input
-  (3) Apply a linear layer to produce logits
-  (4) Use the prediction layer to output task-specific probabilities
-
-Key Advantages:
-- Fast and easy to train
-- Strong baseline for sparse, high-dimensional features
-- Interpretable linear weights
+Workflow:
+- Embed sparse/sequence fields; project dense fields if configured
+- Concatenate all feature vectors into a single linear input
+- Apply a linear layer to produce logits
+- Use the prediction layer to output task-specific probabilities
 
 LR 是 CTR/排序任务中最经典的线性基线模型。它将稠密、稀疏以及序列特征
 映射为数值向量后做线性组合，输出 logit。虽然结构简单，但在稀疏高维场景
 依然具有很强的基线效果，并常作为 Wide 端与深模型组合。
 
-处理流程：
-  (1) 稀疏/序列特征做 embedding，稠密特征按需投影
-  (2) 拼接所有特征向量形成线性输入
-  (3) 线性层输出 logit
-  (4) 通过预测层输出任务概率
+流程：
+- 稀疏/序列特征做 embedding，稠密特征按需投影
+- 拼接所有特征向量形成线性输入
+- 线性层输出 logit
+- 通过预测层输出任务概率
 
-主要优点：
-- 训练与推理速度快
-- 稀疏高维特征下表现稳定
-- 权重可解释性强
 """
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature

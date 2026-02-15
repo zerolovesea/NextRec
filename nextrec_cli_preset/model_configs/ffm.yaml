@@ -1,25 +1,57 @@
-# FFM（Field-aware Factorization Machines）是在 FM 基础上的增强模型。
-# 核心改进是“字段感知交互”：同一特征面对不同目标字段时，
-# 使用不同 embedding 参与二阶内积，从而更细粒度地建模跨字段关系。
+# Date: create on 19/12/2025
+# Checkpoint: edit on 14/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Juan Y, Zhuang Y, Chin W-S, et al. Field-aware Factorization Machines for CTR Prediction[C]//RecSys. 2016: 43-50.
 #
-# 与 FM 的差异：
-#   - FM：同一特征只维护 1 套二阶 embedding
-#   - FFM：同一特征面向不同字段维护多套 embedding（表达更强，参数更多）
+# Field-aware Factorization Machines (FFM) extend FM by learning a distinct
+# embedding of each feature for every target field. For a pair of fields (i, j),
+# FFM uses v_{i,f_j} · v_{j,f_i} instead of a shared embedding, enabling richer
+# context-aware interactions and stronger CTR performance on sparse categorical
+# data.
 #
-# 计算流程：
-#   (1) 计算一阶线性项（dense + sparse/sequence）
-#   (2) 对字段对 (i, j) 计算 v_{i,f_j} · v_{j,f_i}
-#   (3) 一阶项与字段感知交互项相加，输出最终 logit
+# Workflow:
+# - Build field-aware embeddings v_{i,f} for each feature i toward every field f
+# - Compute first-order linear terms for sparse/sequence (and optional dense) fields
+# - For each field pair (i, j), compute v_{i,f_j} · v_{j,f_i}
+# - Sum linear + field-aware interaction logits and output prediction
 #
-# 注：
-#   - 至少包含两个 sparse/sequence 特征，否则无法构造字段交互
-#   - 参与交互的特征 embedding_dim 必须一致
-#   - SequenceFeature 不支持 combiner='concat'
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - First-order dense branch: concat(dense_i) -> dense_stack: [Batch, Dim_dense] -> linear_dense -> y_dense: [Batch, 1]
+# - First-order sparse/sequence branch:
+#   - sparse_i id -> embedding_dim=1 -> term_i: [Batch, 1]
+#   - sequence_j id list -> embedding_dim=1 + mask pooling -> term_j: [Batch, 1]
+#   - sum all terms -> y_sparse_seq: [Batch, 1]
+# - First-order fusion: y_linear = y_dense + y_sparse_seq -> [Batch, 1]
+# - Field-aware branch: field_aware_outputs: [Batch, Field_num, Field_num, Dim_embedding]
+# - Pair interaction: for each (i, j), v_{i,f_j}:[Batch, Dim_embedding] · v_{j,f_i}:[Batch, Dim_embedding] -> dot_ij:[Batch, 1]
+# - Interaction sum: y_interaction: [Batch, 1]
+# - Fusion: y = y_linear + y_interaction -> [Batch, 1]
+# - Output: [Batch, 1] -> prediction layer
 #
-# 主要优点：
-#   - 对非对称字段交互刻画更充分
-#   - 在类别特征密集的 CTR 场景通常优于 FM
-#   - 保留显式二阶结构，便于解释与分析
+# FFM 在 FM 基础上引入域感知机制：每个特征在不同域下拥有不同的 embedding。
+# 对于域对 (i, j)，模型使用 v_{i,f_j} 与 v_{j,f_i} 的内积，从而更细粒度地建模跨域交互，在稀疏高维 CTR 场景中表现更优。
+#
+# 流程：
+# - 为每个特征 i 构造面向每个域 f 的嵌入 v_{i,f}
+# - 计算一阶线性项（稀疏/序列特征，及可选的稠密特征）
+# - 对每一对域 (i, j) 计算 v_{i,f_j} · v_{j,f_i}
+# - 将线性项与交互项相加得到最终预测
+#
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - 一阶稠密分支：拼接 dense_i -> dense_stack: [Batch, Dim_dense] -> linear_dense -> y_dense: [Batch, 1]
+# - 一阶稀疏/序列分支：
+#   - sparse_i 的 id -> embedding_dim=1 -> term_i: [Batch, 1]
+#   - sequence_j 的 id 序列 -> embedding_dim=1 + mask pooling -> term_j: [Batch, 1]
+#   - 各项求和 -> y_sparse_seq: [Batch, 1]
+# - 一阶融合：y_linear = y_dense + y_sparse_seq -> [Batch, 1]
+# - 域感知分支：field_aware_outputs: [Batch, Field_num, Field_num, Dim_embedding]
+# - 配对交互：对每个 (i, j)，v_{i,f_j}:[Batch, Dim_embedding] 与 v_{j,f_i}:[Batch, Dim_embedding] 内积 -> dot_ij:[Batch, 1]
+# - 交互求和：y_interaction: [Batch, 1]
+# - 融合：y = y_linear + y_interaction -> [Batch, 1]
+# - 输出：[Batch, 1] -> 预测层
 
 model: ffm
 
