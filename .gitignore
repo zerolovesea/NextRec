@@ -119,6 +119,12 @@ dmypy.json
 # test files
 *iflytek*
 generate_feature_config.py
+*.onnx
+artifacts/
+node_modules/
+.ENV
+generate_feature_config_original.txt
+demo_models/
 
 # DataProcessor saved files
 processor/
@@ -129,11 +135,3 @@ pypirc.template
 # Sphinx build
 docs/rtd/_build/
 
-*.onnx
-artifacts/
-
-node_modules/
-
-.ENV
-
-generate_feature_config_original.txt

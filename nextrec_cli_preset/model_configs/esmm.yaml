@@ -1,46 +1,50 @@
-# ESMM（Entire Space Multi-task Model）是一种经典的多任务学习模型，
-# 主要用于解决推荐 / 广告场景中的 CVR 预估问题。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 15/02/2026
+# Author: Yang Zhou,zyaztec@gmail.com
+# Reference:
+# - [1] Ma X, Zhao L, Huang G, Wang Z, Hu Z, Zhu X, Gai K. Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate. In: Proceedings of the 41st International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR ’18), 2018, pp. 1137–1140.
+# URL: https://dl.acm.org/doi/10.1145/3209978.3210007
 #
-# 在真实业务中：
-#   - 曝光（impression）样本很多
-#   - 点击（click）样本较少
-#   - 转化（conversion）样本极度稀疏
+# ESMM was proposed by Alibaba team in SIGIR 2018 to address the sample selection bias and data sparsity issues in CVR (Conversion Rate) prediction.
+# The core idea is to jointly model two related tasks, CTR (Click-Through Rate) and CVR,
+# and construct an auxiliary task CTCVR (Click-Through & Conversion Rate) to
+# enable training on the entire impression space.
 #
-# 传统 CVR 模型通常只在「已点击样本」上训练，
-# 这会带来两个核心问题：
-#   1. 样本选择偏差（只看点击用户，分布不一致）
-#   2. 转化标签稀疏，模型难以稳定训练
+# Workflow:
+# - Build a shared embedding representation from all impression features
+# - Feed shared representation into CTR tower and CVR tower independently
+# - Convert two logits to probabilities via task head to get CTR and CVR
+# - Compose CTCVR by probability product: CTCVR = CTR * CVR
+# - Output [CTR, CTCVR] for joint optimization on impression-level labels
 #
-# ESMM 的核心思想是：
-#   - 在“曝光全空间”上，同时联合训练 CTR 和 CVR 两个子任务，
-#   - 用概率分解的方式，将难学的 CTCVR 拆成两个更容易学习的部分：
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding: all features -> input_flat: [Batch, Dim_embedding]
+# - CTR tower: input_flat -> ctr_logit: [Batch, 1]
+# - CVR tower: input_flat -> cvr_logit: [Batch, 1]
+# - Task head: cat([ctr_logit, cvr_logit], dim=1) -> [Batch, 2] -> [ctr, cvr]
+# - CTCVR construction: ctcvr = ctr * cvr -> [Batch, 1]
+# - Output: cat([ctr, ctcvr], dim=1) -> [Batch, 2]
 #
-#     P(conversion | impression)
-#       = P(click | impression) × P(conversion | click)
+# ESMM 由阿里巴巴团队发表在SIGIR’2018，主要为了解决CVR（转化率）预测中的样本选择偏差与数据稀疏问题。
+# 其核心思想是将CTR（点击率）和CVR（转化率）两个相关任务进行联合建模，
+# 并通过构造一个辅助任务CTCVR（点击且转化率）来实现全空间训练。
 #
-# 其中：
-#   - CTR 任务学习：在曝光条件下被点击的概率
-#   - CVR 任务学习：在点击条件下发生转化的概率
-#   - 二者相乘得到 CTCVR，并在曝光样本上直接进行监督
+# 流程：
+# - 对曝光样本的全部特征进行共享 embedding 编码
+# - 共享表征分别输入 CTR 塔与 CVR 塔，得到两个任务 logits
+# - 通过任务输出头将 logits 映射为 CTR/CVR 概率
+# - 按概率分解构造 CTCVR：CTCVR = CTR * CVR
+# - 输出 [CTR, CTCVR]，在曝光空间进行联合训练
 #
-# 整体计算流程如下：
-#   (1) 对曝光样本的稀疏特征 / 序列特征进行统一的 embedding 编码，
-#       embedding 在 CTR 塔与 CVR 塔之间共享
-#   (2) CTR 塔（MLP）输出 P(click | impression)
-#   (3) CVR 塔（MLP）输出 P(conversion | click)
-#   (4) 将 CTR × CVR 得到 CTCVR，
-#       使用曝光级别的转化标签进行训练，而不是只依赖点击样本
-#
-# 这种设计带来的好处是：
-#   - CTR 任务的数据充足、梯度稳定，可为 CVR 提供有效表征
-#   - CVR 不再局限于点击子集，显著缓解样本稀疏问题
-#   - 在曝光空间训练，避免了点击条件带来的样本选择偏差
-#
-# 主要优势：
-#   - 从根本上缓解 CVR 任务的样本选择偏差问题
-#   - 通过共享 embedding，将 CTR 的信号迁移到 CVR 任务
-#   - 采用概率分解，训练过程更稳定、更易收敛
-#   - 结构清晰，是工业界 CTCVR 预估的标准基线模型
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding：所有特征拼接展平 -> input_flat: [Batch, Dim_embedding]
+# - CTR 塔：input_flat -> ctr_logit: [Batch, 1]
+# - CVR 塔：input_flat -> cvr_logit: [Batch, 1]
+# - 任务头：cat([ctr_logit, cvr_logit], dim=1) -> [Batch, 2] -> [ctr, cvr]
+# - 构造 CTCVR：ctcvr = ctr * cvr -> [Batch, 1]
+# - 最终输出：cat([ctr, ctcvr], dim=1) -> [Batch, 2]
 
 model: esmm
 

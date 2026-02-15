@@ -1,41 +1,56 @@
-# xDeepFM 是一种用于 CTR 预估的特征交互增强模型，
-# 目标是在同一个统一框架中，同时学习：
-#   - 单个特征本身的重要性（一阶信号）
-#   - 特征之间“明确可解释”的高阶组合关系（显式交互）
-#   - 多特征共同作用时的复杂非线性模式（隐式交互）
+# Date: create on 09/11/2025
+# Checkpoint: edit on 15/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1754-1763.
+#     (https://arxiv.org/abs/1803.05170)
 #
-# 它可以看作是对 DeepFM 的一次升级：
-#   - 保留线性部分，建模一阶特征贡献
-#   - 保留 Deep（MLP）分支，学习隐式非线性交互
-#   - 新增 CIN（Compressed Interaction Network），
-#     用来显式建模高阶、向量级的特征交互
+# xDeepFM was proposed by Lian et al. in KDD18 to unify explicit and implicit feature interaction learning within a single framework.
+# Building on the Embedding + MLP architecture, it introduces an additional CIN (Compressed Interaction Network)
+# that explicitly captures high-order crossed features via convolution over outer products of field embeddings.
+# The linear part retains first-order information, the deep part (MLP) models implicit non-linear interactions,
+# and all three branches are trained end-to-end.
 #
-# CIN 的核心思想是：
-#   - 以“特征字段（field）”为单位进行交互，而不是简单拼接
-#   - 通过 embedding 之间的外积，显式构造高阶交叉特征
-#   - 使用卷积与压缩操作控制参数规模和计算复杂度
-#   - 通过多层 CIN，逐层捕获从二阶到更高阶的交互关系
+# Workflows:
+# - Embedding Layer: transforms sparse/sequence fields into dense vectors
+# - Linear Part: captures first-order contributions of sparse/sequence fields
+# - CIN: explicitly builds higher-order feature crosses via convolution over
+#     outer products of field embeddings, with optional split-half connections
+# - Deep Part (MLP): models implicit, non-linear interactions across all fields
+# - Combination: sums outputs from linear, CIN, and deep branches before the
+#     task-specific prediction layer
 #
-# 整体前向计算流程如下：
-#   (1) 嵌入层：将稀疏 / 序列特征映射为统一的 embedding 向量表示
-#   (2) 线性部分：直接建模各特征对 CTR 的一阶线性影响
-#   (3) CIN 分支：
-#       - 对不同字段的 embedding 做外积，显式构造交互特征
-#       - 通过卷积和压缩逐层提取高阶向量级交叉
-#       - 可选 split-half 机制，在保证表达能力的同时控制参数量
-#   (4) Deep 分支（MLP）：
-#       - 对 embedding 拼接后的表示进行多层非线性变换
-#       - 自动学习隐式、高阶、不可枚举的特征组合模式
-#   (5) 融合输出：
-#       - 将线性、CIN、Deep 三个分支的输出进行加权求和
-#       - 输入到最终预测层，得到 CTR 预估结果
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Linear/CIN embedding: sparse + sequence -> input_linear: [Batch, Field_num, Dim_field]
+# - Linear branch: flatten(input_linear) -> linear_input: [Batch, Field_num * Dim_field] -> y_linear: [Batch, 1]
+# - CIN branch: input_linear: [Batch, Field_num, Dim_field] -> CIN -> y_cin: [Batch, 1]
+# - Deep embedding: dense + sparse + sequence -> input_deep: [Batch, Dim_deep]
+# - Deep branch: input_deep: [Batch, Dim_deep] -> MLP -> y_deep: [Batch, 1]
+# - Fusion: y_linear + y_cin + y_deep -> y: [Batch, 1]
+# - Output: y -> prediction layer -> [Batch, 1]
 #
-# 主要优势：
-#   - 同时覆盖一阶、显式高阶、隐式高阶特征交互，表达能力更强
-#   - CIN 显式建模向量级交叉，具有更好的可解释性
-#   - split-half 机制有效控制模型规模，便于工业落地
-#   - Deep 分支补充复杂非线性关系，提升泛化能力
-#   - 降低人工特征交叉与特征工程成本
+# xDeepFM由中科大、北大与微软合作发表于KDD18，将显式与隐式的特征交互学习统一到同一框架。
+# 在延续Embedding + MLP的架构上，额外引入了 CIN（Compressed Interaction Network）
+# CIN通过对字段嵌入做外积并卷积，显式捕获高阶交叉特征。
+# 线性部分保留一阶信息，深层部分（MLP）建模隐式非线性交互，三者端到端联合训练。
+#
+# 流程：
+# - 嵌入层：将稀疏/序列特征映射为稠密向量
+# - 线性部分：建模稀疏/序列特征的一阶贡献
+# - CIN：通过对字段嵌入做外积并卷积，显式捕获高阶交叉，可选 split-half 以控参
+# - 深层部分（MLP）：对所有特征进行隐式非线性交互建模
+# - 融合：线性、CIN、MLP 输出求和后进入任务预测层
+#
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - 线性/CIN embedding：sparse + sequence -> input_linear: [Batch, Field_num, Dim_field]
+# - 线性分支：flatten(input_linear) -> linear_input: [Batch, Field_num * Dim_field] -> y_linear: [Batch, 1]
+# - CIN分支：input_linear: [Batch, Field_num, Dim_field] -> CIN -> y_cin: [Batch, 1]
+# - 深层 embedding：dense + sparse + sequence -> input_deep: [Batch, Dim_deep]
+# - 深层分支：input_deep: [Batch, Dim_deep] -> MLP -> y_deep: [Batch, 1]
+# - 融合：y_linear + y_cin + y_deep -> y: [Batch, 1]
+# - 输出：y -> 预测层 -> [Batch, 1]
 
 model: xdeepfm
 

@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 
 Shared-Bottom is the classic hard-parameter-sharing baseline for multi-task learning.
@@ -9,31 +9,36 @@ task has its own tower head for task-specific refinement and prediction. This
 architecture is simple, parameter-efficient, and helps regularize related tasks.
 
 Workflow:
-  (1) Unified embeddings convert dense/sparse/sequence features
-  (2) A shared bottom MLP learns common representations
-  (3) Task-specific towers further transform the shared features
-  (4) Separate prediction heads output each task’s logits/probabilities
+- Unified embeddings convert dense/sparse/sequence features
+- A shared bottom MLP learns common representations
+- Task-specific towers further transform the shared features
+- Separate prediction heads output each task’s logits/probabilities
 
-Key Advantages:
-- Strong inductive bias via hard parameter sharing, reducing overfitting
-- Parameter-efficient compared to duplicating full models per task
-- Easy to extend to many tasks with small incremental cost
-- Serves as a stable baseline for evaluating advanced MTL architectures
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding: all features -> flattened embedding -> input_flat: [Batch, Dim_embedding]
+- Shared Bottom: input_flat: [Batch, Dim_embedding] -> bottom MLP -> bottom_output: [Batch, Dim_bottom]
+- Task Towers: each tower_i(bottom_output) -> tower_output_i: [Batch, 1]
+- Concatenate Towers: cat(tower_output_1...tower_output_T, dim=1) -> logits: [Batch, Task_num]
+- Prediction Head: logits: [Batch, Task_num] -> task activations -> y: [Batch, Task_num]
 
 Share-Bottom（硬共享底层）是多任务学习的经典基线：所有任务共享一个底层网络，
 各任务拥有独立塔头进行细化与预测，简单高效且能通过共享正则化相关任务。
 
 流程：
-  (1) 统一 embedding 处理稠密、稀疏与序列特征
-  (2) 共享底层 MLP 学习通用表示
-  (3) 任务塔在共享表示上做任务特定变换
-  (4) 各任务预测头输出对应结果
+- 统一 embedding 处理稠密、稀疏与序列特征
+- 共享底层 MLP 学习通用表示
+- 任务塔在共享表示上做任务特定变换
+- 各任务预测头输出对应结果
 
-主要优点：
-- 硬参数共享提供强正则，减少过拟合
-- 相比单独模型更节省参数与计算
-- 易于扩展到多任务，增量开销小
-- 是评估更复杂 MTL 结构的稳健基线
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding：所有特征拼接展平后 -> input_flat: [Batch, Dim_embedding]
+- 共享底层：input_flat: [Batch, Dim_embedding] -> 底层 MLP -> bottom_output: [Batch, Dim_bottom]
+- 任务塔：每个 tower_i(bottom_output) -> tower_output_i: [Batch, 1]
+- 拼接任务输出：cat(tower_output_1...tower_output_T, dim=1) -> logits: [Batch, Task_num]
+- 预测头：logits: [Batch, Task_num] -> 各任务激活 -> y: [Batch, Task_num]
+
 """
 
 import torch
@@ -69,6 +74,20 @@ class ShareBottom(BaseModel):
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ):
+        """
+        Initialize ShareBottom model.
+        初始化 ShareBottom 模型。
+
+        Args:
+            bottom_mlp_params: Parameters for the shared bottom MLP, e.g.
+                {"hidden_dims": [256, 128], "dropout": 0.2, "activation": "relu"}.
+                共享底层 MLP 参数，例如 {"hidden_dims": [256, 128], "dropout": 0.2, "activation": "relu"}。
+            tower_mlp_params_list: Per-task tower MLP parameter list. Its length must equal
+                the number of tasks; each tower outputs one logit, e.g.
+                [{"hidden_dims": [64], "dropout": 0.1, "activation": "relu"}, ...].
+                每个任务对应一个 tower 的 MLP 参数列表，长度必须等于任务数；每个 tower 输出一个 logit，
+                例如 [{"hidden_dims": [64], "dropout": 0.1, "activation": "relu"}, ...]。
+        """
 
         self.nums_task = len(target)
 
@@ -116,18 +135,19 @@ class ShareBottom(BaseModel):
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["bottom", "towers"])
 
     def forward(self, x):
-        # Get all embeddings and flatten
-        input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
+        # Embedding flatten: [Batch, Dim_embedding]
+        input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)  # [Batch, Dim_embedding]
 
-        # Shared bottom
-        bottom_output = self.bottom(input_flat)  # [B, bottom_dim]
+        # Shared bottom MLP: [Batch, Dim_embedding] -> [Batch, Dim_bottom]
+        bottom_output = self.bottom(input_flat)  # [Batch, Dim_bottom]
 
-        # Task-specific towers
+        # Task-specific towers: each tower output is [Batch, 1]
         task_outputs = []
         for tower in self.towers:
-            tower_output = tower(bottom_output)  # [B, 1]
+            tower_output = tower(bottom_output)  # [Batch, 1]
             task_outputs.append(tower_output)
 
-        # Stack outputs: [B, nums_task]
-        y = torch.cat(task_outputs, dim=1)
-        return self.prediction_layer(y)
+        # Concatenate task logits: [Batch, Task_num]
+        y = torch.cat(task_outputs, dim=1)  # [Batch, Task_num]
+        # Apply task head activation/slicing: [Batch, Task_num]
+        return self.prediction_layer(y)  # [Batch, Task_num]

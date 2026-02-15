@@ -15,18 +15,19 @@ concatenates (or solely uses) cross outputs before a linear head, offering a
 balanced trade-off between interpretability and expressiveness.
 
 Workflow:
-  (1) Embed sparse/sequence features and concatenate with dense inputs
-  (2) Cross Network builds explicit polynomial interactions via residual crosses
-  (3) Optional MLP models implicit high-order nonlinear relationships
-  (4) Cross output (and deep output if enabled) are fused for the final logit
-  (5) Prediction layer maps logits to binary CTR scores
+- Embed sparse/sequence features and concatenate with dense features
+- Cross layers explicitly construct multi-order cross features in a residual form
+- Optional MLP learns implicit high-order nonlinear interactions
+- Fuse Cross (and Deep) outputs and feed into linear head for logit
+- Prediction layer outputs binary CTR score
 
-Key Advantages:
-- Explicit, low-cost cross features with O(L * d) parameters
-- Residual cross formulation stabilizes optimization
-- Optional deep tower increases capacity without losing interpretability
-- Shared embeddings reduce redundant parameters and preprocessing
-- Strong, simple baseline for ad/recommendation ranking tasks
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding layer + flatten -> [Batch, Dim_embedding]
+- Cross tower: [Batch, Dim_embedding] -> stacked cross layers -> cross_out:[Batch, Dim_embedding]
+- Deep tower (optional): [Batch, Dim_embedding] -> MLP -> deep_out[Batch, Hidden_dim]
+- Fusion: concat(cross_out[Batch, Dim_embedding], deep_out[Batch, Hidden_dim]) -> [Batch, Dim_embedding + Hidden_dim]
+  (or [Batch, Dim_embedding] if no deep tower)
+- Output: linear -> [Batch, 1] -> prediction head
 
 DCN（Deep & Cross Network）通过 Cross 层显式生成多项式特征交互，同时可选 Deep
 分支学习高阶非线性关系，两者共享 embedding。Cross 层按
@@ -35,18 +36,20 @@ Deep 分支提升表达能力；最终将 Cross（及 Deep）结果送入线性�
 效率与效果的 CTR/CVR 预估模型。
 
 流程：
-  (1) 对稀疏/序列特征做 embedding，并与稠密特征拼接
-  (2) Cross 层以残差形式显式构造多阶交叉特征
-  (3) 可选 MLP 学习隐式高阶非线性交互
-  (4) 将 Cross（及 Deep）输出融合后接线性头得到 logit
-  (5) 预测层输出二分类 CTR 分数
+- 对稀疏/序列特征做 embedding，并与稠密特征拼接
+- Cross 层以残差形式显式构造多阶交叉特征
+- 可选 MLP 学习隐式高阶非线性交互
+- 将 Cross（及 Deep）输出融合后接线性头得到 logit
+- 预测层输出二分类 CTR 分数
 
-主要优点：
-- 显式交叉特征、参数线性增长、易解释
-- 残差式 Cross 提升训练稳定性
-- Deep 分支可灵活增强模型容量
-- 共享 embedding，减少冗余参数与预处理
-- CTR/CVR 排序任务的简洁强基线
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding层 + 展平 -> [Batch, Dim_embedding]
+- Cross [Batch, Dim_embedding] -> 多层显式交叉 -> cross_out: [Batch, Dim_embedding]
+- Deep 分支（可选）：[Batch, Dim_embedding] -> MLP -> deep_out: [Batch, Hidden_dim]
+- 融合：concat(cross_out[Batch, Dim_embedding], deep_out[Batch, Hidden_dim]) -> [Batch, Dim_embedding + Hidden_dim]
+  （无 Deep 时为 [Batch, Dim_embedding]）
+- 输出：线性层 -> [Batch, 1] -> 预测层
+
 """
 
 import torch
@@ -69,10 +72,11 @@ class CrossNetwork(nn.Module):
         self.b = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros((input_dim,))) for _ in range(num_layers)])
 
     def forward(self, x):
+        # x: [B, D]
         x0 = x
         for i in range(self.num_layers):
-            xw = self.w[i](x)
-            x = x0 * xw + self.b[i] + x
+            xw = self.w[i](x)  # [B, 1]
+            x = x0 * xw + self.b[i] + x  # [B, D]
         return x  # [batch_size, input_dim]
 
 
@@ -96,11 +100,23 @@ class DCN(BaseModel):
         mlp_params: dict | None = None,
         **kwargs,
     ):
+        """
+        Initialize DCN model.
+        初始化 DCN 模型。
+
+        Args:
+            cross_num: Number of cross layers in the explicit cross network.
+                显式交叉网络中的 Cross 层数量。
+            mlp_params: Parameters for optional deep tower MLP. e.g., {"hidden_units": [128, 64], "activation": "relu"}.
+                If None, DCN runs in cross-only mode.
+                可选深度塔 MLP 参数，例如 {"hidden_units": [128, 64], "activation": "relu"}。为 None 时仅使用 Cross 分支。
+        """
 
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
-        mlp_params = mlp_params or {}
+        use_dnn = mlp_params is not None
+        dnn_params = dict(mlp_params) if mlp_params is not None else {}
 
         super(DCN, self).__init__(
             dense_features=dense_features,
@@ -113,24 +129,23 @@ class DCN(BaseModel):
 
         # Embedding layer
         self.embedding = EmbeddingLayer(features=self.all_features)
-
-        # Calculate input dimension
-        emb_dim_total = sum([f.embedding_dim for f in self.all_features if not isinstance(f, DenseFeature)])
-        dense_input_dim = sum([(f.embedding_dim if f.embedding_dim is not None else 1) or 1 for f in dense_features])
-        input_dim = emb_dim_total + dense_input_dim
+        input_dim = self.embedding.input_dim
 
         # Cross Network for explicit feature crosses
         self.cross_network = CrossNetwork(input_dim=input_dim, num_layers=cross_num)
 
         # Deep Network for implicit high-order interactions
-        if mlp_params is not None:
+        if use_dnn:
             self.use_dnn = True
-            self.mlp = MLP(input_dim=input_dim, **mlp_params)
+            dnn_params.pop("input_dim", None)
+            dnn_params.setdefault("output_dim", None)
+            self.mlp = MLP(input_dim=input_dim, **dnn_params)
             deep_dim = self.mlp.output_dim
             # Final layer combines cross and deep
-            self.final_layer = nn.Linear(input_dim + deep_dim, 1)  # + deep_dim for MLP output
+            self.final_layer = nn.Linear(input_dim + deep_dim, 1)
         else:
             self.use_dnn = False
+            self.mlp = None
             # Final layer only uses cross network output
             self.final_layer = nn.Linear(input_dim, 1)
 
@@ -143,20 +158,20 @@ class DCN(BaseModel):
         )
 
     def forward(self, x):
-        # Get all embeddings and flatten
+        # Get all embeddings and flatten: input_flat[Batch, Dim_embedding]
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
 
-        # Cross Network
-        cross_output = self.cross_network(input_flat)  # [B, input_dim]
+        # Cross tower output: cross_out[Batch, Dim_embedding]
+        cross_output = self.cross_network(input_flat)  # [Batch, input_dim]
 
         if self.use_dnn:
-            # Deep Network
-            deep_output = self.mlp(input_flat)  # [B, 1]
-            # Concatenate cross and deep
-            combined = torch.cat([cross_output, deep_output], dim=-1)  # [B, input_dim + 1]
+            # Deep tower output: deep_out[Batch, Hidden_dim]
+            deep_output = self.mlp(input_flat)
+            # Concatenate cross and deep: combined[Batch, Dim_embedding + Hidden_dim]
+            combined = torch.cat([cross_output, deep_output], dim=-1)
         else:
-            combined = cross_output
+            combined = cross_output  # [Batch, Dim_embedding]
 
-        # Final prediction
-        y = self.final_layer(combined)
-        return self.prediction_layer(y)
+        # Final prediction: logit[Batch, 1] -> [Batch, 1]
+        y = self.final_layer(combined)  # [Batch, 1]
+        return self.prediction_layer(y)  # [Batch, 1]

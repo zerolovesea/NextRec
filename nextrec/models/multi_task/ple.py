@@ -1,47 +1,49 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Tang H, Liu J, Zhao M, Gong X. Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations. In: Proceedings of the 14th ACM Conference on Recommender Systems (RecSys ’20), 2020, pp. 269–278.
 URL: https://dl.acm.org/doi/10.1145/3383313.3412236
 
-Progressive Layered Extraction (PLE) advances multi-task learning by stacking CGC
-(Customized Gate Control) blocks that mix shared and task-specific experts. Each
-layer routes information via task gates and a shared gate, then feeds the outputs
-forward to deeper layers, progressively disentangling shared vs. task-specific
-signals and mitigating gradient interference.
+Progressive Layered Extraction (PLE) was proposed by Tencent's PCG team and won the Best Long Paper Award at RecSys 2020.
+It is designed for multi-task scenarios where tasks are related but not fully consistent.
+To address the issues of negative transfer and task interference,
+PLE introduces a progressive layered extraction architecture with customized
+gate control (CGC) that explicitly distinguishes between shared experts and
+task-specific experts.
 
-Layer workflow:
-  (1) Shared and per-task experts transform the same inputs
-  (2) Task gates select among shared + task-specific experts
-  (3) A shared gate aggregates all experts for the shared branch
-  (4) Outputs become inputs to the next CGC layer (progressive refinement)
-  (5) Final task towers operate on the last-layer task representations
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding: all features -> input_flat: [Batch, Dim_embedding]
+- CGC level 0 input:
+  task_fea_i: [Batch, Dim_embedding], shared_fea: [Batch, Dim_embedding]
+- CGC level k output:
+  task_fea_i: [Batch, Dim_expert], shared_fea: [Batch, Dim_expert]
+- Progressive stacking:
+  (task_fea_i, shared_fea)_k -> CGC_k -> (task_fea_i, shared_fea)_{k+1}
+- Task towers: task_fea_i: [Batch, Dim_expert] -> tower_i -> [Batch, 1]
+- Concatenate logits: cat(tower_1 ... tower_T, dim=1) -> [Batch, Task_num]
+- Output head: [Batch, Task_num] -> task activations -> [Batch, Task_num]
 
-Key Advantages:
-- Progressive routing reduces negative transfer across layers
-- Explicit shared/specific experts improve feature disentanglement
-- Flexible depth and expert counts to match task complexity
-- Works with heterogeneous features via unified embeddings
-- Stable training by separating gates for shared and task branches
+PLE 由腾讯PCG团队提出并获得RecSys 2020最佳长论文奖，主要用于“任务相关但不一致”的多任务场景。
+为了解决跷跷板和负迁移的现象，论文提出了一种共享结构设计的渐进式分层提取（PLE）模型。
+其包含两部分， 一部分是一种显式区分共享专家塔和特定任务专家塔的门控 (CGC) 模型，
+另一部分是由单层CGC结构扩展到多层的PLE模型。
 
-PLE（Progressive Layered Extraction）通过堆叠 CGC 模块，联合共享与任务特定专家，
-利用任务门与共享门逐层软路由，逐步分离共享与任务差异信息，缓解多任务间的梯度冲突。
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding：所有特征拼接展平 -> input_flat: [Batch, Dim_embedding]
+- 第 0 层 CGC 输入：
+  task_fea_i: [Batch, Dim_embedding], shared_fea: [Batch, Dim_embedding]
+- 第 k 层 CGC 输出：
+  task_fea_i: [Batch, Dim_expert], shared_fea: [Batch, Dim_expert]
+- 逐层堆叠：
+  (task_fea_i, shared_fea)_k -> CGC_k -> (task_fea_i, shared_fea)_{k+1}
+- 任务塔：task_fea_i: [Batch, Dim_expert] -> tower_i -> [Batch, 1]
+- 任务拼接：cat(tower_1 ... tower_T, dim=1) -> [Batch, Task_num]
+- 输出头：[Batch, Task_num] -> 各任务激活 -> [Batch, Task_num]
 
-层内流程：
-  (1) 共享与任务专家对同一输入做特征变换
-  (2) 任务门在共享+任务专家上进行软选择
-  (3) 共享门汇总全部专家，更新共享分支
-  (4) 输出作为下一层输入，完成逐层细化
-  (5) 最后由任务塔完成各任务预测
-
-主要优点：
-- 逐层路由降低负迁移
-- 显式区分共享/特定专家，增强特征解耦
-- 专家数量与层数可按任务复杂度灵活设置
-- 统一 embedding 支持多种特征类型
-- 共享与任务门分离，训练更稳定
 """
 
 import torch
@@ -200,6 +202,26 @@ class PLE(BaseModel):
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ):
+        """
+        Initialize PLE model.
+        初始化 PLE 模型。
+
+        Args:
+            shared_expert_mlp_params: Shared expert MLP parameters, e.g.
+                {"hidden_dims": [256, 128], "activation": "relu", "dropout": 0.1}.
+                共享专家 MLP 参数，例如 {"hidden_dims": [256, 128], "activation": "relu", "dropout": 0.1}。
+            specific_expert_mlp_params: Per-task specific expert MLP parameter list.
+                Length must equal number of tasks.
+                每个任务的专属专家 MLP 参数列表，长度必须等于任务数。
+            num_shared_experts: Number of shared experts in each CGC layer.
+                每层 CGC 的共享专家数量。
+            num_specific_experts: Number of task-specific experts per task in each CGC layer.
+                每层 CGC 中每个任务的专属专家数量。
+            num_levels: Number of stacked CGC layers (progressive depth).
+                CGC 堆叠层数（渐进深度）。
+            tower_mlp_params_list: Task tower MLP parameter list. Length must equal number of tasks.
+                任务塔 MLP 参数列表，长度必须等于任务数。
+        """
 
         self.nums_task = len(target) if target is not None else 1
 
@@ -269,23 +291,29 @@ class PLE(BaseModel):
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["cgc_layers", "towers"])
 
     def forward(self, x):
-        # Get all embeddings and flatten
+        # Embedding flatten: [Batch, Dim_embedding]
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
 
-        # Initial features for each task and shared
+        # Initialize branch inputs:
+        # task_fea: list length = Task_num, each tensor [Batch, Dim_embedding]
+        # shared_fea: [Batch, Dim_embedding]
         task_fea = [input_flat for _ in range(self.nums_task)]
         shared_fea = input_flat
 
-        # Progressive Layered Extraction: CGC
+        # Progressive CGC extraction:
+        # (task_fea_i, shared_fea)_k -> CGC_k -> (task_fea_i, shared_fea)_{k+1}
+        # After each layer, each branch tensor is [Batch, Dim_expert]
         for layer in self.cgc_layers:
             task_fea, shared_fea = layer(task_fea, shared_fea)
 
-        # task tower
+        # Task towers: task_fea_i [Batch, Dim_expert] -> tower_i -> [Batch, 1]
         task_outputs = []
         for task_idx in range(self.nums_task):
             tower_output = self.towers[task_idx](task_fea[task_idx])  # [B, 1]
             task_outputs.append(tower_output)
 
-        # [B, nums_task]
+        # Concatenate task logits: [Batch, Task_num]
         y = torch.cat(task_outputs, dim=1)
+
+        # Task head activation: [Batch, Task_num] -> [Batch, Task_num]
         return self.prediction_layer(y)

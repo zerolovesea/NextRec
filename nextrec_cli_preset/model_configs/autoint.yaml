@@ -1,51 +1,49 @@
-# AutoInt（AutoInt: Automatic Feature Interaction Learning via Self-Attentive Neural Networks）是一种基于自注意力机制的 CTR 预估模型，
-# 目标是：在不依赖人工特征交叉的情况下，显式、高效地学习高阶特征交互关系。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 14/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Song W, Shi C, Xiao Z, et al. AutoInt: Automatic feature interaction learning via self-attentive neural networks. In: Proceedings of the 28th ACM International Conference on Information and Knowledge Management (CIKM ’19), 2019, pp. 1161–1170.
+# URL: https://arxiv.org/abs/1810.11921
 #
-# 在传统方法中：
-#   - LR / FM 只能建模一阶或二阶交互
-#   - MLP 虽然具备高阶建模能力，但交互是“隐式”的、难以解释
+# AutoInt models explicit high-order feature interactions with stacked multi-head
+# self-attention over field embeddings. In this implementation, the final logit is
+# the sum of:
+#   (1) Attention branch: self-attentive interaction representation -> linear projection
+#   (2) Wide branch: linear term over flattened feature embeddings (always enabled)
+#   (3) Optional DNN branch: MLP over flattened feature embeddings (enabled when mlp_params is provided)
 #
-# AutoInt 的核心思想是：
-#   - 将每个特征 embedding 看作一个“token”
-#   - 使用多头自注意力机制，直接建模特征之间的依赖关系
-#   - 注意力权重即表示“某个特征对另一个特征的重要程度”
+# This implementation also includes a projection step to unify embedding dimensions
+# before attention when features have mixed dimensions
+# (e.g. sequence features with combiner="concat" or inclusion of dense features).
 #
-# 因此，AutoInt 能做到：
-#   - 显式建模高阶特征交互
-#   - 自动学习哪些特征之间存在强依赖
-#   - 交互路径清晰，可解释性强
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding layer -> [Batch, Dim_embedding]
+# - Projection (optional): [Batch, Dim_embedding] -> linear projection -> field_i_attention: [Batch, Dim_attention]
+# - Attention branch: stack(field_i_attention) -> attention_input: [Batch, Field_num, Dim_attention] -> multi-head self-attention layers -> attention_out: [Batch, Field_num, Dim_attention]
+# - Attention branch output: flatten(attention_out) -> [Batch, Field_num * Dim_attention] -> linear layer -> y_attention: [Batch, 1]
+# - Wide branch: embedding flatten -> flat_input: [Batch, Dim_embedding] -> LR -> y_wide: [Batch, 1]
+# - Deep branch (optional): flat_input: [Batch, Dim_embedding] -> MLP -> y_dnn: [Batch, 1]
+# - Fusion: y_attention: [Batch, 1] + y_wide: [Batch, 1] (+ y_dnn: [Batch, 1]) -> [Batch, 1]
+# - Output: [Batch, 1] -> prediction layer
 #
-# 模型由若干个 Interacting Layer（特征交互层）堆叠组成，
-# 每一层都通过自注意力对特征 embedding 进行一次“全局交互建模”。
+# AutoInt 通过堆叠多头自注意力在field级 embedding上显式学习高阶特征交互。
+# 当前实现的最终 logit 由三部分组成：
+#   (1) Attention 分支：自注意力交互表示后接线性映射
+#   (2) Wide 分支：对展平后的特征 embedding 做线性建模（默认始终启用）
+#   (3) 可选 DNN 分支：对展平后的特征 embedding 送入 MLP（提供 mlp_params 时启用）
 #
-# 在单个 Interacting Layer 中，计算流程如下：
-#   (1) 将每个特征 embedding 通过线性映射，投影为 Q / K / V，
-#       并拆分为多个 attention head（多头注意力）
-#   (2) 使用缩放点积注意力（Scaled Dot-Product Attention），
-#       计算任意两个特征之间的交互权重
-#   (3) 对多头注意力输出进行拼接 / 聚合，形成新的特征表示
-#   (4) 使用残差连接（Residual Connection）保留原始特征信息，
-#       防止深层交互带来的信息退化
-#   (5) 通过 Layer Normalization 提升训练稳定性
+# 本实现中当特征维度不一致（例如 sequence 的 combiner="concat"或传入dense特征）时，会先把每个字段投影到统一
+# 的注意力维度，再进行自注意力计算。
 #
-# 通过堆叠多层 Interacting Layer：
-#   - 第 1 层主要建模低阶 / 直接的特征交互
-#   - 更深层逐步组合已有交互，形成更高阶的特征关系
-#
-# 由于注意力权重是显式计算的：
-#   - 可以分析哪些特征之间的依赖最强
-#   - 具备天然的可解释能力，优于纯 MLP 结构
-#
-# 主要优势：
-#   - 显式、高效地建模高阶特征交互
-#   - 多头注意力增强模型表达能力
-#   - 残差结构支持更深的交互层堆叠
-#   - 注意力权重可用于特征重要性分析
-#   - 显著减少人工特征工程成本
-#
-# 适用场景：
-#   - 特征字段较多、交互关系复杂的 CTR / CVR 预估任务
-#   - 希望兼顾效果与可解释性的推荐 / 广告系统
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length] -> embedding layer-> [Batch, Dim_embedding]
+# - 投影（可选）：[Batch, Dim_embedding] -> 线性投影 -> field_i_attention: [Batch, Dim_attention]
+# - Attention 分支：stack(field_i_attention) -> attention_input: [Batch, Field_num, Dim_attention] -> 多层多头自注意力 -> attention_out: [Batch, Field_num, Dim_attention]
+# - Attention 分支输出：flatten(attention_out) -> [Batch, Field_num * Dim_attention] -> 线性层 -> y_attention: [Batch, 1]
+# - Wide 分支：embedding 展平 -> flat_input: [Batch, Dim_embedding] -> LR -> y_wide: [Batch, 1]
+# - Deep 分支（可选）：flat_input: [Batch, Dim_embedding] -> MLP -> y_dnn: [Batch, 1]
+# - 融合：y_attention: [Batch, 1] + y_wide: [Batch, 1] (+ y_dnn: [Batch, 1]) -> [Batch, 1]
+# - 输出：[Batch, 1] -> 预测层
 
 model: autoint
 

@@ -445,6 +445,7 @@ params:
 - mmoe
 - ple
 - esmm
+- aitm
 
 ---
 

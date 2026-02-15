@@ -1,21 +1,58 @@
-# EulerNet 使用欧拉公式把特征映射到复数域进行交互建模。
-# 核心思想：把每个字段 embedding 分解为“幅值 + 相位”，
-# 再通过复数乘法实现高效多阶交互，最后映射回实数空间输出预测。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 14/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Zhao Z, Zhang H, Tang H, et al. EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula. (SIGIR 2021)
 #
-# 相比显式枚举交叉特征，EulerNet 用紧凑参数建模高阶关系，
-# 特别适合高维稀疏特征场景。
+# EulerNet models feature interactions in the complex domain using Euler's
+# formula. Each field embedding is transformed into amplitude and phase,
+# then mapped to a complex vector. Feature interactions are captured by
+# multiplying complex vectors across fields, which corresponds to multiplying
+# amplitudes and summing phases. The resulting complex representation is
+# converted back to real-valued features for a linear readout, optionally
+# paired with a linear term for first-order signals.
 #
-# 计算流程：
-#   (1) 对特征做 embedding，得到字段向量
-#   (2) 通过复空间映射层转成实部/虚部表示
-#   (3) 堆叠 Euler 交互层建模多阶关系
-#   (4) 实部与虚部分别线性回归并融合为 logit
-#   (5) 可选叠加一阶线性分支（use_linear=true）
+# Workflow:
+# - Embedding layer maps interaction features into field embeddings
+# - ComplexSpaceMapping converts each field embedding to (real, imaginary)
+# - Stacked EulerInteractionLayer performs explicit + optional implicit interactions
+# - Real/imag outputs are flattened and projected to one logit
+# - Optional first-order linear branch is added before task head
 #
-# 使用注意：
-#   - 交互特征至少 2 个
-#   - 参与交互的特征 embedding_dim 必须一致
-#   - 若 dense 特征要参与交互，需在 feature_config 中设置 use_projection=true
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Interaction embedding: interaction_features -> field_emb: [Batch, Field_num, Dim_embedding]
+# - Complex mapping: field_emb: [Batch, Field_num, Dim_embedding] -> (r, p): [Batch, Field_num, Dim_embedding]
+# - Euler interaction stack:
+#   - Layer 1: (r, p): [Batch, Field_num, Dim_embedding] -> [Batch, Order_num, Dim_embedding]
+#   - Layer 2..L: (r, p): [Batch, Order_num, Dim_embedding] -> [Batch, Order_num, Dim_embedding]
+# - Euler readout: flatten(r/p) -> [Batch, Order_num * Dim_embedding] -> w/w_im -> y_euler: [Batch, 1]
+# - Linear branch (optional): all linear features -> linear_input: [Batch, Dim_linear] -> y_linear: [Batch, 1]
+# - Fusion: y_euler: [Batch, 1] (+ y_linear: [Batch, 1]) -> [Batch, 1]
+# - Output: [Batch, 1] -> prediction layer
+#
+# EulerNet 使用欧拉公式将特征嵌入映射到复数域，通过复数相乘实现高效的
+# 特征交互建模，再将复数表示转回实数向量做线性回归，并可选叠加线性项
+# 以保留一阶信号。
+#
+# 流程：
+# - Embedding 层把交互特征映射为字段向量
+# - ComplexSpaceMapping 将每个字段向量映射为复数实部/虚部
+# - 堆叠 EulerInteractionLayer 做显式 + 可选隐式交互
+# - 将实部/虚部展平后分别线性映射并融合成 logit
+# - 可选叠加一阶线性分支，再进入任务预测头
+#
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - 交互特征 embedding：interaction_features -> field_emb: [Batch, Field_num, Dim_embedding]
+# - 复数映射：field_emb: [Batch, Field_num, Dim_embedding] -> (r, p): [Batch, Field_num, Dim_embedding]
+# - Euler 交互层堆叠：
+#   - 第1层：(r, p): [Batch, Field_num, Dim_embedding] -> [Batch, Order_num, Dim_embedding]
+#   - 第2..L层：(r, p): [Batch, Order_num, Dim_embedding] -> [Batch, Order_num, Dim_embedding]
+# - Euler 读出：flatten(r/p) -> [Batch, Order_num * Dim_embedding] -> w/w_im -> y_euler: [Batch, 1]
+# - 线性分支（可选）：线性特征展平 -> linear_input: [Batch, Dim_linear] -> y_linear: [Batch, 1]
+# - 融合：y_euler: [Batch, 1] (+ y_linear: [Batch, 1]) -> [Batch, 1]
+# - 输出：[Batch, 1] -> 预测层
 
 model: eulernet
 

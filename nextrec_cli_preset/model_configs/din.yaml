@@ -1,38 +1,53 @@
-# DIN（Deep Interest Network）是一种面向 CTR 预估的行为序列模型，
-# 核心思想是：用户的“兴趣”并不是固定不变的，而是会随着当前候选物品不同而变化。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 14/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate prediction[C] //Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1059-1068.
+#   URL: https://arxiv.org/abs/1706.06978
 #
-# 因此，DIN 不再将用户全部历史行为简单压缩为一个固定向量，
-# 而是引入「目标感知（Target-Aware）注意力机制」：
-#   - 以当前候选物品作为 query
-#   - 对用户历史行为序列进行加权
-#   - 动态生成“针对该候选物品的兴趣表示”
+# Deep Interest Network (DIN) was proposed by Alibaba's e-commerce team in KDD18.
+# The core idea is to introduce the attention mechanism into user interest modeling.
+# In traditional CTR models, a user's historical behaviors are often pooled into a static interest vector,
+# which may lose important information relevant to the current candidate item.
+# DIN computes attention scores between each historical click's item ID and the current candidate item ID,
+# dynamically constructing an interest representation specific to the current candidate item.
 #
-# 这种设计实现了请求级（request-level）的自适应兴趣建模，
-# 能突出与当前候选最相关的历史行为，弱化无关行为的干扰。
+# Workflow:
+# - Embed candidate item, user behavior sequence, and other sparse/dense fields
+# - Use a small attention MLP to score each historical behavior against the
+#       candidate embedding
+# - Apply masked weighted pooling to obtain a target-specific interest vector
+# - Concatenate candidate, interest vector, other sparse embeddings, and dense
+#       features
+# - Feed the combined representation into an MLP for final prediction
 #
-# 整体处理流程如下：
-#   (1) 对候选物品、用户历史行为序列，以及其他稀疏 / 稠密特征进行 embedding
-#       - 行为序列通常为 item / category 等 ID 序列
-#   (2) 使用注意力网络（小型 MLP，又称 Local Activation Unit）
-#       计算每个历史行为 embedding 与候选物品 embedding 之间的相关性
-#       （通常基于拼接、差分、元素积等特征形式）
-#   (3) 对注意力得分进行掩码（mask）处理，
-#       屏蔽 padding 位置，并根据配置选择是否做 softmax 归一化
-#   (4) 使用加权池化（weighted sum），
-#       将行为序列聚合为一个“目标特定”的用户兴趣向量
-#   (5) 拼接候选物品 embedding、兴趣向量、其他稀疏 embedding
-#       以及数值型特征，输入 MLP
-#   (6) 通过 MLP 输出最终的点击率预测结果
+# Dimension Flow:
+# - Input: candidate id[Batch] + behavior sequence[Batch, Length] + optional context features[Batch, Dim_context]
+# - Embedding: candidate -> [Batch, Dim_candidate], behavior -> [Batch, Length, Dim_behavior]
+# - Target attention: (candidate, behavior_t) -> per-step score -> att_weights: [Batch, Length, 1]
+# - Interest pooling: weighted sum over behavior sequence -> interest: [Batch, Dim_behavior]
+# - Fusion: concat(candidate, interest, other sparse/sequence/dense features) -> [Batch, Dim_total]
+# - Output: MLP -> [Batch, 1] -> prediction head
 #
-# 主要优点：
-#   - 目标感知注意力：针对不同候选物品，生成不同的兴趣表示
-#   - 细粒度建模用户兴趣，优于简单平均 / sum pooling
-#   - 掩码加权有效降低序列 padding 带来的噪声
-#   - 结构直观、易扩展，便于融合多种上下文特征
+# DIN 由阿里巴巴电商团队发表在KDD18，核心思想是把attention机制引入了到用户兴趣建模上。
+# 在传统的CTR模型中，用户的历史行为通常被池化成一个静态的兴趣向量，这可能会丢失与当前候选物品相关的重要信息。
+# DIN 通过对用户的历史行为序列进行注意力计算，将每个历史点击的物品id与当前候选物品id计算相关性评分，
+# 从而动态地构建一个针对当前候选物品的兴趣表示。
 #
-# 适用场景：
-#   - 用户行为序列信息丰富的推荐 / 广告 CTR 预估任务
-#   - 用户兴趣随候选变化明显的场景（如电商、内容推荐）
+# 流程：
+# - 对候选物品、用户行为序列及其他稀疏/稠密特征做 embedding
+# - 使用小型注意力 MLP 计算每个历史行为与候选 embedding 的相关性
+# - 通过掩码加权池化得到目标特定的兴趣向量
+# - 拼接候选、兴趣向量、其他稀疏 embedding 与稠密特征
+# - 输入 MLP 完成最终点击率预测
+#
+# 维度变化：
+# - 输入：candidate id[Batch] + 行为序列[Batch, Length] + 可选上下文特征[Batch, Dim_context]
+# - Embedding：candidate -> [Batch, Dim_candidate]，behavior -> [Batch, Length, Dim_behavior]
+# - 目标注意力：(candidate, behavior_t) -> 每步注意力分数 -> att_weights: [Batch, Length, 1]
+# - 兴趣池化：对行为序列做加权和 -> interest: [Batch, Dim_behavior]
+# - 融合：concat(candidate, interest, 其他稀疏/序列/稠密特征) -> [Batch, Dim_total]
+# - 输出：MLP -> [Batch, 1] -> 预测层
 
 model: din
 

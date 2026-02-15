@@ -13,15 +13,16 @@
 
 支持的模型:
     1. APG (Adaptive Parameter Generation): 自适应参数生成网络
-    2. CrossStitch: 交叉缝合网络,任务间软参数共享
-    3. ESCM (Entire Space Cross-Task Model): 全空间跨任务模型
-    4. ESMM (Entire Space Multi-Task Model): 全空间多任务模型
-    5. HMOE (Hierarchical Mixture of Experts): 层次化专家混合
-    6. MMOE (Multi-gate Mixture of Experts): 多门控专家混合
-    7. PEPNet (Parameter and Embedding Personalized Network): 参数和嵌入个性化网络
-    8. PLE (Progressive Layered Extraction): 渐进式分层提取
-    9. POSO (Partially Ordered Set Optimization): 偏序集优化
-    10. ShareBottom: 共享底层网络
+    2. AITM (Attentive Information Transfer Multi-Task): 注意力信息迁移多任务模型
+    3. CrossStitch: 交叉缝合网络,任务间软参数共享
+    4. ESCM (Entire Space Cross-Task Model): 全空间跨任务模型
+    5. ESMM (Entire Space Multi-Task Model): 全空间多任务模型
+    6. HMOE (Hierarchical Mixture of Experts): 层次化专家混合
+    7. MMOE (Multi-gate Mixture of Experts): 多门控专家混合
+    8. PEPNet (Parameter and Embedding Personalized Network): 参数和嵌入个性化网络
+    9. PLE (Progressive Layered Extraction): 渐进式分层提取
+    10. POSO (Partially Ordered Set Optimization): 偏序集优化
+    11. ShareBottom: 共享底层网络
 
 使用方法:
     直接运行此脚本:
@@ -46,6 +47,7 @@
 """
 
 from nextrec.models.multi_task.apg import APG
+from nextrec.models.multi_task.aitm import AITM
 from nextrec.models.multi_task.cross_stitch import CrossStitch
 from nextrec.models.multi_task.escm import ESCM
 from nextrec.models.multi_task.esmm import ESMM
@@ -226,6 +228,16 @@ def main():
             {
                 "mlp_params": {"hidden_dims": [128, 64], "activation": "relu"},
                 "scene_features": ["sparse_0"],  # 场景特征
+                "target": ["click", "conversion"],
+            },
+        ),
+        (
+            AITM,
+            "AITM",
+            {
+                "bottom_mlp_params": {"hidden_dims": [128, 64], "activation": "relu", "dropout": 0.1},
+                "tower_mlp_params_list": [small_tower_params, small_tower_params],
+                "calibrator_alpha": 0.1,
                 "target": ["click", "conversion"],
             },
         ),

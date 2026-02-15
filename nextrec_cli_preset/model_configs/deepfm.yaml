@@ -1,32 +1,31 @@
-# DeepFM 是一种经典的 CTR / CVR 预估模型，
-# 核心思想是：在同一个模型里，同时学习
-#   -「哪些特征本身重要」（一阶特征）
-#   -「特征两两之间如何组合」（二阶特征）
-#   -「多个特征共同作用时的复杂非线性关系」（高阶特征）
+# Date: create on 27/10/2025
+# Checkpoint: edit on 07/02/2026
+# Author: Yang Zhou,zyaztec@gmail.com
+# Reference:
+# - [1] Guo H, Tang R, Ye Y, et al. DeepFM: A factorization-machine based neural network for CTR prediction[J]. arXiv preprint arXiv:1703.04247, 2017.
+# URL: https://arxiv.org/abs/1703.04247
 #
-# 它将三类建模方式融合在一起：
-#   Wide（线性模型 / LR）：捕捉一阶特征贡献
-#   FM（Factorization Machine）：显式建模二阶特征交互
-#   Deep（MLP）：自动学习高阶非线性交互
+# DeepFM combines a Factorization Machine (FM) for explicit second-order feature
+# interactions with a deep MLP for high-order nonlinear patterns. Both parts share
+# the same embeddings, avoiding manual feature engineering and delivering strong CTR
+# performance with end-to-end training.
 #
-# 三个部分共享同一套 embedding：
-#   - 离散特征（如用户ID、物料ID、类目等）先映射为 embedding 向量
-#   - 不需要人工枚举「用户 × 物料」等交叉特征
-#   - 模型可端到端训练，自动学习有效的特征组合
+# Workflow:
+# - Shared embeddings encode sparse/sequence fields; dense features are concatenated
+# - Wide (LR) term models first-order signals
+# - FM term captures pairwise interactions via inner products
+# - Deep MLP learns higher-order interactions over concatenated embeddings
+# - Outputs from wide, FM, and deep parts are summed before the final prediction
 #
-# 整体计算流程如下：
-#   (1) 对稀疏特征 / 序列特征进行 embedding 编码，数值特征直接拼接
-#   (2) Wide 部分（线性层）建模单个特征的直接影响
-#   (3) FM 部分对 embedding 做两两交互，建模二阶组合关系
-#   (4) Deep 部分（多层 MLP）学习多特征之间的复杂非线性模式
-#   (5) 将 Wide + FM + Deep 三部分的输出相加，得到最终预测结果
+# DeepFM 将 FM 的显式二阶特征交互与 MLP 的高阶非线性交互结合，三部分共享
+# embedding，无需手工构造交叉特征即可端到端训练，常用于 CTR/CVR 预估。
 #
-# 主要优势：
-#   - 同时覆盖一阶、二阶和高阶特征交互，表达能力强
-#   - 二阶交互是显式建模，可解释性优于纯深度模型
-#   - 共享 embedding，减少特征工程和人工交叉成本
-#   - 结构清晰、训练稳定，是工业界 CTR/CVR 任务的常用强基线
-#
+# 流程：
+# - 共享 embedding 处理稀疏/序列特征，稠密特征拼接
+# - Wide（LR）建模一阶信号
+# - FM 建模二阶交互
+# - MLP 学习高阶非线性交互
+# - Wide + FM + Deep 求和后进入预测
 
 model: deepfm
 

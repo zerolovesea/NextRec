@@ -1,63 +1,47 @@
-# PLE（Progressive Layered Extraction）是一种面向多任务学习的结构化模型，
-# 主要用于解决多任务场景中「任务相关但不完全一致」时的负迁移与梯度冲突问题，
-# 常见于 CTR / CVR / CTCVR 等联合建模任务。
+# Date: create on 09/11/2025
+# Checkpoint: edit on 15/02/2026
+# Author: Yang Zhou,zyaztec@gmail.com
+# Reference:
+# - [1] Tang H, Liu J, Zhao M, Gong X. Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations. In: Proceedings of the 14th ACM Conference on Recommender Systems (RecSys ’20), 2020, pp. 269–278.
+# URL: https://dl.acm.org/doi/10.1145/3383313.3412236
 #
-# 在多任务学习中：
-#   - 不同任务之间既存在共享信息（如用户兴趣）
-#   - 也存在明显差异（如点击偏好 vs 转化决策）
+# Progressive Layered Extraction (PLE) was proposed by Tencent's PCG team and won the Best Long Paper Award at RecSys 2020.
+# It is designed for multi-task scenarios where tasks are related but not fully consistent.
+# To address the issues of negative transfer and task interference,
+# PLE introduces a progressive layered extraction architecture with customized
+# gate control (CGC) that explicitly distinguishes between shared experts and
+# task-specific experts.
 #
-# 如果简单地“完全共享底层表示”，
-# 容易出现任务互相干扰、梯度方向冲突，导致整体效果下降。
+# Dimension Flow:
+# - Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding: all features -> input_flat: [Batch, Dim_embedding]
+# - CGC level 0 input:
+#   task_fea_i: [Batch, Dim_embedding], shared_fea: [Batch, Dim_embedding]
+# - CGC level k output:
+#   task_fea_i: [Batch, Dim_expert], shared_fea: [Batch, Dim_expert]
+# - Progressive stacking:
+#   (task_fea_i, shared_fea)_k -> CGC_k -> (task_fea_i, shared_fea)_{k+1}
+# - Task towers: task_fea_i: [Batch, Dim_expert] -> tower_i -> [Batch, 1]
+# - Concatenate logits: cat(tower_1 ... tower_T, dim=1) -> [Batch, Task_num]
+# - Output head: [Batch, Task_num] -> task activations -> [Batch, Task_num]
 #
-# PLE 的核心思想是：
-#   - 通过多层 CGC（Customized Gate Control）模块，
-#   - 在网络的每一层逐步、可控地分离「共享信息」与「任务特有信息」，
-#   - 而不是一次性强行拆分。
+# PLE 由腾讯PCG团队提出并获得RecSys 2020最佳长论文奖，主要用于“任务相关但不一致”的多任务场景。
+# 为了解决跷跷板和负迁移的现象，论文提出了一种共享结构设计的渐进式分层提取（PLE）模型。
+# 其包含两部分， 一部分是一种显式区分共享专家塔和特定任务专家塔的门控 (CGC) 模型，
+# 另一部分是由单层CGC结构扩展到多层的PLE模型。
 #
-# 每一层 CGC 模块内部包含三类组件：
-#   - 共享专家（Shared Experts）：学习对所有任务都有帮助的通用表示
-#   - 任务专属专家（Task-specific Experts）：学习只对某个任务有用的特征
-#   - 门控网络（Gates）：对不同专家的输出进行软选择和加权融合
-#
-# 单层 CGC 的计算流程如下：
-#   (1) 共享专家与各任务专属专家对同一输入特征进行并行变换
-#   (2) 每个任务门在「共享专家 + 本任务专家」上进行加权选择，
-#       得到该任务在当前层的中间表示
-#   (3) 共享门在「所有共享专家 + 所有任务专家」上进行汇总，
-#       更新共享分支的表示
-#   (4) 任务分支输出与共享分支输出作为下一层 CGC 的输入
-#   (5) 通过多层堆叠，实现从“强共享”到“强区分”的逐层特征提炼
-#
-# 在所有 CGC 层之后：
-#   - 每个任务都有独立的任务塔（Tower）
-#   - 由任务塔完成最终的预测输出
-#
-# 这种逐层解耦的设计带来的好处是：
-#   - 低层更多共享通用信息（用户、上下文等）
-#   - 高层逐渐聚焦任务差异（点击 / 转化等决策差异）
-#   - 共享与专属信息分离过程平滑，训练更稳定
-#
-# 主要优势：
-#   - 通过逐层门控路由，有效缓解多任务之间的负迁移
-#   - 显式区分共享专家与任务专家，提升特征解耦能力
-#   - 专家数量与层数可按任务复杂度灵活配置
-#   - 统一 embedding，支持稀疏、稠密及序列等多种特征
-#   - 相比一次性拆分结构，梯度传播更稳定、可控
-#
-# 与MMOE的关键区别：
-#   MMOE：所有任务共享同一组专家，通过不同门控实现差异化
-#   PLE：将专家明确划分为「共享专家」和「任务专属专家」，
-#        从根本上减少任务间的特征竞争，特别适用于任务差异大的场景。
-#
-# 为什么叫“渐进式分层提取”：
-#   - 渐进式：从底层到高层，逐步分离共享与特有信息
-#   - 分层：通过多个CGC层堆叠实现
-#   - 提取：每层都从当前表示中“提取”出更适合该任务的特征
-#
-# 实际效果（基于论文实验）：
-#   - 在任务相关性低的场景下，显著优于MMOE
-#   - 在任务相关性高的场景下，与MMOE持平或略优
-#   - 训练更稳定，收敛速度更快
+# 维度变化：
+# - 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+# - Embedding：所有特征拼接展平 -> input_flat: [Batch, Dim_embedding]
+# - 第 0 层 CGC 输入：
+#   task_fea_i: [Batch, Dim_embedding], shared_fea: [Batch, Dim_embedding]
+# - 第 k 层 CGC 输出：
+#   task_fea_i: [Batch, Dim_expert], shared_fea: [Batch, Dim_expert]
+# - 逐层堆叠：
+#   (task_fea_i, shared_fea)_k -> CGC_k -> (task_fea_i, shared_fea)_{k+1}
+# - 任务塔：task_fea_i: [Batch, Dim_expert] -> tower_i -> [Batch, 1]
+# - 任务拼接：cat(tower_1 ... tower_T, dim=1) -> [Batch, Task_num]
+# - 输出头：[Batch, Task_num] -> 各任务激活 -> [Batch, Task_num]
 
 model: ple
 

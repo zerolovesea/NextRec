@@ -1,43 +1,52 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 15/02/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Ma X, Zhao L, Huang G, Wang Z, Hu Z, Zhu X, Gai K. Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate. In: Proceedings of the 41st International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR ’18), 2018, pp. 1137–1140.
 URL: https://dl.acm.org/doi/10.1145/3209978.3210007
 
-Entire Space Multi-task Model (ESMM) targets CVR estimation by jointly optimizing
-CTR and CTCVR on the full impression space, mitigating sample selection bias and
-conversion sparsity. CTR predicts P(click | impression), CVR predicts P(conversion |
-click), and their product forms CTCVR supervised on impression labels.
+ESMM was proposed by Alibaba team in SIGIR 2018 to address the sample selection bias and data sparsity issues in CVR (Conversion Rate) prediction.
+The core idea is to jointly model two related tasks, CTR (Click-Through Rate) and CVR,
+and construct an auxiliary task CTCVR (Click-Through & Conversion Rate) to
+enable training on the entire impression space.
 
 Workflow:
-  (1) Shared embeddings encode all features from impressions
-  (2) CTR tower outputs click probability conditioned on impression
-  (3) CVR tower outputs conversion probability conditioned on click
-  (4) CTCVR = CTR * CVR enables end-to-end training without filtering clicked data
+- Build a shared embedding representation from all impression features
+- Feed shared representation into CTR tower and CVR tower independently
+- Convert two logits to probabilities via task head to get CTR and CVR
+- Compose CTCVR by probability product: CTCVR = CTR * CVR
+- Output [CTR, CTCVR] for joint optimization on impression-level labels
 
-Key Advantages:
-- Trains on the entire impression space to remove selection bias
-- Transfers rich click signals to sparse conversion prediction via shared embeddings
-- Stable optimization by decomposing CTCVR into well-defined sub-tasks
-- Simple architecture that can pair with other multi-task variants
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding: all features -> input_flat: [Batch, Dim_embedding]
+- CTR tower: input_flat -> ctr_logit: [Batch, 1]
+- CVR tower: input_flat -> cvr_logit: [Batch, 1]
+- Task head: cat([ctr_logit, cvr_logit], dim=1) -> [Batch, 2] -> [ctr, cvr]
+- CTCVR construction: ctcvr = ctr * cvr -> [Batch, 1]
+- Output: cat([ctr, ctcvr], dim=1) -> [Batch, 2]
 
-ESMM（Entire Space Multi-task Model）用于 CVR 预估，通过在曝光全空间联合训练
-CTR 与 CTCVR，缓解样本选择偏差和转化数据稀疏问题。CTR 预测 P(click|impression)，
-CVR 预测 P(conversion|click)，二者相乘得到 CTCVR 并在曝光标签上直接监督。
+ESMM 由阿里巴巴团队发表在SIGIR’2018，主要为了解决CVR（转化率）预测中的样本选择偏差与数据稀疏问题。
+其核心思想是将CTR（点击率）和CVR（转化率）两个相关任务进行联合建模，
+并通过构造一个辅助任务CTCVR（点击且转化率）来实现全空间训练。
 
 流程：
-  (1) 共享 embedding 统一处理曝光特征
-  (2) CTR 塔输出曝光下的点击概率
-  (3) CVR 塔输出点击后的转化概率
-  (4) CTR 与 CVR 相乘得到 CTCVR，无需只在点击子集上训练
+- 对曝光样本的全部特征进行共享 embedding 编码
+- 共享表征分别输入 CTR 塔与 CVR 塔，得到两个任务 logits
+- 通过任务输出头将 logits 映射为 CTR/CVR 概率
+- 按概率分解构造 CTCVR：CTCVR = CTR * CVR
+- 输出 [CTR, CTCVR]，在曝光空间进行联合训练
 
-主要优点：
-- 在曝光空间训练，避免样本选择偏差
-- 通过共享表示将点击信号迁移到稀疏的转化任务
-- 将 CTCVR 分解为子任务，优化稳定
-- 结构简单，可与其它多任务方法组合使用
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding：所有特征拼接展平 -> input_flat: [Batch, Dim_embedding]
+- CTR 塔：input_flat -> ctr_logit: [Batch, 1]
+- CVR 塔：input_flat -> cvr_logit: [Batch, 1]
+- 任务头：cat([ctr_logit, cvr_logit], dim=1) -> [Batch, 2] -> [ctr, cvr]
+- 构造 CTCVR：ctcvr = ctr * cvr -> [Batch, 1]
+- 最终输出：cat([ctr, ctcvr], dim=1) -> [Batch, 2]
+
 """
 
 import torch
@@ -50,16 +59,6 @@ from nextrec.utils.types import TaskTypeInput
 
 
 class ESMM(BaseModel):
-    """
-    Entire Space Multi-Task Model
-
-    ESMM is designed for CVR (Conversion Rate) prediction. It models two related tasks:
-    - CTR task: P(click | impression)
-    - CVR task: P(conversion | click)
-    - CTCVR task (auxiliary): P(click & conversion | impression) = P(click) * P(conversion | click)
-
-    This design addresses the sample selection bias and data sparsity issues in CVR modeling.
-    """
 
     @property
     def model_name(self):
@@ -80,6 +79,18 @@ class ESMM(BaseModel):
         target: list[str] | None = None,  # Note: ctcvr = ctr * cvr
         **kwargs,
     ):
+        """
+        Initialize ESMM model.
+        初始化 ESMM 模型。
+
+        Args:
+            ctr_mlp_params: CTR tower MLP params, e.g.
+                {"hidden_dims": [128, 64], "activation": "relu", "dropout": 0.2}.
+                CTR 塔 MLP 参数，例如 {"hidden_dims": [128, 64], "activation": "relu", "dropout": 0.2}。
+            cvr_mlp_params: CVR tower MLP params, e.g.
+                {"hidden_dims": [128, 64], "activation": "relu", "dropout": 0.2}.
+                CVR 塔 MLP 参数，例如 {"hidden_dims": [128, 64], "activation": "relu", "dropout": 0.2}。
+        """
 
         target = target or ["ctr", "ctcvr"]
 
@@ -97,6 +108,10 @@ class ESMM(BaseModel):
             **kwargs,
         )
 
+        for task_type in self.task:
+            if task_type != "binary":
+                raise ValueError(f"ESMM task must be binary, got '{task_type}'.")
+
         self.embedding = EmbeddingLayer(features=self.all_features)
         input_dim = self.embedding.input_dim
 
@@ -111,17 +126,28 @@ class ESMM(BaseModel):
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["ctr_tower", "cvr_tower"])
 
     def forward(self, x):
-        # Get all embeddings and flatten
+        # Shared embedding flatten: [Batch, Dim_embedding]
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
 
-        # CTR prediction: P(click | impression)
-        ctr_logit = self.ctr_tower(input_flat)  # [B, 1]
-        cvr_logit = self.cvr_tower(input_flat)  # [B, 1]
+        # Two-tower logits:
+        # ctr_logit: [Batch, 1]
+        # cvr_logit: [Batch, 1]
+        ctr_logit = self.ctr_tower(input_flat)
+        cvr_logit = self.cvr_tower(input_flat)
+
+        # Task head input and outputs:
+        # logits: cat([ctr_logit, cvr_logit], dim=1) -> [Batch, 2]
+        # preds: [Batch, 2], split to ctr/cvr each [Batch, 1]
         logits = torch.cat([ctr_logit, cvr_logit], dim=1)
         preds = self.prediction_layer(logits)
         ctr, cvr = preds.chunk(2, dim=1)
-        ctcvr = ctr * cvr  # [B, 1]
 
-        # Output: [CTR, CTCVR], We supervise CTR with click labels and CTCVR with conversion labels
-        y = torch.cat([ctr, ctcvr], dim=1)  # [B, 2]
-        return y  # [B, 2], where y[:, 0] is CTR and y[:, 1] is CTCVR
+        # CTCVR composition:
+        # ctcvr = ctr * cvr -> [Batch, 1]
+        ctcvr = ctr * cvr
+
+        # Final output for training/inference:
+        # y = [ctr, ctcvr] -> [Batch, 2]
+        # y[:, 0] = CTR, y[:, 1] = CTCVR
+        y = torch.cat([ctr, ctcvr], dim=1)
+        return y

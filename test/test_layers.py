@@ -22,6 +22,7 @@ from nextrec.basic.layers import (
     MLP,
     AveragePooling,
     EmbeddingLayer,
+    FieldAwareEmbeddingLayer,
     MultiHeadSelfAttention,
     PredictionLayer,
     SumPooling,
@@ -437,6 +438,49 @@ class TestEmbeddingLayer:
         assert "sequence_poolings.history_self.mha.in_proj_weight" in dict(embedding_layer.named_parameters())
 
         logger.info("EmbeddingLayer self_attention test successful")
+
+
+class TestFieldAwareEmbeddingLayer:
+    """Test suite for FieldAwareEmbeddingLayer"""
+
+    def test_field_aware_embedding_forward_pass(self):
+        batch_size = 16
+        features = [
+            SparseFeature(name="user_id", vocab_size=100, embedding_dim=8),
+            SparseFeature(name="item_id", vocab_size=200, embedding_dim=8),
+            SequenceFeature(name="hist_item_ids", vocab_size=200, max_len=5, embedding_dim=8, combiner="mean"),
+        ]
+        layer = FieldAwareEmbeddingLayer(features=features)
+
+        x = {
+            "user_id": torch.randint(1, 100, (batch_size,)),
+            "item_id": torch.randint(1, 200, (batch_size,)),
+            "hist_item_ids": torch.randint(0, 200, (batch_size, 5)),
+        }
+        output = layer(x)
+        assert output.shape == (batch_size, len(features), len(features), 8)
+        assert not torch.isnan(output).any()
+
+    def test_field_aware_embedding_independent_keys(self):
+        features = [
+            SparseFeature(name="item_id", vocab_size=50, embedding_dim=4, embedding_name="item_shared"),
+            SequenceFeature(
+                name="hist_item_ids",
+                vocab_size=50,
+                max_len=3,
+                embedding_dim=4,
+                embedding_name="item_shared",
+                combiner="mean",
+            ),
+        ]
+        layer = FieldAwareEmbeddingLayer(features=features)
+        expected_keys = {
+            "item_id__to__item_id",
+            "item_id__to__hist_item_ids",
+            "hist_item_ids__to__item_id",
+            "hist_item_ids__to__hist_item_ids",
+        }
+        assert set(layer.embed_dict.keys()) == expected_keys
 
 
 class TestMultiHeadSelfAttention:

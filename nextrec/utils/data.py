@@ -171,17 +171,12 @@ def count_rows(
     path: str | Path,
     data_format: str | None = None,
 ) -> int | None:
-
-    data_path = Path(path)
-    if data_format and data_format != "auto":
-        fmt = data_format
+    file_paths, detected_fmt = resolve_file_paths(str(path))
+    requested_fmt = str(data_format).lower() if data_format else "auto"
+    if requested_fmt in {"auto", detected_fmt}:
+        fmt = detected_fmt
     else:
-        _, fmt = resolve_file_paths(str(data_path))
-
-    if data_path.is_dir():
-        file_paths, _ = resolve_file_paths(str(data_path))
-    else:
-        file_paths = [str(data_path)]
+        fmt = detected_fmt
 
     if fmt == "parquet":
         total = 0

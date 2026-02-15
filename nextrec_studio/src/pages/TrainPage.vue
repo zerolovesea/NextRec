@@ -287,13 +287,6 @@ lr: 0.025`)"
           </label>
           <input v-model.number="form.export_onnx.batch_size" type="number" />
         </div>
-        <div class="field">
-          <label>
-            {{ t('ONNX Opset 版本', 'ONNX Opset Version') }}
-            <span class="help-icon" :data-tip="t('导出模型时使用的 ONNX Opset 版本，ONNX Opset 版本决定了模型中算子的版本，默认为18以确保兼容性。', 'The ONNX Opset version used when exporting the model; the ONNX Opset version determines the version of operators in the model, defaulting to 18 for compatibility.')">?</span>
-          </label>
-          <input v-model.number="form.export_onnx.opset_version" type="number" />
-        </div>
       </div>
     </div>
 
