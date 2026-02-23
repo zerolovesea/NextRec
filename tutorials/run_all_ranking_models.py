@@ -26,7 +26,8 @@
     12. FiBiNET: 特征重要性和双线性特征交互网络
     13. DIN (Deep Interest Network): 深度兴趣网络
     14. DIEN (Deep Interest Evolution Network): 深度兴趣演化网络
-    15. MaskNet: 掩码网络
+    15. NFM (Neural Factorization Machine): 神经因子分解机
+    16. MaskNet: 掩码网络
 
 使用方法:
     直接运行此脚本:
@@ -65,6 +66,7 @@ from nextrec.models.ranking.afm import AFM
 from nextrec.models.ranking.ffm import FFM
 from nextrec.models.ranking.pnn import PNN
 from nextrec.models.ranking.masknet import MaskNet
+from nextrec.models.ranking.nfm import NFM
 
 from nextrec.utils.data import generate_ranking_data
 
@@ -266,6 +268,7 @@ def main():
         (EulerNet, "EulerNet", {"num_layers": 2, "num_orders": 8}),  # 欧拉网络,2层,8阶
         # 深度模型
         (DeepFM, "DeepFM", {"mlp_params": mlp_params}),  # DeepFM
+        (NFM, "NFM", {"mlp_params": mlp_params, "bi_dropout": 0.2}),  # NFM
         (WideDeep, "WideDeep", {"mlp_params": mlp_params}),  # Wide & Deep
         (DCN, "DCN", {"mlp_params": mlp_params, "cross_num": 3}),  # DCN,3层交叉网络
         (

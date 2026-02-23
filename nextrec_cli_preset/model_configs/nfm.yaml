@@ -1,0 +1,43 @@
+# Date: create on 17/02/2026
+# Checkpoint: edit on 17/02/2026
+# Author: Yang Zhou, zyaztec@gmail.com
+# Reference:
+# - [1] He X, Chua T S. Neural factorization machines for sparse predictive analytics[C]//Proceedings of the 40th International ACM SIGIR conference on Research and Development in Information Retrieval. 2017: 355-364.
+# URL: https://arxiv.org/abs/1708.05027
+#
+# Neural Factorization Machine (NFM) combines a linear first-order branch with a
+# Bi-Interaction pooling branch followed by an MLP. Compared with DeepFM, NFM
+# explicitly uses the second-order Bi-Interaction vector as the deep input base,
+# then fuses optional dense signals before nonlinear transformation.
+#
+# Workflow:
+# - Embed sparse/sequence fields for linear and Bi-Interaction branches
+# - Linear branch models first-order effects on flattened field embeddings
+# - Bi-Interaction pooling computes 0.5 * ((sum v)^2 - sum(v^2))
+# - Concatenate Bi-Interaction output with optional dense features
+# - Feed fused input into MLP and sum with linear logits for prediction
+#
+# NFM（Neural Factorization Machine）将线性一阶分支与 Bi-Interaction 池化分支结合，
+# 并在交互向量后接 MLP 进行高阶建模。相较于 DeepFM，NFM 将显式二阶交互向量作为
+# 深层输入主干，再按需融合稠密特征。
+#
+# 流程：
+# - 对 sparse/sequence 字段做 embedding，供线性与交互分支共享
+# - 线性分支对展平后的字段向量建模一阶信号
+# - Bi-Interaction 分支计算 0.5 * ((sum v)^2 - sum(v^2))
+# - 将交互向量与可选 dense 特征拼接
+# - 输入 MLP 后与线性分支求和，进入预测层
+
+model: nfm
+
+params:
+  mlp_params:
+    hidden_dims: [256, 128]  # NFM deep 分支 MLP 隐层维度
+    activation: relu         # NFM deep 分支激活函数
+    dropout: 0.2             # NFM deep 分支 dropout
+  bi_dropout: 0.0            # Bi-Interaction 输出到 MLP 前的 dropout
+
+  embedding_l1_reg: 0.0      # embedding 参数的 L1 正则
+  embedding_l2_reg: 0.0      # embedding 参数的 L2 正则
+  dense_l1_reg: 0.0          # 线性/MLP 等 dense 参数的 L1 正则
+  dense_l2_reg: 0.0          # 线性/MLP 等 dense 参数的 L2 正则

@@ -131,7 +131,12 @@ processor/
 session/
 
 pypirc.template
-
+.claude/
 # Sphinx build
 docs/rtd/_build/
+
+# VitePress build/cache (generated)
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/.vitepress/.temp/
 

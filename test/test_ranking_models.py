@@ -4,6 +4,7 @@ Unit Tests for Ranking Models
 This module contains unit tests for all ranking/CTR prediction models including:
 - LR (Logistic Regression)
 - DeepFM (Deep Factorization Machine)
+- NFM (Neural Factorization Machine)
 - FFM (Field-aware Factorization Machines)
 - DIN (Deep Interest Network)
 - DIEN (Deep Interest Evolution Network)
@@ -43,6 +44,7 @@ from nextrec.models.ranking.ffm import FFM
 from nextrec.models.ranking.fibinet import FiBiNET
 from nextrec.models.ranking.fm import FM
 from nextrec.models.ranking.lr import LR
+from nextrec.models.ranking.nfm import NFM
 from nextrec.models.ranking.pnn import PNN
 from nextrec.models.ranking.widedeep import WideDeep
 from nextrec.models.ranking.xdeepfm import xDeepFM
@@ -338,6 +340,78 @@ class TestDeepFM:
         assert_model_output_shape(output, (batch_size,))
 
         logger.info(f"DeepFM with depth={mlp_depth} test successful")
+
+
+class TestNFM:
+    """Test suite for NFM (Neural Factorization Machine)"""
+
+    def test_nfm_initialization(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        device,
+    ):
+        mlp_params = {
+            "hidden_dims": [128, 64],
+            "dropout": 0.1,
+            "activation": "relu",
+        }
+        model = NFM(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            mlp_params=mlp_params,
+            bi_dropout=0.2,
+            target=["label"],
+            device=device,
+        )
+
+        assert model.model_name == "NFM"
+        assert model.task == "binary"
+        assert count_parameters(model) > 0
+
+    def test_nfm_forward_and_backward(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+    ):
+        model = NFM(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            mlp_params={"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"},
+            bi_dropout=0.1,
+            target=["label"],
+            device=device,
+        )
+
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        target = sample_batch_data["label"].to(device)
+
+        output = run_model_inference(model, data)
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+        assert_no_nan_or_inf(output, "NFM output")
+
+        loss_fn = nn.BCELoss()
+        result = run_model_forward_backward(model, data, target, loss_fn)
+        assert result["loss"] > 0
+
+    def test_nfm_requires_same_embedding_dim(self):
+        with pytest.raises(ValueError, match="share the same effective dimension"):
+            NFM(
+                sparse_features=[
+                    SparseFeature(name="a", vocab_size=100, embedding_dim=8),
+                    SparseFeature(name="b", vocab_size=100, embedding_dim=16),
+                ],
+                target=["label"],
+                device="cpu",
+            )
 
 
 class TestDIN:
