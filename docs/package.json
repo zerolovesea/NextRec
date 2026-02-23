@@ -1,0 +1,14 @@
+{
+  "name": "nextrec-docs",
+  "version": "1.0.0",
+  "description": "NextRec Documentation Site",
+  "scripts": {
+    "docs:dev": "vitepress dev",
+    "docs:build": "vitepress build",
+    "docs:preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.5.0",
+    "vue": "^3.5.13"
+  }
+}
