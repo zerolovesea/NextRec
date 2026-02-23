@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 import { resolve } from 'path'
 
 export default defineConfig({
-  base: '/nextrec/',
+  base: '/NextRec/',
   title: 'NextRec',
   description: '基于 PyTorch 的现代推荐系统框架',
   lang: 'zh-CN',
