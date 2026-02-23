@@ -8,7 +8,6 @@ This module contains unit tests for all multi-task learning models including:
 - PLE (Progressive Layered Extraction)
 - PEPNet (Parameter and Embedding Personalized Network)
 - ESMM (Entire Space Multi-Task Model)
-- ESCM (Entire Space Counterfactual Multi-Task Model)
 
 Tests cover model initialization, forward pass, multi-task learning, and task-specific predictions.
 """
@@ -31,7 +30,6 @@ from nextrec.models.multi_task.mmoe import MMOE
 from nextrec.models.multi_task.pepnet import PEPNet
 from nextrec.models.multi_task.ple import PLE
 from nextrec.models.multi_task.share_bottom import ShareBottom
-from nextrec.models.multi_task.escm import ESCM
 
 logger = logging.getLogger(__name__)
 
@@ -807,100 +805,6 @@ class TestESMM:
         assert torch.allclose(actual_ctcvr, expected_ctcvr, atol=1e-5), "CTCVR should equal CTR * CVR"
 
         logger.info("ESMM CTCVR constraint test successful")
-
-
-class TestESCM:
-    """Test suite for ESCM (Entire Space Counterfactual Multi-Task Model)"""
-
-    def test_escm_forward_pass(
-        self,
-        sample_dense_features,
-        sample_sparse_features,
-        sample_sequence_features,
-        sample_multitask_batch_data,
-        device,
-        batch_size,
-    ):
-        """Test ESCM forward pass and CTCVR decomposition constraint"""
-        model = ESCM(
-            dense_features=sample_dense_features,
-            sparse_features=sample_sparse_features,
-            sequence_features=sample_sequence_features,
-            ctr_mlp_params={"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"},
-            cvr_mlp_params={"hidden_dims": [64, 32], "dropout": 0.0, "activation": "relu"},
-            target=["ctr", "cvr", "ctcvr"],
-            device=device,
-        )
-
-        data = {k: v.to(device) for k, v in sample_multitask_batch_data.items() if not k.startswith("label")}
-        output = run_model_inference(model, data)
-
-        assert_model_output_shape(output, (batch_size, 3), "ESCM output shape")
-        assert_model_output_range(output, 0.0, 1.0)
-        assert_no_nan_or_inf(output, "ESCM output")
-
-        ctr_pred = output[:, 0]
-        ctcvr_pred = output[:, 2]
-        assert torch.all(ctcvr_pred <= ctr_pred + 1e-5), "CTCVR should be less than or equal to CTR"
-
-    def test_escm_use_dr_requires_imp_target(
-        self,
-        sample_dense_features,
-        sample_sparse_features,
-        sample_sequence_features,
-        device,
-    ):
-        """Test that use_dr=True requires an explicit imp target"""
-        with pytest.raises(ValueError, match="use_dr=True requires target to include 'imp'"):
-            ESCM(
-                dense_features=sample_dense_features,
-                sparse_features=sample_sparse_features,
-                sequence_features=sample_sequence_features,
-                ctr_mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
-                cvr_mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
-                imp_mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
-                use_dr=True,
-                target=["label_ctr", "label_cvr", "label_ctcvr"],
-                device=device,
-            )
-
-    def test_escm_dr_imp_tower_receives_gradient(
-        self,
-        sample_dense_features,
-        sample_sparse_features,
-        sample_sequence_features,
-        sample_multitask_batch_data,
-        device,
-    ):
-        """Test DR setup has supervised IMP branch with non-zero gradient"""
-        model = ESCM(
-            dense_features=sample_dense_features,
-            sparse_features=sample_sparse_features,
-            sequence_features=sample_sequence_features,
-            ctr_mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
-            cvr_mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
-            imp_mlp_params={"hidden_dims": [32], "dropout": 0.0, "activation": "relu"},
-            use_dr=True,
-            target=["label_ctr", "label_cvr", "label_ctcvr", "label_imp"],
-            device=device,
-        )
-        model.compile(loss="bce", ignore_label=None)
-
-        data = sample_multitask_batch_data
-        data["label_imp"] = torch.randint(0, 2, data["label_ctr"].shape).float()
-        feature_data = {k: v.to(device) for k, v in data.items() if not k.startswith("label")}
-        label_keys = ["label_ctr", "label_cvr", "label_ctcvr", "label_imp"]
-        y_true = torch.stack([data[k].to(device) for k in label_keys], dim=1)
-
-        y_pred = model(feature_data)
-        loss = model.compute_loss(y_pred, y_true)
-        loss.backward()
-
-        imp_grad = sum(
-            p.grad.abs().sum().item() for p in model.imp_tower.parameters() if p.grad is not None  # type: ignore[attr-defined]
-        )
-        assert imp_grad > 0.0, "IMP tower should receive non-zero gradient in DR setup"
-
 
 class TestMultiTaskModelsComparison:
     """Comparison tests for multi-task models"""

@@ -56,7 +56,6 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-*.json
 
 # UV package manager
 uv.lock
