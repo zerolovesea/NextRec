@@ -286,4 +286,4 @@ Predicting ━━━━━━━━━━━━━━━━━━━━━━━
 ## 常见下一步
 
 - [API 文档](apis/index.md) - NextRec的API文档
-- [NextRec CLI](../cli/nextrec-cli.md) - 使用命令行工具来训练和推理
+
