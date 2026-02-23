@@ -866,6 +866,6 @@ nextrec_logs/
 
 ## 下一步
 
-- 查看 [Python API 文档](https://nextrec.readthedocs.io/) 了解更多高级功能
+ - 查看 [NextRec 中文文档](../docs/zh/index.md) 了解更多高级功能
 - 浏览 [tutorials/](../tutorials/) 目录获取更多示例
 - 访问 [GitHub Issues](https://github.com/zerolovesea/NextRec/issues) 反馈问题

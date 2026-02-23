@@ -866,6 +866,6 @@ Paths in configuration files support the following formats:
 
 ## Next Steps
 
-- Check [Python API Documentation](https://nextrec.readthedocs.io/) for more advanced features
+- Check [NextRec docs in this repo](../docs/en/Getting%20started%20guide.md) for more advanced features
 - Browse [tutorials/](../tutorials/) directory for more examples
 - Visit [GitHub Issues](https://github.com/zerolovesea/NextRec/issues) to report issues

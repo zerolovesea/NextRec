@@ -7,10 +7,50 @@ Reference:
 URL: https://ojs.aaai.org/index.php/AAAI/article/view/3788
 - [2] MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation: https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/
 
-SNR-Trans stacks multiple expert layers and applies sparse routing with
-learnable per-output transform matrices. Intermediate gates route expert
-outputs to the next expert stage, while the final gate routes to each task
-tower for prediction.
+SNR (Sub-Network Routing) was proposed by Alibaba in AAAI 2019 for
+multi-task recommendation where tasks are correlated but not identical.
+Compared with shared-bottom and vanilla MoE-style sharing, SNR introduces
+learnable sparse routing masks between sub-networks so each task can select
+different transfer paths layer by layer.
+
+This SNR-Trans variant stacks multiple expert layers and uses a sparse gate
+with per-output transform matrices. Intermediate gates route expert outputs
+to the next expert stage, while the final gate routes to each task tower.
+
+Dimension Flow:
+- Input: dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding: all features -> input_flat: [Batch, Dim_embedding]
+- Expert layer k:
+  each expert_k(input): [Batch, Dim_k], total experts: Num_experts
+- Gate layer k:
+  inputs [Num_experts, Batch, Dim_k] -> routed outputs:
+  if k is not last layer: [Num_experts, Batch, Dim_k]
+  if k is last layer: [Task_num, Batch, Dim_k]
+- Task towers:
+  tower_t(gate_out_t): [Batch, 1]
+- Concatenate logits: cat(logit_1 ... logit_T, dim=1) -> [Batch, Task_num]
+- Output head: [Batch, Task_num] -> task activations -> [Batch, Task_num]
+
+SNR（Sub-Network Routing）由阿里巴巴在 AAAI 2019 提出，面向“任务相关但不完全一致”的多任务推荐场景。
+相较于 shared-bottom 和普通 MoE 共享方式，SNR 在子网络之间引入可学习的稀疏路由，
+使不同任务能够逐层选择不同的信息传递路径，从而缓解负迁移。
+
+本实现采用 SNR-Trans 形式：堆叠多层专家网络，并在门控中加入按输出节点划分的变换矩阵。
+中间层 gate 将专家输出路由到下一层专家，最后一层 gate 将路由结果分发给各任务塔。
+
+维度变化：
+- 输入：dense[Batch] + sparse[Batch] + sequence[Batch, Length]
+- Embedding：所有特征拼接展平 -> input_flat: [Batch, Dim_embedding]
+- 第 k 层专家：
+  每个 expert_k(input) -> [Batch, Dim_k]，共 Num_experts 个专家
+- 第 k 层门控：
+  输入 [Num_experts, Batch, Dim_k] -> 路由输出：
+  若不是最后一层 -> [Num_experts, Batch, Dim_k]
+  若是最后一层 -> [Task_num, Batch, Dim_k]
+- 任务塔：
+  tower_t(gate_out_t) -> [Batch, 1]
+- 任务拼接：cat(logit_1 ... logit_T, dim=1) -> [Batch, Task_num]
+- 输出头：[Batch, Task_num] -> 各任务激活 -> [Batch, Task_num]
 """
 
 from __future__ import annotations
@@ -96,6 +136,20 @@ class SNRTrans(BaseModel):
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
         **kwargs,
     ) -> None:
+        """
+        Initialize SNR-Trans model.
+        初始化 SNR-Trans 模型。
+
+        Args:
+            expert_mlp_params: Shared expert-layer MLP parameters, e.g.
+                {"hidden_dims": [256, 128], "activation": "relu", "dropout": 0.1, "norm_type": "none"}.
+                共享专家层 MLP 参数，例如 {"hidden_dims": [256, 128], "activation": "relu", "dropout": 0.1, "norm_type": "none"}。
+            num_experts: Number of experts in each expert layer.
+                每一层专家网络的专家数量。
+            tower_mlp_params_list: Per-task tower MLP parameter list.
+                Length must equal number of tasks; each tower outputs one logit.
+                每个任务对应一个塔网络参数字典，长度必须等于任务数；每个塔输出 1 个 logit。
+        """
         dense_features = dense_features or []
         sparse_features = sparse_features or []
         sequence_features = sequence_features or []
@@ -143,6 +197,10 @@ class SNRTrans(BaseModel):
             tower_params = [params.copy() for params in tower_mlp_params_list]
         else:
             tower_params = [{} for _ in range(self.nums_task)]
+        for params in tower_params:
+            # SNRTrans fixes each task tower output to 1 logit.
+            # Ignore optional output_dim in tower params to avoid kwargs conflict.
+            params.pop("output_dim", None)
 
         self.embedding = EmbeddingLayer(features=self.all_features)
         input_dim = self.embedding.input_dim
@@ -186,8 +244,16 @@ class SNRTrans(BaseModel):
         )
 
     def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
+        # Embedding flatten: [Batch, Dim_embedding]
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
 
+        # Progressive expert routing:
+        # layer 0 input for each expert: [Batch, Dim_embedding]
+        # layer k>0 input for each expert: [Batch, Dim_k-1]
+        # each expert output at layer k: [Batch, Dim_k]
+        # gate outputs:
+        #   non-last layer: Num_experts tensors, each [Batch, Dim_k]
+        #   last layer: Task_num tensors, each [Batch, Dim_last]
         gate_outputs: list[torch.Tensor] | None = None
         for layer_idx, (layer_experts, gate) in enumerate(zip(self.expert_layers, self.gates)):
             expert_outputs = []
@@ -204,10 +270,14 @@ class SNRTrans(BaseModel):
         if gate_outputs is None or len(gate_outputs) != self.nums_task:
             raise RuntimeError("SNRTrans gate outputs do not match task count.")
 
+        # Task towers:
+        # gate_outputs[task_idx]: [Batch, Dim_last]
+        # tower output/logit per task: [Batch, 1]
         task_outputs = []
         for task_idx in range(self.nums_task):
             tower_output = self.towers[task_idx](gate_outputs[task_idx])
             task_outputs.append(tower_output)
 
+        # Concatenate logits: [Batch, Task_num] -> prediction head -> [Batch, Task_num]
         y = torch.cat(task_outputs, dim=1)
         return self.prediction_layer(y)

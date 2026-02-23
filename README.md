@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.5.11-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.5.12-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -197,11 +197,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.5.11，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.5.12，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.5.11，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.5.12，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -221,6 +221,7 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | [AFM](nextrec/models/ranking/afm.py) | Attentional Factorization Machines: Learning the Weight of Feature Interactions via Attention Networks | 已支持 |
 | [FFM](nextrec/models/ranking/ffm.py) | Field-aware Factorization Machines for CTR Prediction | 已支持 |
 | [DeepFM](nextrec/models/ranking/deepfm.py) | DeepFM: A factorization-machine based neural network for CTR prediction | 已支持 |
+| [NFM](nextrec/models/ranking/nfm.py) | Neural factorization machines for sparse predictive analytics | 已支持 |
 | [Wide&Deep](nextrec/models/ranking/widedeep.py) | Wide & Deep learning for recommender systems | 已支持 |
 | [xDeepFM](nextrec/models/ranking/xdeepfm.py) | xdeepfm: Combining explicit and implicit feature interactions for recommender systems | 已支持 |
 | [FiBiNET](nextrec/models/ranking/fibinet.py) | FiBiNET: Combining feature importance and bilinear feature interaction for click-through rate prediction | 已支持 |
@@ -262,8 +263,8 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | [PEPNet](nextrec/models/multi_task/pepnet.py) | PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information | 已支持 |
 | [APG](nextrec/models/multi_task/apg.py) | APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction | 已支持 |
 | [CrossStitch](nextrec/models/multi_task/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | 已支持 |
-| [ESCM](nextrec/models/multi_task/escm.py) | ESCM²: Entire Space Counterfactual Multi-Task Model for Post-Click Conversion Rate Estimation | 已支持 |
 | [HMOE](nextrec/models/multi_task/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | 已支持 |
+| [SNRTrans](nextrec/models/multi_task/snr_trans.py) | SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space | 已支持 |
 | [AITM](nextrec/models/multi_task/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | 已支持 |
 
 ### 树模型

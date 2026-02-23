@@ -79,6 +79,14 @@ class DeepFM(BaseModel):
         )
 
         self.fm_features = sparse_features + sequence_features
+        if self.fm_features:
+            dims = {f.embedding_dim for f in self.fm_features}
+            if len(dims) != 1:
+                details = ", ".join(f"{f.name}={f.embedding_dim}" for f in self.fm_features)
+                raise ValueError(
+                    "[DeepFM Error]: FM branch requires all sparse/sequence features to share the same embedding_dim. "
+                    f"Got: {details}. Please set a unified embedding_dim for these features."
+                )
         self.deep_features = dense_features + sparse_features + sequence_features
         self.embedding = EmbeddingLayer(features=self.deep_features)
         fm_emb_dim_total = sum([f.embedding_dim for f in self.fm_features])
