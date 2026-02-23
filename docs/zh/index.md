@@ -91,4 +91,4 @@ model.fit(
 - [GitHub 仓库](https://github.com/zerolovesea/NextRec)
 - [安装指南](/zh/installatiton)
 - [API 文档](/zh/apis/)
-- [CLI 工具](/zh/cli/)
+- [CLI 工具](/zh/cli/nextrec-cli)

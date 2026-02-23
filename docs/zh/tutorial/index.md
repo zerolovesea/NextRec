@@ -25,10 +25,10 @@ description: NextRec 教程与示例，涵盖排序、召回、多任务、ONNX 
 
 ## 核心 API 文档
 
-- [数据预处理](data-processor.md)
-- [数据加载](rec-dataloader.md)
-- [定义特征](features.md)
-- [基类模型的生命周期](base-model.md)
-- [损失函数](loss.md)
-- [评估指标](metrics.md)
-- [日志管理](session-logging.md)
+- [数据预处理](../apis/data-processor.md)
+- [数据加载](../apis/dataloader.md)
+- [定义特征](../apis/features.md)
+- [基类模型的生命周期](../apis/base-model.md)
+- [损失函数](../apis/loss.md)
+- [评估指标](../apis/metrics.md)
+- [日志管理](../apis/session-logging.md)

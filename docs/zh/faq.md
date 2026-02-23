@@ -22,7 +22,7 @@ description: NextRec 常见问题解答（GAUC、streaming、DataProcessor、ONN
 
 使用 `RecDataLoader` 的 streaming 模式，或 CLI 配置 `data.streaming: true` 并设置 `dataloader.chunk_size`。
 
-参考：[API 文档 / RecDataLoader](apis/rec-dataloader.md)
+参考：[API 文档 / RecDataLoader](apis/dataloader.md)
 
 ## 4. `DataProcessor` 什么时候要用？
 
@@ -48,4 +48,4 @@ description: NextRec 常见问题解答（GAUC、streaming、DataProcessor、ONN
 - 训练后调用 `export_onnx(...)` 导出
 - 使用 `predict_onnx(...)` 对文件/数据进行推理
 
-参考：[API 文档 / ONNX](apis/onnx.md)
+参考：[API 文档 / ONNX](apis/base-model.md)

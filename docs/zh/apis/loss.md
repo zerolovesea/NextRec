@@ -69,4 +69,4 @@ train:
 ## 下一步
 
 - [评估指标](./metrics.md) - 支持的评估指标
-- [CLI 工具](../cli/index.md) - 命令行工具 NextRec CLI
+- [CLI 工具](../cli/nextrec-cli.md) - 命令行工具 NextRec CLI
