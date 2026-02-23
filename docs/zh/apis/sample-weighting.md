@@ -75,4 +75,4 @@ train:
 ## 下一步
 
 - [损失函数](./loss.md) - 支持的损失函数
-- [CLI 工具](../cli/index.md) - 命令行工具 NextRec CLI
+- [CLI 工具](../cli/nextrec-cli.md) - 命令行工具 NextRec CLI

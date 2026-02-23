@@ -164,4 +164,4 @@ train_loader = rec_loader.create_dataloader(
 ## 下一步
 
 - [基类模型的生命周期](./base-model.md) - 了解如何在基类模型中使用数据加载器训练和推理
-- [CLI 工具](../cli/index.md) - 命令行工具 NextRec CLI
+- [CLI 工具](../cli/nextrec-cli.md) - 命令行工具 NextRec CLI
