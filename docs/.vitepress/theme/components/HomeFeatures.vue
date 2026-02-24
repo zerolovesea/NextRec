@@ -2,32 +2,42 @@
 const features = [
   {
     title: '统一特征抽象',
-    description: '支持 Dense、Sparse、Sequence 三种特征类型，统一的数据处理与转换流程',
+    description: '支持 Dense、Sparse、Sequence 三类特征，统一编码、转换与输入接口',
     icon: '📊'
   },
   {
-    title: '多任务学习',
-    description: '支持多任务学习，包括 ESMM、MMoE、PLE 等经典多任务架构',
-    icon: '🎯'
+    title: '模块化模型组件设计',
+    description: '将特征交互、骨干网络、任务塔等模块解耦，支持按需组合与快速迭代',
+    icon: '🧩'
   },
   {
-    title: 'ONNX 导出',
-    description: '支持模型导出为 ONNX 格式，跨框架推理部署更便捷',
+    title: '统一训推验流程',
+    description: '统一训练、推理、评估接口与配置，减少环境切换和流程割裂',
+    icon: '🔄'
+  },
+  {
+    title: '支持流式预处理',
+    description: '支持大规模样本的流式读取、在线转换与高效预处理，降低内存压力',
+    icon: '🌊'
+  },
+  {
+    title: '流式与分布式训推',
+    description: '支持流式训练推理与分布式训练推理，兼顾吞吐、时效与扩展性',
     icon: '🚀'
   },
   {
-    title: 'CLI & Studio',
-    description: '提供命令行工具和可视化配置工具，降低使用门槛',
-    icon: '⚡'
-  },
-  {
-    title: '丰富模型库',
-    description: '内置 DeepFM、DIN、DIEN、DCN、MVMoE 等主流推荐模型',
+    title: '丰富任务与模型支持',
+    description: '覆盖排序、召回、多任务与生成式建模，满足多场景推荐需求',
     icon: '🧠'
   },
   {
-    title: '高性能数据加载',
-    description: '支持大规模数据的流式加载与高效预处理',
+    title: '全面日志管理',
+    description: '支持 Weights & Biases、SwanLab、TensorBoard，统一记录指标、曲线与实验产物',
+    icon: '📈'
+  },
+  {
+    title: '命令行配置驱动',
+    description: '通过配置文件一键完成训练与推理，降低工程接入与复现实验成本',
     icon: '⚡'
   }
 ]

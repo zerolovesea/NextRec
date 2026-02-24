@@ -7,6 +7,10 @@ export default defineConfig({
   description: '基于 PyTorch 的现代推荐系统框架',
   lang: 'zh-CN',
   lastUpdated: true,
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/NextRec/favicon.svg' }],
+    ['link', { rel: 'shortcut icon', type: 'image/svg+xml', href: '/NextRec/favicon.svg' }],
+  ],
 
   // 主题配置
   themeConfig: {

@@ -1,0 +1,17 @@
+<svg width="819" height="268" viewBox="0 0 819 268" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="nextrecBadgeGradient" x1="18" y1="12" x2="430" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2D9EA9"/>
+      <stop offset="1" stop-color="#3AB6C0"/>
+    </linearGradient>
+    <filter id="softShadow" x="0" y="0" width="819" height="268" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0B3F63" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <rect x="83" y="35" width="360" height="206" rx="26" fill="url(#nextrecBadgeGradient)" stroke="#1B7F90" stroke-width="1.2"/>
+    <text x="263" y="199" text-anchor="middle" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="145" font-weight="700" letter-spacing="-2">Next</text>
+    <text x="470" y="200" fill="#0E5A87" stroke="#083B67" stroke-width="1.2" font-family="Arial, Helvetica, sans-serif" font-size="145" font-weight="700" letter-spacing="-2">Rec</text>
+  </g>
+</svg>
