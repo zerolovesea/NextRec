@@ -1,0 +1,11 @@
+<svg width="360" height="206" viewBox="0 0 360 206" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="nextBadgeGradient" x1="0" y1="0" x2="360" y2="206" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2D9EA9"/>
+      <stop offset="1" stop-color="#3AB6C0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0.6" y="0.6" width="358.8" height="204.8" rx="26" fill="url(#nextBadgeGradient)" stroke="#1B7F90" stroke-width="1.2"/>
+  <text x="180" y="164" text-anchor="middle" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="145" font-weight="700" letter-spacing="-2">Next</text>
+</svg>
