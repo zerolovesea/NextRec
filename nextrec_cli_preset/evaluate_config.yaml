@@ -3,6 +3,7 @@ checkpoint_path: nextrec_logs/ctcvr_task
 model_config: model_configs/mmoe.yaml
 
 evaluate:
+  name: evaluate_session                     # Name for this evaluation run (used in logs and output files)
   data_path: ../dataset/ctcvr_task.csv
   source_data_format: csv                 
   id_column: user_id                    

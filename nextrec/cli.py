@@ -808,12 +808,17 @@ def evaluate_model(evaluate_config_path: str) -> None:
     config_file = Path(evaluate_config_path)
     config_dir = config_file.resolve().parent
     cfg = read_yaml(config_file)
+    evaluate_cfg = cfg.get("evaluate", {})
 
     # Session / logging
     session_dir = Path(cfg["checkpoint_path"])
     session_id = session_dir.name
+    evaluate_name = str(evaluate_cfg.get("name", "default"))
+    evaluate_dir = session_dir / "evaluate" / evaluate_name
+    evaluate_dir.mkdir(parents=True, exist_ok=True)
+    evaluate_log_path = evaluate_dir / "evaluate_log.txt"
 
-    setup_logger(session_id=session_dir.resolve(), log_name="evaluate_log.txt")
+    setup_logger(session_id=evaluate_dir.resolve(), log_name="evaluate_log.txt")
     log_cli_section("CLI")
     log_kv_lines(
         [
@@ -821,14 +826,14 @@ def evaluate_model(evaluate_config_path: str) -> None:
             ("Version", get_nextrec_version()),
             ("Session ID", session_id),
             ("Checkpoint", session_dir.resolve()),
+            ("Evaluate name", evaluate_name),
+            ("Evaluate log", evaluate_log_path.resolve()),
             ("Config", config_file.resolve()),
             ("Command", " ".join(sys.argv)),
         ]
     )
 
     processor_path = Path(session_dir / "processor.pkl")
-
-    evaluate_cfg = cfg.get("evaluate", {})
     device = evaluate_cfg.get("device", "cpu")
 
     # Model config
@@ -957,11 +962,6 @@ def evaluate_model(evaluate_config_path: str) -> None:
             ("Num workers", num_workers),
         ]
     )
-
-    # Evaluate log file
-    evaluate_log_dir = checkpoint_base if checkpoint_base.is_dir() else checkpoint_base.parent
-    evaluate_log_path = Path(evaluate_log_dir) / "evaluate_log.txt"
-    logger.info(format_kv("Evaluate log", evaluate_log_path))
 
     rec_dataloader = RecDataLoader(
         dense_features=model.dense_features,
