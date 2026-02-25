@@ -1010,6 +1010,9 @@ def evaluate_model(evaluate_config_path: str) -> None:
     if not metrics_dict:
         raise ValueError("[NextRec CLI Error] Not enough evaluation data to compute metrics.")
 
+    success_flag_path = evaluate_dir / ".SUCCESS"
+    success_flag_path.write_text("", encoding="utf-8")
+
 
 def main() -> None:
     """Parse CLI arguments and dispatch to train or predict mode."""
