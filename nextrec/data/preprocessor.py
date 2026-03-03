@@ -84,6 +84,36 @@ class DataProcessor(FeatureSet):
         else:
             self.hash_fn = self.hash_string
 
+    @staticmethod
+    def _build_output_name(source_name: str, method_name: str) -> str:
+        return f"{source_name}_{method_name}"
+
+    @staticmethod
+    def _config_source_name(feature_name: str, config: Dict[str, Any]) -> str:
+        return str(config.get("source_name", feature_name))
+
+    @staticmethod
+    def _config_output_name(feature_name: str, config: Dict[str, Any]) -> str:
+        return str(config.get("output_name", feature_name))
+
+    @staticmethod
+    def _normalize_filter_values(values: Optional[Union[str, Iterable[Any]]]) -> list[str]:
+        if values is None:
+            return []
+        if isinstance(values, str):
+            raw_values = [values]
+        else:
+            raw_values = list(values)
+        normalized: list[str] = []
+        for value in raw_values:
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                normalized.append(text)
+        # Preserve order while removing duplicates
+        return list(dict.fromkeys(normalized))
+
     def add_numeric_feature(
         self,
         name: str,
@@ -98,7 +128,14 @@ class DataProcessor(FeatureSet):
             fill_na (Optional[float], optional): Fill value for missing entries. Defaults to None.
         """
 
-        self.numeric_features[name] = {"scaler": scaler, "fill_na": fill_na}
+        method_name = str(scaler or "none")
+        output_name = self._build_output_name(name, method_name)
+        self.numeric_features[output_name] = {
+            "scaler": scaler,
+            "fill_na": fill_na,
+            "source_name": name,
+            "output_name": output_name,
+        }
 
     def add_sparse_feature(
         self,
@@ -107,6 +144,8 @@ class DataProcessor(FeatureSet):
         hash_size: Optional[int] = None,
         min_freq: Optional[int] = None,
         fill_na: str = "<UNK>",
+        filter_value: Optional[Union[str, Iterable[Any]]] = None,
+        keep_value: Optional[Union[str, Iterable[Any]]] = None,
     ):
         """Add a sparse feature configuration.
 
@@ -116,14 +155,24 @@ class DataProcessor(FeatureSet):
             hash_size: Hash size for hash encoding. Required if encode_method is "hash".
             min_freq: Minimum frequency for hash encoding to keep tokens; lower-frequency tokens map to unknown. Defaults to None.
             fill_na: Fill value for missing entries. Defaults to "<UNK>".
+            filter_value: Drop rows where sparse value is in this list.
+            keep_value: Keep only rows where sparse value is in this list.
         """
         if encode_method == "hash" and hash_size is None:
             raise ValueError("[Data Processor Error] hash_size must be specified when encode_method='hash'")
-        self.sparse_features[name] = {
+        method_name = str(encode_method)
+        output_name = self._build_output_name(name, method_name)
+        filter_values = self._normalize_filter_values(filter_value)
+        keep_values = self._normalize_filter_values(keep_value)
+        self.sparse_features[output_name] = {
             "encode_method": encode_method,
             "hash_size": hash_size,
             "min_freq": min_freq,
             "fill_na": fill_na,
+            "filter_value": filter_values,
+            "keep_value": keep_values,
+            "source_name": name,
+            "output_name": output_name,
         }
 
     def add_sequence_feature(
@@ -136,6 +185,8 @@ class DataProcessor(FeatureSet):
         pad_value: int = 0,
         truncate: Literal["pre", "post"] = "pre",  # pre: keep last max_len items, post: keep first max_len items
         separator: str = ",",
+        filter_value: Optional[Union[str, Iterable[Any]]] = None,
+        keep_value: Optional[Union[str, Iterable[Any]]] = None,
     ):
         """Add a sequence feature configuration.
 
@@ -148,10 +199,16 @@ class DataProcessor(FeatureSet):
             pad_value: Padding value for sequences shorter than max_len. Defaults to 0.
             truncate: Truncation strategy for sequences longer than max_len, including "pre" (keep last max_len items) and "post" (keep first max_len items). Defaults to "pre".
             separator: Separator for string sequences. Defaults to ",".
+            filter_value: Drop rows where sequence contains any token in this list.
+            keep_value: Keep only rows where sequence contains at least one token in this list.
         """
         if encode_method == "hash" and hash_size is None:
             raise ValueError("[Data Processor Error] hash_size must be specified when encode_method='hash'")
-        self.sequence_features[name] = {
+        method_name = str(encode_method)
+        output_name = self._build_output_name(name, method_name)
+        filter_values = self._normalize_filter_values(filter_value)
+        keep_values = self._normalize_filter_values(keep_value)
+        self.sequence_features[output_name] = {
             "encode_method": encode_method,
             "hash_size": hash_size,
             "min_freq": min_freq,
@@ -159,6 +216,10 @@ class DataProcessor(FeatureSet):
             "pad_value": pad_value,
             "truncate": truncate,
             "separator": separator,
+            "filter_value": filter_values,
+            "keep_value": keep_values,
+            "source_name": name,
+            "output_name": output_name,
         }
 
     def add_target(
@@ -194,7 +255,7 @@ class DataProcessor(FeatureSet):
             return pl.scan_parquet(file_paths)
         raise ValueError(f"[Data Processor Error] Polars backend only supports csv/parquet, got: {file_type}")
 
-    def sequence_expr(self, name: str, config: Dict[str, Any], schema: Dict[str, Any]):
+    def sequence_expr(self, source_name: str, config: Dict[str, Any], schema: Dict[str, Any]):
         """
         generate polars expression for sequence feature processing
 
@@ -211,8 +272,8 @@ class DataProcessor(FeatureSet):
             sequence_list -> ["10","11"]
         """
         separator = config["separator"]
-        dtype = schema.get(name)
-        col = pl.col(name)
+        dtype = schema.get(source_name)
+        col = pl.col(source_name)
         if dtype is not None and isinstance(dtype, pl.List):
             seq_col = col
         else:
@@ -221,6 +282,52 @@ class DataProcessor(FeatureSet):
         seq_col = seq_col.list.eval(pl.when(elem == "").then(None).otherwise(elem)).list.drop_nulls()
         return seq_col
 
+    def apply_row_filters(self, lazy_frame, schema: Dict[str, Any]):
+        logger = logging.getLogger()
+        filters = []
+
+        for name, config in self.sparse_features.items():
+            source_name = self._config_source_name(name, config)
+            output_name = self._config_output_name(name, config)
+            if source_name not in schema:
+                continue
+            keep_values = config.get("keep_value") or []
+            filter_values = config.get("filter_value") or []
+            if not keep_values and not filter_values:
+                continue
+            col = pl.col(source_name).cast(pl.Utf8).fill_null(config.get("fill_na", "<UNK>"))
+            if keep_values:
+                filters.append(col.is_in(keep_values))
+            if filter_values:
+                filters.append(~col.is_in(filter_values))
+            logger.info(
+                f"Apply sparse row filter on {output_name}: keep_value={keep_values}, filter_value={filter_values}"
+            )
+
+        for name, config in self.sequence_features.items():
+            source_name = self._config_source_name(name, config)
+            output_name = self._config_output_name(name, config)
+            if source_name not in schema:
+                continue
+            keep_values = config.get("keep_value") or []
+            filter_values = config.get("filter_value") or []
+            if not keep_values and not filter_values:
+                continue
+            seq_col = self.sequence_expr(source_name, config, schema)
+            if keep_values:
+                keep_exprs = [seq_col.list.contains(token) for token in keep_values]
+                filters.append(pl.any_horizontal(keep_exprs))
+            if filter_values:
+                filter_exprs = [seq_col.list.contains(token) for token in filter_values]
+                filters.append(~pl.any_horizontal(filter_exprs))
+            logger.info(
+                f"Apply sequence row filter on {output_name}: keep_value={keep_values}, filter_value={filter_values}"
+            )
+
+        if not filters:
+            return lazy_frame
+        return lazy_frame.filter(pl.all_horizontal(filters))
+
     def apply_transforms(self, lazy_frame, schema: Dict[str, Any]):
         """
         Apply all transformations to a Polars LazyFrame.
@@ -228,6 +335,13 @@ class DataProcessor(FeatureSet):
         """
         logger = logging.getLogger()
         expressions = []
+        output_aliases = set()
+
+        def append_output(expr, alias_name: str):
+            if alias_name in output_aliases:
+                return
+            output_aliases.add(alias_name)
+            expressions.append(expr.alias(alias_name))
 
         def map_with_default(expr, mapping: Dict[str, int], default: int, dtype):
             # Compatible with older polars versions without Expr.map_dict
@@ -238,12 +352,14 @@ class DataProcessor(FeatureSet):
 
         # Numeric features
         for name, config in self.numeric_features.items():
-            if name not in schema:
-                logger.warning(f"Numeric feature {name} not found in data")
+            source_name = self._config_source_name(name, config)
+            output_name = self._config_output_name(name, config)
+            if source_name not in schema:
+                logger.warning(f"Numeric feature {source_name} not found in data")
                 continue
             scaler_type = config["scaler"]
             fill_na_value = config.get("fill_na_value", 0)
-            col = pl.col(name).cast(pl.Float64).fill_null(fill_na_value)
+            col = pl.col(source_name).cast(pl.Float64).fill_null(fill_na_value)
 
             # Apply scaling
             if scaler_type == "log":
@@ -253,7 +369,7 @@ class DataProcessor(FeatureSet):
             else:
                 scaler = self.scalers.get(name)
                 if scaler is None:
-                    logger.warning(f"Scaler for {name} not fitted, returning original values")
+                    logger.warning(f"Scaler for {output_name} not fitted, returning original values")
                 else:
                     if scaler_type == "standard":
                         mean = float(scaler.mean_[0])
@@ -270,20 +386,22 @@ class DataProcessor(FeatureSet):
                         center = float(scaler.center_[0])
                         scale = float(scaler.scale_[0]) if scaler.scale_[0] != 0 else 1.0
                         col = (col - center) / scale
-            expressions.append(col.alias(name))
+            append_output(col, output_name)
 
         # Sparse features
         for name, config in self.sparse_features.items():
-            if name not in schema:
-                logger.warning(f"Sparse feature {name} not found in data")
+            source_name = self._config_source_name(name, config)
+            output_name = self._config_output_name(name, config)
+            if source_name not in schema:
+                logger.warning(f"Sparse feature {source_name} not found in data")
                 continue
             encode_method = config["encode_method"]
             fill_na = config["fill_na"]
-            col = pl.col(name).cast(pl.Utf8).fill_null(fill_na)
+            col = pl.col(source_name).cast(pl.Utf8).fill_null(fill_na)
             if encode_method == "label":
                 token_to_idx = config.get("_token_to_idx")
                 if not isinstance(token_to_idx, dict):
-                    raise ValueError(f"[Data Processor Error] Token index for {name} not fitted")
+                    raise ValueError(f"[Data Processor Error] Token index for {output_name} not fitted")
                 unk_index = int(config.get("_unk_index", 0))
                 col = map_with_default(col, token_to_idx, unk_index, pl.Int64)
             elif encode_method == "hash":
@@ -298,23 +416,25 @@ class DataProcessor(FeatureSet):
                         unk_hash = self.hash_fn("<UNK>", int(hash_size))
                     hash_expr = pl.when(col.is_in(low_freq)).then(int(unk_hash)).otherwise(hash_expr)
                 col = hash_expr.cast(pl.Int64)
-            expressions.append(col.alias(name))
+            append_output(col, output_name)
 
         # Sequence features
         for name, config in self.sequence_features.items():
-            if name not in schema:
-                logger.warning(f"Sequence feature {name} not found in data")
+            source_name = self._config_source_name(name, config)
+            output_name = self._config_output_name(name, config)
+            if source_name not in schema:
+                logger.warning(f"Sequence feature {source_name} not found in data")
                 continue
             encode_method = config["encode_method"]
             max_len = int(config["max_len"])
             pad_value = int(config["pad_value"])
             truncate = config["truncate"]
-            seq_col = self.sequence_expr(name, config, schema)
+            seq_col = self.sequence_expr(source_name, config, schema)
 
             if encode_method == "label":
                 token_to_idx = config.get("_token_to_idx")
                 if not isinstance(token_to_idx, dict):
-                    raise ValueError(f"[Data Processor Error] Token index for {name} not fitted")
+                    raise ValueError(f"[Data Processor Error] Token index for {output_name} not fitted")
                 unk_index = int(config.get("_unk_index", 0))
                 seq_col = seq_col.list.eval(map_with_default(pl.element(), token_to_idx, unk_index, pl.Int64))
             elif encode_method == "hash":
@@ -339,7 +459,7 @@ class DataProcessor(FeatureSet):
                 seq_col = seq_col.list.head(max_len)
             pad_list = [pad_value] * max_len
             seq_col = pl.concat_list([seq_col, pl.lit(pad_list)]).list.head(max_len)
-            expressions.append(seq_col.alias(name))
+            append_output(seq_col, output_name)
 
         # Target features
         for name, config in self.target_features.items():
@@ -382,17 +502,21 @@ class DataProcessor(FeatureSet):
 
     def fit_from_lazy(self, lazy_frame, schema: Dict[str, Any]) -> "DataProcessor":
         logger = logging.getLogger()
+        lazy_frame = self.apply_row_filters(lazy_frame, schema)
 
         missing_features = set()
-        for name in self.numeric_features.keys():
-            if name not in schema:
-                missing_features.add(name)
-        for name in self.sparse_features.keys():
-            if name not in schema:
-                missing_features.add(name)
-        for name in self.sequence_features.keys():
-            if name not in schema:
-                missing_features.add(name)
+        for name, config in self.numeric_features.items():
+            source_name = self._config_source_name(name, config)
+            if source_name not in schema:
+                missing_features.add(source_name)
+        for name, config in self.sparse_features.items():
+            source_name = self._config_source_name(name, config)
+            if source_name not in schema:
+                missing_features.add(source_name)
+        for name, config in self.sequence_features.items():
+            source_name = self._config_source_name(name, config)
+            if source_name not in schema:
+                missing_features.add(source_name)
         for name in self.target_features.keys():
             if name not in schema:
                 missing_features.add(name)
@@ -404,26 +528,34 @@ class DataProcessor(FeatureSet):
         # numeric aggregates in a single pass
         if self.numeric_features:
             agg_exprs = []
-            for name in self.numeric_features.keys():
-                if name not in schema:
+            numeric_sources = list(
+                dict.fromkeys(self._config_source_name(name, config) for name, config in self.numeric_features.items())
+            )
+            robust_sources = {
+                self._config_source_name(name, config)
+                for name, config in self.numeric_features.items()
+                if config.get("scaler") == "robust"
+            }
+            for source_name in numeric_sources:
+                if source_name not in schema:
                     continue
-                col = pl.col(name).cast(pl.Float64)
+                col = pl.col(source_name).cast(pl.Float64)
                 agg_exprs.extend(
                     [
-                        col.sum().alias(f"{name}__sum"),
-                        (col * col).sum().alias(f"{name}__sumsq"),
-                        col.count().alias(f"{name}__count"),
-                        col.min().alias(f"{name}__min"),
-                        col.max().alias(f"{name}__max"),
-                        col.abs().max().alias(f"{name}__max_abs"),
+                        col.sum().alias(f"{source_name}__sum"),
+                        (col * col).sum().alias(f"{source_name}__sumsq"),
+                        col.count().alias(f"{source_name}__count"),
+                        col.min().alias(f"{source_name}__min"),
+                        col.max().alias(f"{source_name}__max"),
+                        col.abs().max().alias(f"{source_name}__max_abs"),
                     ]
                 )
-                if self.numeric_features[name].get("scaler") == "robust":
+                if source_name in robust_sources:
                     agg_exprs.extend(
                         [
-                            col.quantile(0.25).alias(f"{name}__q1"),
-                            col.quantile(0.75).alias(f"{name}__q3"),
-                            col.median().alias(f"{name}__median"),
+                            col.quantile(0.25).alias(f"{source_name}__q1"),
+                            col.quantile(0.75).alias(f"{source_name}__q3"),
+                            col.median().alias(f"{source_name}__median"),
                         ]
                     )
             stats = lazy_frame.select(agg_exprs).collect().to_dicts()[0] if agg_exprs else {}
@@ -431,14 +563,16 @@ class DataProcessor(FeatureSet):
             stats = {}
 
         for name, config in self.numeric_features.items():
-            if name not in schema:
+            source_name = self._config_source_name(name, config)
+            output_name = self._config_output_name(name, config)
+            if source_name not in schema:
                 continue
-            count = float(stats.get(f"{name}__count", 0) or 0)
+            count = float(stats.get(f"{source_name}__count", 0) or 0)
             if count == 0:
-                logger.warning(f"Numeric feature {name} has no valid values in provided data")
+                logger.warning(f"Numeric feature {output_name} has no valid values in provided data")
                 continue
-            sum_val = float(stats.get(f"{name}__sum", 0) or 0)
-            sumsq = float(stats.get(f"{name}__sumsq", 0) or 0)
+            sum_val = float(stats.get(f"{source_name}__sum", 0) or 0)
+            sumsq = float(stats.get(f"{source_name}__sumsq", 0) or 0)
             mean_val = sum_val / count
             if config["fill_na"] is not None:
                 config["fill_na_value"] = config["fill_na"]
@@ -454,8 +588,8 @@ class DataProcessor(FeatureSet):
                 scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
                 self.scalers[name] = scaler
             elif scaler_type == "minmax":
-                data_min = float(stats.get(f"{name}__min", 0) or 0)
-                data_max = float(stats.get(f"{name}__max", data_min) or data_min)
+                data_min = float(stats.get(f"{source_name}__min", 0) or 0)
+                data_max = float(stats.get(f"{source_name}__max", data_min) or data_min)
                 scaler = MinMaxScaler()
                 scaler.data_min_ = np.array([data_min], dtype=np.float64)
                 scaler.data_max_ = np.array([data_max], dtype=np.float64)
@@ -468,15 +602,15 @@ class DataProcessor(FeatureSet):
                 scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
                 self.scalers[name] = scaler
             elif scaler_type == "maxabs":
-                max_abs = float(stats.get(f"{name}__max_abs", 1.0) or 1.0)
+                max_abs = float(stats.get(f"{source_name}__max_abs", 1.0) or 1.0)
                 scaler = MaxAbsScaler()
                 scaler.max_abs_ = np.array([max_abs], dtype=np.float64)
                 scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
                 self.scalers[name] = scaler
             elif scaler_type == "robust":
-                q1 = float(stats.get(f"{name}__q1", 0) or 0)
-                q3 = float(stats.get(f"{name}__q3", q1) or q1)
-                median = float(stats.get(f"{name}__median", 0) or 0)
+                q1 = float(stats.get(f"{source_name}__q1", 0) or 0)
+                q3 = float(stats.get(f"{source_name}__q3", q1) or q1)
+                median = float(stats.get(f"{source_name}__median", 0) or 0)
                 scale = q3 - q1
                 if scale == 0:
                     scale = 1.0
@@ -492,13 +626,19 @@ class DataProcessor(FeatureSet):
 
         # sparse features
         for name, config in self.sparse_features.items():
-            if name not in schema:
+            source_name = self._config_source_name(name, config)
+            output_name = self._config_output_name(name, config)
+            if source_name not in schema:
                 continue
             encode_method = config["encode_method"]
             fill_na = config["fill_na"]
-            col = pl.col(name).cast(pl.Utf8).fill_null(fill_na)
-            counts_df = lazy_frame.select(col.alias(name)).group_by(name).agg(pl.len().alias("count")).collect()
-            counts = dict(zip(counts_df[name].to_list(), counts_df["count"].to_list())) if counts_df.height > 0 else {}
+            col = pl.col(source_name).cast(pl.Utf8).fill_null(fill_na)
+            counts_df = (
+                lazy_frame.select(col.alias(source_name)).group_by(source_name).agg(pl.len().alias("count")).collect()
+            )
+            counts = (
+                dict(zip(counts_df[source_name].to_list(), counts_df["count"].to_list())) if counts_df.height > 0 else {}
+            )
             if encode_method == "label":
                 min_freq = config.get("min_freq")
                 if min_freq is not None:
@@ -509,7 +649,7 @@ class DataProcessor(FeatureSet):
                     kept_types = total_types - low_freq_types
                     if not config.get("_min_freq_logged"):
                         logger.info(
-                            f"Sparse feature {name} min_freq={min_freq}: "
+                            f"Sparse feature {output_name} min_freq={min_freq}: "
                             f"{total_types} token types total, "
                             f"{low_freq_types} low-frequency, "
                             f"{kept_types} kept."
@@ -518,7 +658,7 @@ class DataProcessor(FeatureSet):
                 else:
                     vocab = set(counts.keys())
                 if not vocab:
-                    logger.warning(f"Sparse feature {name} has empty vocabulary")
+                    logger.warning(f"Sparse feature {output_name} has empty vocabulary")
                     continue
                 # Filter out None values before sorting to avoid comparison errors
                 vocab_list = sorted(v for v in vocab if v is not None)
@@ -538,7 +678,7 @@ class DataProcessor(FeatureSet):
                     kept_types = total_types - low_freq_types
                     if not config.get("_min_freq_logged"):
                         logger.info(
-                            f"Sparse feature {name} min_freq={min_freq}: "
+                            f"Sparse feature {output_name} min_freq={min_freq}: "
                             f"{total_types} token types total, "
                             f"{low_freq_types} low-frequency, "
                             f"{kept_types} kept."
@@ -548,10 +688,12 @@ class DataProcessor(FeatureSet):
 
         # sequence features
         for name, config in self.sequence_features.items():
-            if name not in schema:
+            source_name = self._config_source_name(name, config)
+            output_name = self._config_output_name(name, config)
+            if source_name not in schema:
                 continue
             encode_method = config["encode_method"]
-            seq_col = self.sequence_expr(name, config, schema)
+            seq_col = self.sequence_expr(source_name, config, schema)
             tokens_df = (
                 lazy_frame.select(seq_col.alias("seq"))
                 .explode("seq")
@@ -572,7 +714,7 @@ class DataProcessor(FeatureSet):
                     kept_types = total_types - low_freq_types
                     if not config.get("_min_freq_logged"):
                         logger.info(
-                            f"Sequence feature {name} min_freq={min_freq}: "
+                            f"Sequence feature {output_name} min_freq={min_freq}: "
                             f"{total_types} token types total, "
                             f"{low_freq_types} low-frequency, "
                             f"{kept_types} kept."
@@ -598,7 +740,7 @@ class DataProcessor(FeatureSet):
                     kept_types = total_types - low_freq_types
                     if not config.get("_min_freq_logged"):
                         logger.info(
-                            f"Sequence feature {name} min_freq={min_freq}: "
+                            f"Sequence feature {output_name} min_freq={min_freq}: "
                             f"{total_types} token types total, "
                             f"{low_freq_types} low-frequency, "
                             f"{kept_types} kept."
@@ -661,6 +803,7 @@ class DataProcessor(FeatureSet):
 
         schema = df.schema
         lazy_frame = df.lazy()
+        lazy_frame = self.apply_row_filters(lazy_frame, schema)
         lazy_frame = self.apply_transforms(lazy_frame, schema)
         out_df = lazy_frame.collect()
 
@@ -696,9 +839,13 @@ class DataProcessor(FeatureSet):
 
         if return_dict:
             result_dict = {}
+            sequence_output_names = set()
+            for name, config in self.sequence_features.items():
+                output_name = self._config_output_name(name, config)
+                sequence_output_names.add(output_name)
             for col in out_df.columns:
                 series = out_df.get_column(col)
-                if col in self.sequence_features:
+                if col in sequence_output_names:
                     result_dict[col] = np.asarray(series.to_list(), dtype=np.int64)
                 else:
                     result_dict[col] = series.to_numpy()
@@ -745,6 +892,7 @@ class DataProcessor(FeatureSet):
 
             lazy_frame = self.polars_scan([file_path], file_type)
             schema = lazy_frame.collect_schema()
+            lazy_frame = self.apply_row_filters(lazy_frame, schema)
             lazy_frame = self.apply_transforms(lazy_frame, schema)
 
             if target_format == "parquet":
@@ -1013,9 +1161,13 @@ class DataProcessor(FeatureSet):
         """
         vocab_sizes = {}
         for name, config in self.sparse_features.items():
-            vocab_sizes[name] = config.get("vocab_size", 0)
+            output_name = self._config_output_name(name, config)
+            vocab_size = config.get("vocab_size", 0)
+            vocab_sizes[output_name] = vocab_size
         for name, config in self.sequence_features.items():
-            vocab_sizes[name] = config.get("vocab_size", 0)
+            output_name = self._config_output_name(name, config)
+            vocab_size = config.get("vocab_size", 0)
+            vocab_sizes[output_name] = vocab_size
         return vocab_sizes
 
     def summary(self):

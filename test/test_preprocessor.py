@@ -34,16 +34,24 @@ def test_fit_transform_in_memory_sets_encoders_and_shapes():
     output = processor.fit_transform(df, return_dict=True)
 
     assert processor.is_fitted
-    assert set(output.keys()) == {"age", "user_id", "hist", "label"}
+    assert set(output.keys()) == {
+        "age",
+        "user_id",
+        "hist",
+        "label",
+        "age_minmax",
+        "user_id_label",
+        "hist_label",
+    }
 
     # numeric minmax scaled between 0 and 1
-    assert np.isclose(output["age"].min(), 0.0)
-    assert np.isclose(output["age"].max(), 1.0)
+    assert np.isclose(output["age_minmax"].min(), 0.0)
+    assert np.isclose(output["age_minmax"].max(), 1.0)
 
     # sparse and sequence encodings should be integer arrays
-    assert np.issubdtype(output["user_id"].dtype, np.integer)
-    assert output["hist"].shape == (len(df), 3)
-    assert np.issubdtype(output["hist"].dtype, np.integer)
+    assert np.issubdtype(output["user_id_label"].dtype, np.integer)
+    assert output["hist_label"].shape == (len(df), 3)
+    assert np.issubdtype(output["hist_label"].dtype, np.integer)
 
     # target binary floats
     label_values = pd.to_numeric(output["label"], errors="coerce")
@@ -70,10 +78,18 @@ def test_transform_path_writes_files(tmp_path: Path):
     assert saved_file.exists()
 
     loaded = pd.read_csv(saved_file)
-    assert list(loaded.columns) == ["age", "user_id", "hist", "label"]
+    assert set(loaded.columns) == {
+        "age",
+        "user_id",
+        "hist",
+        "label",
+        "age_minmax",
+        "user_id_label",
+        "hist_label",
+    }
     assert len(loaded) == len(df)
 
-    # sequence column should remain length-3 lists when round-tripped through CSV
+    # encoded sequence column should remain length-3 lists when round-tripped through CSV
     def _parse(seq_str):
         if pd.isna(seq_str):
             return []
@@ -85,7 +101,7 @@ def test_transform_path_writes_files(tmp_path: Path):
             tokens = text.strip(" []").replace(",", " ").split()
             return [int(t) for t in tokens] if tokens else []
 
-    parsed_hist = loaded["hist"].apply(_parse)
+    parsed_hist = loaded["hist_label"].apply(_parse)
     assert all(len(seq) == 3 for seq in parsed_hist)
 
 
@@ -98,9 +114,43 @@ def test_fit_from_path_streams_and_transforms(tmp_path: Path):
     processor.fit(str(input_path))
 
     assert processor.is_fitted
-    assert "age" in processor.scalers
-    assert processor.sparse_features["user_id"].get("vocab_size", 0) > 0
+    assert "age_minmax" in processor.scalers
+    assert processor.sparse_features["user_id_label"].get("vocab_size", 0) > 0
 
     transformed = processor.transform(df, return_dict=True)
-    assert transformed["age"].shape == (len(df),)
-    assert transformed["hist"].shape == (len(df), 3)
+    assert transformed["age_minmax"].shape == (len(df),)
+    assert transformed["hist_label"].shape == (len(df), 3)
+
+
+def test_sparse_and_sequence_row_filters_are_applied_in_fit_and_transform():
+    df = pd.DataFrame(
+        {
+            "age": [10, 20, 30, 40],
+            "user_id": ["u1", "u2", "u3", "u2"],
+            "hist": ["a,b", "x,y", "b,c", "a"],
+            "label": [1, 0, 1, 0],
+        }
+    )
+    processor = DataProcessor()
+    processor.add_numeric_feature("age", scaler="minmax")
+    processor.add_sparse_feature("user_id", encode_method="label", keep_value=["u1", "u2"])
+    processor.add_sequence_feature(
+        "hist",
+        encode_method="label",
+        max_len=3,
+        pad_value=0,
+        separator=",",
+        filter_value=["x"],
+    )
+    processor.add_target("label", target_type="binary")
+
+    output = processor.fit_transform(df, return_dict=True)
+
+    # Remaining rows should be:
+    # - user_id in {u1, u2}
+    # - hist does not contain token x
+    assert output["age_minmax"].shape == (2,)
+    assert output["hist_label"].shape == (2, 3)
+    assert set(output["user_id"].tolist()) <= {"u1", "u2"}
+    assert all("x" not in str(v) for v in output["hist"].tolist())
+    assert processor.sparse_features["user_id_label"]["vocab_size"] == 3  # u1, u2, <UNK>

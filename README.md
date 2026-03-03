@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.5.21-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.5.22-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -47,7 +47,7 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 - **01/01/2026** 新年好，在v0.4.27中加入了多个多目标模型的支持：[APG](nextrec/models/multi_task/apg.py), [ESCM](nextrec/models/multi_task/escm.py), [HMoE](nextrec/models/multi_task/hmoe.py), [Cross Stitch](nextrec/models/multi_task/cross_stitch.py)
 - **21/12/2025** 在v0.4.16中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
 - **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/representation/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
-- **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](/nextrec_cli_preset/NextRec-CLI_zh.md)和[教学代码](/nextrec_cli_preset)
+- **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html)和[教学代码](/nextrec_cli_preset)
 - **06/12/2025** 在v0.4.1中支持了单机多卡的分布式DDP训练，并且提供了配套的[代码](tutorials/distributed)
 - **11/11/2025** NextRec v0.1.0发布，我们提供了10余种Ranking模型，11种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
 
@@ -184,7 +184,7 @@ metrics = model.evaluate(
 
 NextRec 提供了强大的命令行界面，支持通过 YAML 配置文件进行模型训练和预测。详细的 CLI 文档请参见：
 
-- [NextRec CLI 使用指南](/nextrec_cli_preset/NextRec-CLI_zh.md) - 完整的 CLI 使用文档
+- [NextRec CLI 使用指南](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html) - 完整的 CLI 使用文档
 - [NextRec CLI 配置文件示例](/nextrec_cli_preset/) - CLI 使用配置文件示例
 
 ```bash
@@ -197,11 +197,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.5.21，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.5.22，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.5.21，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.5.22，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
