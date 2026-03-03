@@ -28,6 +28,93 @@ if TYPE_CHECKING:
     from nextrec.data.preprocessor import DataProcessor
 
 
+_EMBEDDING_CFG_KEYS = {
+    "vocab_size",
+    "embedding_name",
+    "embedding_dim",
+    "padding_idx",
+    "init_type",
+    "init_params",
+    "l1_reg",
+    "l2_reg",
+    "trainable",
+    "combiner",
+    "max_len",
+    "proj_dim",
+    "input_dim",
+    "use_projection",
+}
+
+
+def _normalize_processor_config(entry: Dict[str, Any], feature_type: str) -> List[Dict[str, Any]]:
+    raw_cfg = entry.get("processor_config")
+
+    if isinstance(raw_cfg, list):
+        cfg_list = [cfg for cfg in raw_cfg if isinstance(cfg, dict)]
+    elif isinstance(raw_cfg, dict):
+        cfg_list = [raw_cfg]
+    else:
+        cfg_list = []
+
+    if cfg_list:
+        return cfg_list
+
+    if feature_type == "dense":
+        return [{"scaler": "standard"}]
+    if feature_type == "sparse":
+        return [{"encode_method": "label"}]
+    if feature_type == "sequence":
+        return [{"encode_method": "label"}]
+    return [{}]
+
+
+def _processor_method_name(feature_type: str, proc_cfg: Dict[str, Any]) -> str:
+    if feature_type == "dense":
+        return str(proc_cfg.get("scaler") or "none")
+    return str(proc_cfg.get("encode_method") or "hash")
+
+
+def _processor_output_name(source_name: str, feature_type: str, proc_cfg: Dict[str, Any]) -> str:
+    method_name = _processor_method_name(feature_type, proc_cfg)
+    return f"{source_name}_{method_name}"
+
+
+def _resolve_embedding_cfg(
+    entry: Dict[str, Any],
+    idx: int,
+    output_name: str,
+    feature_type: str,
+    proc_cfg: Dict[str, Any],
+) -> Dict[str, Any]:
+    raw_cfg = entry.get("embedding_config")
+    if raw_cfg is None:
+        raw_cfg = entry.get("embedding_config")
+
+    if isinstance(raw_cfg, list):
+        if not raw_cfg:
+            return {}
+        # Strict index-based pairing:
+        # embedding_config[i] applies to processor_config[i].
+        if idx >= len(raw_cfg):
+            return {}
+        item = raw_cfg[idx]
+        return item if isinstance(item, dict) else {}
+
+    if isinstance(raw_cfg, dict):
+        # Plain embedding config (old format)
+        if any(k in raw_cfg for k in _EMBEDDING_CFG_KEYS):
+            return raw_cfg
+        # Mapping format, e.g. by output_name / method / default
+        method_name = _processor_method_name(feature_type, proc_cfg)
+        for key in (output_name, method_name, str(idx), "default"):
+            val = raw_cfg.get(key)
+            if isinstance(val, dict):
+                return val
+        return {}
+
+    return {}
+
+
 def resolve_path(path_str: str | Path | None = None, base_dir: Path | None = None) -> Path:
     if path_str is None:
         return Path.cwd()
@@ -95,35 +182,42 @@ def register_processor_features(
     sequence_cfg = feature_cfg.get("sequence", {}) or {}
 
     for name in dense_names:
-        proc_cfg = dense_cfg.get(name, {}).get("processor_config", {}) or {}
-        processor.add_numeric_feature(
-            name,
-            scaler=proc_cfg.get("scaler", "standard"),
-            fill_na=proc_cfg.get("fill_na"),
-        )
+        entry = dense_cfg.get(name, {}) or {}
+        for proc_cfg in _normalize_processor_config(entry, "dense"):
+            processor.add_numeric_feature(
+                name,
+                scaler=proc_cfg.get("scaler", "standard"),
+                fill_na=proc_cfg.get("fill_na"),
+            )
 
     for name in sparse_names:
-        proc_cfg = sparse_cfg.get(name, {}).get("processor_config", {}) or {}
-        processor.add_sparse_feature(
-            name,
-            encode_method=proc_cfg.get("encode_method", "hash"),
-            hash_size=proc_cfg.get("hash_size") or proc_cfg.get("vocab_size"),
-            min_freq=proc_cfg.get("min_freq"),
-            fill_na=proc_cfg.get("fill_na", "<UNK>"),
-        )
+        entry = sparse_cfg.get(name, {}) or {}
+        for proc_cfg in _normalize_processor_config(entry, "sparse"):
+            processor.add_sparse_feature(
+                name,
+                encode_method=proc_cfg.get("encode_method", "hash"),
+                hash_size=proc_cfg.get("hash_size") or proc_cfg.get("vocab_size"),
+                min_freq=proc_cfg.get("min_freq"),
+                fill_na=proc_cfg.get("fill_na", "<UNK>"),
+                filter_value=proc_cfg.get("filter_value", proc_cfg.get("filter_contains")),
+                keep_value=proc_cfg.get("keep_value", proc_cfg.get("keep_contains")),
+            )
 
     for name in sequence_names:
-        proc_cfg = sequence_cfg.get(name, {}).get("processor_config", {}) or {}
-        processor.add_sequence_feature(
-            name,
-            encode_method=proc_cfg.get("encode_method", "hash"),
-            hash_size=proc_cfg.get("hash_size") or proc_cfg.get("vocab_size"),
-            min_freq=proc_cfg.get("min_freq"),
-            max_len=proc_cfg.get("max_len", 50),
-            pad_value=proc_cfg.get("pad_value", 0),
-            truncate=proc_cfg.get("truncate", "post"),
-            separator=proc_cfg.get("separator", ","),
-        )
+        entry = sequence_cfg.get(name, {}) or {}
+        for proc_cfg in _normalize_processor_config(entry, "sequence"):
+            processor.add_sequence_feature(
+                name,
+                encode_method=proc_cfg.get("encode_method", "hash"),
+                hash_size=proc_cfg.get("hash_size") or proc_cfg.get("vocab_size"),
+                min_freq=proc_cfg.get("min_freq"),
+                max_len=proc_cfg.get("max_len", 50),
+                pad_value=proc_cfg.get("pad_value", 0),
+                truncate=proc_cfg.get("truncate", "post"),
+                separator=proc_cfg.get("separator", ","),
+                filter_value=proc_cfg.get("filter_value", proc_cfg.get("filter_contains")),
+                keep_value=proc_cfg.get("keep_value", proc_cfg.get("keep_contains")),
+            )
 
 
 def build_feature_objects(
@@ -152,59 +246,84 @@ def build_feature_objects(
 
     dense_features: List[DenseFeature] = []
     for name in dense_names:
-        embed_cfg = dense_cfg.get(name, {}).get("embedding_config", {}) or {}
-        dense_features.append(
-            DenseFeature(
-                name=name,
-                proj_dim=embed_cfg.get("proj_dim"),
-                input_dim=embed_cfg.get("input_dim", 1),
-                use_projection=embed_cfg.get("use_projection", False),
+        entry = dense_cfg.get(name, {}) or {}
+        proc_cfgs = _normalize_processor_config(entry, "dense")
+        for idx, proc_cfg in enumerate(proc_cfgs):
+            output_name = _processor_output_name(name, "dense", proc_cfg)
+            feature_name = output_name
+            embed_cfg = _resolve_embedding_cfg(entry, idx, output_name, "dense", proc_cfg)
+            dense_features.append(
+                DenseFeature(
+                    name=feature_name,
+                    proj_dim=embed_cfg.get("proj_dim"),
+                    input_dim=embed_cfg.get("input_dim", 1),
+                    use_projection=embed_cfg.get("use_projection", False),
+                )
             )
-        )
 
     sparse_features: List[SparseFeature] = []
     for name in sparse_names:
         entry = sparse_cfg.get(name, {}) or {}
-        proc_cfg = entry.get("processor_config", {}) or {}
-        embed_cfg = entry.get("embedding_config", {}) or {}
-        vocab_size = embed_cfg.get("vocab_size") or proc_cfg.get("hash_size") or vocab_sizes.get(name, 0) or 1
-        sparse_features.append(
-            SparseFeature(
-                name=name,
-                vocab_size=int(vocab_size),
-                embedding_name=embed_cfg.get("embedding_name", name),
-                embedding_dim=embed_cfg.get("embedding_dim"),
-                padding_idx=embed_cfg.get("padding_idx"),
-                init_type=embed_cfg.get("init_type", "xavier_uniform"),
-                init_params=embed_cfg.get("init_params"),
-                l1_reg=embed_cfg.get("l1_reg", 0.0),
-                l2_reg=embed_cfg.get("l2_reg", 1e-5),
-                trainable=embed_cfg.get("trainable", True),
+        proc_cfgs = _normalize_processor_config(entry, "sparse")
+        for idx, proc_cfg in enumerate(proc_cfgs):
+            output_name = _processor_output_name(name, "sparse", proc_cfg)
+            feature_name = output_name
+            embed_cfg = _resolve_embedding_cfg(entry, idx, output_name, "sparse", proc_cfg)
+            vocab_size = (
+                embed_cfg.get("vocab_size")
+                or proc_cfg.get("hash_size")
+                or vocab_sizes.get(feature_name)
+                or vocab_sizes.get(output_name)
+                or vocab_sizes.get(name, 0)
+                or 1
             )
-        )
+            sparse_features.append(
+                SparseFeature(
+                    name=feature_name,
+                    vocab_size=int(vocab_size),
+                    embedding_name=embed_cfg.get("embedding_name", feature_name),
+                    embedding_dim=embed_cfg.get("embedding_dim"),
+                    padding_idx=embed_cfg.get("padding_idx"),
+                    init_type=embed_cfg.get("init_type", "xavier_uniform"),
+                    init_params=embed_cfg.get("init_params"),
+                    l1_reg=embed_cfg.get("l1_reg", 0.0),
+                    l2_reg=embed_cfg.get("l2_reg", 1e-5),
+                    trainable=embed_cfg.get("trainable", True),
+                )
+            )
 
     sequence_features: List[SequenceFeature] = []
     for name in sequence_names:
         entry = sequence_cfg.get(name, {}) or {}
-        proc_cfg = entry.get("processor_config", {}) or {}
-        embed_cfg = entry.get("embedding_config", {}) or {}
-        vocab_size = embed_cfg.get("vocab_size") or proc_cfg.get("hash_size") or vocab_sizes.get(name, 0) or 1
-        sequence_features.append(
-            SequenceFeature(
-                name=name,
-                vocab_size=int(vocab_size),
-                max_len=embed_cfg.get("max_len") or proc_cfg.get("max_len", 50),
-                embedding_name=embed_cfg.get("embedding_name", name),
-                embedding_dim=embed_cfg.get("embedding_dim"),
-                padding_idx=embed_cfg.get("padding_idx"),
-                combiner=embed_cfg.get("combiner", "mean"),
-                init_type=embed_cfg.get("init_type", "xavier_uniform"),
-                init_params=embed_cfg.get("init_params"),
-                l1_reg=embed_cfg.get("l1_reg", 0.0),
-                l2_reg=embed_cfg.get("l2_reg", 1e-5),
-                trainable=embed_cfg.get("trainable", True),
+        proc_cfgs = _normalize_processor_config(entry, "sequence")
+        for idx, proc_cfg in enumerate(proc_cfgs):
+            output_name = _processor_output_name(name, "sequence", proc_cfg)
+            feature_name = output_name
+            embed_cfg = _resolve_embedding_cfg(entry, idx, output_name, "sequence", proc_cfg)
+            vocab_size = (
+                embed_cfg.get("vocab_size")
+                or proc_cfg.get("hash_size")
+                or vocab_sizes.get(feature_name)
+                or vocab_sizes.get(output_name)
+                or vocab_sizes.get(name, 0)
+                or 1
             )
-        )
+            sequence_features.append(
+                SequenceFeature(
+                    name=feature_name,
+                    vocab_size=int(vocab_size),
+                    max_len=embed_cfg.get("max_len") or proc_cfg.get("max_len", 50),
+                    embedding_name=embed_cfg.get("embedding_name", feature_name),
+                    embedding_dim=embed_cfg.get("embedding_dim"),
+                    padding_idx=embed_cfg.get("padding_idx"),
+                    combiner=embed_cfg.get("combiner", "mean"),
+                    init_type=embed_cfg.get("init_type", "xavier_uniform"),
+                    init_params=embed_cfg.get("init_params"),
+                    l1_reg=embed_cfg.get("l1_reg", 0.0),
+                    l2_reg=embed_cfg.get("l2_reg", 1e-5),
+                    trainable=embed_cfg.get("trainable", True),
+                )
+            )
 
     return dense_features, sparse_features, sequence_features
 

@@ -46,6 +46,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from nextrec.models.ranking.din import DIN
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
+from nextrec.data.preprocessor import DataProcessor
 
 # ==============================================================================
 # 1. 数据加载和预处理
@@ -60,6 +61,26 @@ for col in df.columns:
     if "sequence" in col:
         df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
 
+# 同一特征做多种预处理变换
+# 变换后会新增列名: {column}_{preprocess_method}
+processor = DataProcessor()
+# dense_0 同时做 minmax 和 robust
+processor.add_numeric_feature("dense_0", scaler="minmax")
+processor.add_numeric_feature("dense_0", scaler="robust")
+# dense_1 同时做 standard 和 log
+processor.add_numeric_feature("dense_1", scaler="standard")
+processor.add_numeric_feature("dense_1", scaler="log")
+# sparse_0 同时做 label 和 hash
+processor.add_sparse_feature("sparse_0", encode_method="label")
+processor.add_sparse_feature("sparse_0", encode_method="hash", hash_size=5000)
+# sparse_1 同时做 label 和 hash
+processor.add_sparse_feature("sparse_1", encode_method="label")
+processor.add_sparse_feature("sparse_1", encode_method="hash", hash_size=5000)
+
+processor.fit(df)
+df = processor.transform(df, return_dict=False).to_pandas()
+vocab_sizes = processor.get_vocab_sizes()
+
 # ==============================================================================
 # 2. 数据集划分
 # ==============================================================================
@@ -71,8 +92,15 @@ train_df, valid_df = train_test_split(df, test_size=0.2, random_state=2024)
 # 3. 特征定义
 # ==============================================================================
 
-# 定义稠密特征(8个)
-dense_features = [DenseFeature(name=f"dense_{i}", input_dim=1) for i in range(8)]
+# 定义稠密特征:
+# 原始 dense_0~dense_7 + 多变换新增列
+dense_cols = [f"dense_{i}" for i in range(8)] + [
+    "dense_0_minmax",
+    "dense_0_robust",
+    "dense_1_standard",
+    "dense_1_log",
+]
+dense_features = [DenseFeature(name=col, input_dim=1) for col in dense_cols]
 
 # 定义稀疏特征
 # user_id 和 item_id 使用较大的 embedding 维度(32)
@@ -92,6 +120,8 @@ sparse_features = [
 ]
 
 # 添加其他稀疏特征(10个)
+# 注意: sparse_0、sparse_1 已做多重预处理并使用新增列,
+# 这里仅保留未做处理的原始稀疏列.
 sparse_features.extend(
     [
         SparseFeature(
@@ -100,7 +130,37 @@ sparse_features.extend(
             vocab_size=int(df[f"sparse_{i}"].max() + 1),
             embedding_dim=32,
         )
-        for i in range(10)
+        for i in range(2, 10)
+    ]
+)
+
+# 多变换后的稀疏特征
+sparse_features.extend(
+    [
+        SparseFeature(
+            name="sparse_0_label",
+            embedding_name="sparse_0_label_emb",
+            vocab_size=vocab_sizes["sparse_0_label"],
+            embedding_dim=32,
+        ),
+        SparseFeature(
+            name="sparse_0_hash",
+            embedding_name="sparse_0_hash_emb",
+            vocab_size=vocab_sizes["sparse_0_hash"],
+            embedding_dim=32,
+        ),
+        SparseFeature(
+            name="sparse_1_label",
+            embedding_name="sparse_1_label_emb",
+            vocab_size=vocab_sizes["sparse_1_label"],
+            embedding_dim=32,
+        ),
+        SparseFeature(
+            name="sparse_1_hash",
+            embedding_name="sparse_1_hash_emb",
+            vocab_size=vocab_sizes["sparse_1_hash"],
+            embedding_dim=32,
+        ),
     ]
 )
 

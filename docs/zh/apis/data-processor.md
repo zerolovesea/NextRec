@@ -17,6 +17,7 @@ processor = DataProcessor()
 
 # 添加特征
 processor.add_numeric_feature("age", scaler="standard")
+processor.add_numeric_feature("age", scaler="log")
 processor.add_numeric_feature("income", scaler="minmax")
 processor.add_sparse_feature("item_id", encode_method="hash", hash_size=1000000)
 processor.add_sparse_feature("category", encode_method="label")
@@ -77,6 +78,8 @@ test_processed = processor.transform(test_df)
 | `hash_size` | 哈希编码的哈希桶大小 |
 | `min_freq` | 最小频率，数据里低于此频率的值将被视为 `<UNK>` |
 | `fill_na` | 缺失值的填充值 |
+| `filter_value` | 可选；过滤值列表，命中这些值的样本会被过滤掉 |
+| `keep_value` | 可选；保留值列表，只保留命中这些值的样本 |
 
 ## add_sequence_feature
 
@@ -94,6 +97,71 @@ test_processed = processor.transform(test_df)
 | `pad_value` | 序列的padding填充值 |
 | `truncate` | 截断策略：`"pre"`：保留最后`max_len`个item；`"post"`：保留前面`max_len`个item |
 | `separator` | 字符串序列的分隔符 |
+| `filter_value` | 可选；过滤token列表，序列中包含任一token时该样本会被过滤掉 |
+| `keep_value` | 可选；保留token列表，序列中至少包含一个token时该样本才会保留 |
+
+## sparse/sequence 样本过滤
+
+在部分业务里，需要在预处理阶段做规则过滤，例如：
+
+- 过滤掉异常用户ID（黑名单）
+- 只保留包含指定行为token的序列样本
+
+`DataProcessor` 支持在 `sparse` 和 `sequence` 特征上配置 `filter_value` 与 `keep_value`。
+
+### 规则语义
+
+- sparse 特征：按“列值是否命中列表”判断。
+- sequence 特征：按“序列token是否包含列表元素”判断。
+- `keep_value` 与 `filter_value` 同时配置时，按“与（AND）”组合：
+  样本必须先满足 `keep_value`，再不命中 `filter_value` 才会保留。
+- 过滤规则在 `fit` 和 `transform` 阶段都会生效。
+
+### Python API 示例
+
+```python
+from nextrec.data.preprocessor import DataProcessor
+
+processor = DataProcessor()
+processor.add_sparse_feature(
+    "user_id",
+    encode_method="label",
+    keep_value=["u1", "u2"],         # 只保留 u1/u2
+    filter_value=["u_bad"],          # 额外过滤黑名单
+)
+processor.add_sequence_feature(
+    "hist_item_seq",
+    encode_method="hash",
+    hash_size=5000,
+    separator=",",
+    keep_value=["item_a", "item_b"], # 序列至少包含其一
+    filter_value=["item_x"],         # 序列包含 item_x 则过滤
+)
+processor.add_target("label", target_type="binary")
+
+processor.fit(df_train)
+train_processed = processor.transform(df_train)
+```
+
+### NextRec CLI 集成
+
+在命令行工具中，同样支持配置样本过滤。
+
+```yaml
+sparse:
+  user_id:
+    processor_config:
+      - {encode_method: label, keep_value: [u1, u2], filter_value: [u_bad]}
+    embedding_config:
+      - {embedding_dim: 8, padding_idx: 0}
+
+sequence:
+  hist_item_seq:
+    processor_config:
+      - {encode_method: hash, hash_size: 5000, separator: ",", keep_value: [item_a, item_b], filter_value: [item_x]}
+    embedding_config:
+      - {vocab_size: 5000, max_len: 50, combiner: mean, embedding_dim: 8, padding_idx: 0}
+```
 
 ## add_target
 

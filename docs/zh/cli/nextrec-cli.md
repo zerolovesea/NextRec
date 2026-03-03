@@ -128,61 +128,53 @@ export_onnx:
 
 在训练配置中，有一项`feature_config`配置，其中输入的是特征配置文件的路径。在特征配置文件里为模型需要的特征配置预处理和参数定义。示例配置文件如下，可以看到这里的配置和前面Python API的[预处理配置](../apis/data-processor.md)以及[特征配置](../apis/features.md)是一致的。
 
-```yaml
-# 稠密特征
-dense:
-  user_active_days_7:
-    # 预处理配置
-    processor_config: {type: numeric, scaler: standard}
-    # 嵌入配置
-    embedding_config: {name: user_active_days_7, input_dim: 1, embedding_dim: 8, use_projection: false}
-  user_ctr:
-    processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: user_ctr, input_dim: 1, embedding_dim: 8, use_projection: false}
-  item_price:
-    processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: item_price, input_dim: 1, embedding_dim: 8, use_projection: false}
-  item_popularity:
-    processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: item_popularity, input_dim: 1, embedding_dim: 8, use_projection: false}
-  time_since_last_click:
-    processor_config: {type: numeric, scaler: standard}
-    embedding_config: {name: time_since_last_click, input_dim: 1, embedding_dim: 8, use_projection: false}
+对于 `sparse` 和 `sequence` 特征，还可在 `processor_config` 中增加 `filter_value` 与 `keep_value` 进行样本过滤，详细规则见[数据预处理](../apis/data-processor.md)中的“sparse/sequence 样本过滤教程”。
 
-# 稀疏特征
+```yaml
+# 稠密特征（dense）：processor_config 使用 scaler
+dense:
+  price:
+    processor_config:
+      - {scaler: robust, fill_na: 0.0}   # 可选 scaler: standard/minmax/robust/maxabs/log/none
+    embedding_config:
+      - {embedding_dim: 16, input_dim: 1, use_projection: true, proj_dim: 8}
+
+# 稀疏特征（sparse）：processor_config 使用 encode_method
 sparse:
   user_id:
-    # 预处理配置
-    processor_config: {type: sparse, encode_method: hash, hash_size: 100000, min_freq: 1}
-    # 嵌入配置
-    embedding_config: {name: user_id, embedding_dim: 8, padding_idx: 0}
-  item:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 5000, min_freq: 1}
-    embedding_config: {name: item, embedding_dim: 8, padding_idx: 0}
-  gender:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
-    embedding_config: {name: gender, embedding_dim: 8, padding_idx: 0}
-  city:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 20, min_freq: 1}
-    embedding_config: {name: city, embedding_dim: 8, padding_idx: 0}
-  device:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
-    embedding_config: {name: device, embedding_dim: 8, padding_idx: 0}
-  channel:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 10, min_freq: 1}
-    embedding_config: {name: channel, embedding_dim: 8, padding_idx: 0}
-  age_bucket:
-    processor_config: {type: sparse, encode_method: hash, hash_size: 20, min_freq: 1}
-    embedding_config: {name: age_bucket, embedding_dim: 8, padding_idx: 0}
+    processor_config:
+      - {encode_method: label, min_freq: 2, fill_na: "<UNK>"}
+    embedding_config:
+      - {embedding_name: user_item_shared, embedding_dim: 32, padding_idx: 0, init_type: xavier_uniform}
+  item_id:
+    processor_config:
+      - {encode_method: hash, hash_size: 200000, min_freq: 2, keep_value: ["1001", "1002"], filter_value: ["-1"]}
+    embedding_config:
+      - {embedding_name: user_item_shared, embedding_dim: 32, padding_idx: 0}
 
-# 序列特征
+# 序列特征（sequence）：支持 separator/max_len/pad_value/truncate
 sequence:
   hist_item_seq:
-    # 预处理配置
-    processor_config: {type: sequence, encode_method: hash, hash_size: 5000, min_freq: 1, max_len: 30, pad_value: 0, truncate: post, separator: ','}
-    # 嵌入配置
-    embedding_config: {name: hist_item_seq, vocab_size: 5000, max_len: 30, combiner: mean, embedding_dim: 8, padding_idx: 0, shared_with: item}
+    processor_config:
+      - {
+          encode_method: hash,
+          hash_size: 200000,
+          min_freq: 2,
+          separator: ",",
+          max_len: 50,
+          pad_value: 0,
+          truncate: pre,
+          keep_value: ["1001", "1002"],
+          filter_value: ["-1"]
+        }
+    embedding_config:
+      - {embedding_name: user_item_shared, embedding_dim: 32, max_len: 50, combiner: mean, padding_idx: 0}
 ```
+
+说明：
+- `dense` 类型没有 `encode_method`，请使用 `scaler`。
+- `sparse` / `sequence` 类型没有 `type` 字段，请使用 `encode_method`。
+- 若不填写 `embedding_name`，默认使用该特征的输出名（例如 `item_id_hash`），即不与其他特征共享 embedding 表。
 
 ### 模型配置
 

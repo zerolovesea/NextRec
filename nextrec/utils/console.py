@@ -326,13 +326,15 @@ def display_metrics_table(
     if isinstance(loss, numbers.Number):
         title += f" (loss={float(loss):.4f})"
 
+    task_width = max([len("Task")] + [len(str(task_name)) for task_name in task_order], default=4)
+
     table = Table(
         title=title,
         box=box.ROUNDED,
         header_style="bold",
         title_style="bold",
     )
-    table.add_column("Task", style="bold")
+    table.add_column("Task", style="bold", min_width=task_width, no_wrap=True, overflow="fold")
 
     include_loss = isinstance(loss, np.ndarray)
     if include_loss:
@@ -355,7 +357,6 @@ def display_metrics_table(
 
     def estimate_export_width() -> int:
         # Keep metric headers intact in file logs by sizing console width to table content.
-        task_width = max([len("Task")] + [len(str(task_name)) for task_name in task_order], default=4)
         col_widths: list[int] = [task_width]
         if include_loss:
             col_widths.append(max(len("loss"), 8))
@@ -401,9 +402,10 @@ def display_metrics_table(
             row.append(fmt(grouped.get(task_name, {}).get(metric_name)))
         table.add_row(*row)
 
-    Console().print(table)
+    table_width = estimate_export_width()
+    Console(width=table_width).print(table)
 
-    record_console = Console(file=io.StringIO(), record=True, width=estimate_export_width())
+    record_console = Console(file=io.StringIO(), record=True, width=table_width)
     record_console.print(table)
     table_text = record_console.export_text(styles=False).rstrip()
 
