@@ -12,6 +12,7 @@ import functools
 import logging
 import os
 import pickle
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, Literal, Optional, Union, overload
 
@@ -114,6 +115,39 @@ class DataProcessor(FeatureSet):
         # Preserve order while removing duplicates
         return list(dict.fromkeys(normalized))
 
+    @staticmethod
+    def _normalize_match_mode(match_mode: Optional[str]) -> str:
+        mode = str(match_mode or "exact").strip().lower()
+        if mode not in {"exact", "contains", "regex"}:
+            raise ValueError(
+                f"[Data Processor Error] Unsupported match_mode='{match_mode}'. " "Use one of: exact, contains, regex."
+            )
+        return mode
+
+    @staticmethod
+    def _build_sparse_match_expr(col, patterns: list[str], match_mode: str):
+        if match_mode == "exact":
+            return col.is_in(patterns)
+        if match_mode == "contains":
+            exprs = [col.str.contains(re.escape(pat)) for pat in patterns]
+            return pl.any_horizontal(exprs)
+        exprs = [col.str.contains(pat) for pat in patterns]
+        return pl.any_horizontal(exprs)
+
+    @staticmethod
+    def _build_sequence_match_expr(seq_col, patterns: list[str], match_mode: str):
+        if match_mode == "exact":
+            exprs = [seq_col.list.contains(token) for token in patterns]
+            return pl.any_horizontal(exprs)
+        if match_mode == "contains":
+            exprs = [
+                seq_col.list.eval(pl.element().cast(pl.Utf8).str.contains(re.escape(pat))).list.any()
+                for pat in patterns
+            ]
+            return pl.any_horizontal(exprs)
+        exprs = [seq_col.list.eval(pl.element().cast(pl.Utf8).str.contains(pat)).list.any() for pat in patterns]
+        return pl.any_horizontal(exprs)
+
     def add_numeric_feature(
         self,
         name: str,
@@ -146,6 +180,7 @@ class DataProcessor(FeatureSet):
         fill_na: str = "<UNK>",
         filter_value: Optional[Union[str, Iterable[Any]]] = None,
         keep_value: Optional[Union[str, Iterable[Any]]] = None,
+        match_mode: Literal["exact", "contains", "regex"] = "exact",
     ):
         """Add a sparse feature configuration.
 
@@ -157,9 +192,11 @@ class DataProcessor(FeatureSet):
             fill_na: Fill value for missing entries. Defaults to "<UNK>".
             filter_value: Drop rows where sparse value is in this list.
             keep_value: Keep only rows where sparse value is in this list.
+            match_mode: Matching mode for keep/filter values: exact, contains, regex.
         """
         if encode_method == "hash" and hash_size is None:
             raise ValueError("[Data Processor Error] hash_size must be specified when encode_method='hash'")
+        normalized_match_mode = self._normalize_match_mode(match_mode)
         method_name = str(encode_method)
         output_name = self._build_output_name(name, method_name)
         filter_values = self._normalize_filter_values(filter_value)
@@ -171,6 +208,7 @@ class DataProcessor(FeatureSet):
             "fill_na": fill_na,
             "filter_value": filter_values,
             "keep_value": keep_values,
+            "match_mode": normalized_match_mode,
             "source_name": name,
             "output_name": output_name,
         }
@@ -187,6 +225,7 @@ class DataProcessor(FeatureSet):
         separator: str = ",",
         filter_value: Optional[Union[str, Iterable[Any]]] = None,
         keep_value: Optional[Union[str, Iterable[Any]]] = None,
+        match_mode: Literal["exact", "contains", "regex"] = "exact",
     ):
         """Add a sequence feature configuration.
 
@@ -201,9 +240,11 @@ class DataProcessor(FeatureSet):
             separator: Separator for string sequences. Defaults to ",".
             filter_value: Drop rows where sequence contains any token in this list.
             keep_value: Keep only rows where sequence contains at least one token in this list.
+            match_mode: Matching mode for keep/filter values: exact, contains, regex.
         """
         if encode_method == "hash" and hash_size is None:
             raise ValueError("[Data Processor Error] hash_size must be specified when encode_method='hash'")
+        normalized_match_mode = self._normalize_match_mode(match_mode)
         method_name = str(encode_method)
         output_name = self._build_output_name(name, method_name)
         filter_values = self._normalize_filter_values(filter_value)
@@ -218,6 +259,7 @@ class DataProcessor(FeatureSet):
             "separator": separator,
             "filter_value": filter_values,
             "keep_value": keep_values,
+            "match_mode": normalized_match_mode,
             "source_name": name,
             "output_name": output_name,
         }
@@ -293,15 +335,17 @@ class DataProcessor(FeatureSet):
                 continue
             keep_values = config.get("keep_value") or []
             filter_values = config.get("filter_value") or []
+            match_mode = self._normalize_match_mode(config.get("match_mode"))
             if not keep_values and not filter_values:
                 continue
             col = pl.col(source_name).cast(pl.Utf8).fill_null(config.get("fill_na", "<UNK>"))
             if keep_values:
-                filters.append(col.is_in(keep_values))
+                filters.append(self._build_sparse_match_expr(col, keep_values, match_mode))
             if filter_values:
-                filters.append(~col.is_in(filter_values))
+                filters.append(~self._build_sparse_match_expr(col, filter_values, match_mode))
             logger.info(
-                f"Apply sparse row filter on {output_name}: keep_value={keep_values}, filter_value={filter_values}"
+                f"Apply sparse row filter on {output_name}: keep_value={keep_values}, "
+                f"filter_value={filter_values}, match_mode={match_mode}"
             )
 
         for name, config in self.sequence_features.items():
@@ -311,17 +355,17 @@ class DataProcessor(FeatureSet):
                 continue
             keep_values = config.get("keep_value") or []
             filter_values = config.get("filter_value") or []
+            match_mode = self._normalize_match_mode(config.get("match_mode"))
             if not keep_values and not filter_values:
                 continue
             seq_col = self.sequence_expr(source_name, config, schema)
             if keep_values:
-                keep_exprs = [seq_col.list.contains(token) for token in keep_values]
-                filters.append(pl.any_horizontal(keep_exprs))
+                filters.append(self._build_sequence_match_expr(seq_col, keep_values, match_mode))
             if filter_values:
-                filter_exprs = [seq_col.list.contains(token) for token in filter_values]
-                filters.append(~pl.any_horizontal(filter_exprs))
+                filters.append(~self._build_sequence_match_expr(seq_col, filter_values, match_mode))
             logger.info(
-                f"Apply sequence row filter on {output_name}: keep_value={keep_values}, filter_value={filter_values}"
+                f"Apply sequence row filter on {output_name}: keep_value={keep_values}, "
+                f"filter_value={filter_values}, match_mode={match_mode}"
             )
 
         if not filters:
@@ -637,7 +681,9 @@ class DataProcessor(FeatureSet):
                 lazy_frame.select(col.alias(source_name)).group_by(source_name).agg(pl.len().alias("count")).collect()
             )
             counts = (
-                dict(zip(counts_df[source_name].to_list(), counts_df["count"].to_list())) if counts_df.height > 0 else {}
+                dict(zip(counts_df[source_name].to_list(), counts_df["count"].to_list()))
+                if counts_df.height > 0
+                else {}
             )
             if encode_method == "label":
                 min_freq = config.get("min_freq")

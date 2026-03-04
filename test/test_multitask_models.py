@@ -806,6 +806,7 @@ class TestESMM:
 
         logger.info("ESMM CTCVR constraint test successful")
 
+
 class TestMultiTaskModelsComparison:
     """Comparison tests for multi-task models"""
 

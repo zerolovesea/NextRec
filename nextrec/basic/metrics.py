@@ -32,6 +32,29 @@ TASK_DEFAULT_METRICS = {
     + [f"mrr@{k}" for k in (5, 10, 20)],
 }
 
+RANKING_METRIC_PREFIXES = (
+    "recall@",
+    "precision@",
+    "hitrate@",
+    "hr@",
+    "mrr@",
+    "ndcg@",
+    "map@",
+    "topk_recall@",
+    "topk_precision@",
+    "lift@",
+)
+
+TASK_EXTRA_ALLOW_METRICS = {
+    "binary": {"acc", "micro_f1", "macro_f1"},
+    "regression": {"msle"},
+}
+
+TASK_METRIC_ALLOWLIST = {
+    task_name: set(metrics) | TASK_EXTRA_ALLOW_METRICS.get(task_name, set())
+    for task_name, metrics in TASK_DEFAULT_METRICS.items()
+}
+
 
 def check_user_id(*metric_sources: Any) -> bool:
     """Return True when GAUC or ranking@K metrics appear in the provided sources."""
@@ -54,7 +77,7 @@ def check_user_id(*metric_sources: Any) -> bool:
     for name in metric_names:
         if name == "gauc":
             return True
-        if name.startswith(("recall@", "precision@", "hitrate@", "hr@", "mrr@", "ndcg@", "map@")):
+        if name.startswith(RANKING_METRIC_PREFIXES):
             return True
     return False
 
@@ -91,7 +114,12 @@ def compute_msle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(mean_squared_error(np.log1p(y_true), np.log1p(y_pred_pos)))
 
 
-def compute_gauc(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray | None = None) -> float:
+def compute_gauc(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    user_ids: np.ndarray | None = None,
+    user_groups: list[np.ndarray] | None = None,
+) -> float:
     if user_ids is None:
         # If no user_ids provided, fall back to regular AUC
         try:
@@ -102,11 +130,12 @@ def compute_gauc(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray | 
     # Group by user_id and calculate AUC for each user
     user_aucs = []
     user_weights = []
-    unique_users = np.unique(user_ids)
-    for user_id in unique_users:
-        mask = user_ids == user_id
-        user_y_true = y_true[mask]
-        user_y_pred = y_pred[mask]
+    groups = user_groups if user_groups is not None else group_indices_by_user(user_ids, len(y_true))
+    for idx in groups:
+        if idx.size == 0:
+            continue
+        user_y_true = y_true[idx]
+        user_y_pred = y_pred[idx]
         # Skip users with only one class (cannot compute AUC)
         if len(np.unique(user_y_true)) < 2:
             continue
@@ -133,18 +162,28 @@ def group_indices_by_user(user_ids: np.ndarray, n_samples: int) -> list[np.ndarr
             f"[Metrics Warning: GAUC] user_ids length {user_ids.shape[0]} != number of samples {n_samples}, treating all samples as a single group for ranking metrics."
         )
         return [np.arange(n_samples)]
-    unique_users = np.unique(user_ids)
-    groups = [np.where(user_ids == u)[0] for u in unique_users]
+    if n_samples == 0:
+        return []
+    order = np.argsort(user_ids, kind="stable")
+    sorted_users = user_ids[order]
+    boundaries = np.flatnonzero(sorted_users[1:] != sorted_users[:-1]) + 1
+    groups = np.split(order, boundaries)
     return groups
 
 
-def compute_precision_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_precision_at_k(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    user_ids: np.ndarray,
+    k: int,
+    user_groups: list[np.ndarray] | None = None,
+) -> float:
     """Compute Precision@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: Precision@K] user_ids must be provided for Precision@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = group_indices_by_user(user_ids, n)
+    groups = user_groups if user_groups is not None else group_indices_by_user(user_ids, n)
     precisions = []
     for idx in groups:
         if idx.size == 0:
@@ -159,13 +198,19 @@ def compute_precision_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.
     return float(np.mean(precisions)) if precisions else 0.0
 
 
-def compute_recall_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_recall_at_k(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    user_ids: np.ndarray,
+    k: int,
+    user_groups: list[np.ndarray] | None = None,
+) -> float:
     """Compute Recall@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: Recall@K] user_ids must be provided for Recall@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = group_indices_by_user(user_ids, n)
+    groups = user_groups if user_groups is not None else group_indices_by_user(user_ids, n)
     recalls = []
     for idx in groups:
         if idx.size == 0:
@@ -183,13 +228,19 @@ def compute_recall_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.nda
     return float(np.mean(recalls)) if recalls else 0.0
 
 
-def compute_hitrate_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_hitrate_at_k(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    user_ids: np.ndarray,
+    k: int,
+    user_groups: list[np.ndarray] | None = None,
+) -> float:
     """Compute HitRate@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: HitRate@K] user_ids must be provided for HitRate@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = group_indices_by_user(user_ids, n)
+    groups = user_groups if user_groups is not None else group_indices_by_user(user_ids, n)
     hits_per_user = []
     for idx in groups:
         if idx.size == 0:
@@ -206,13 +257,19 @@ def compute_hitrate_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.nd
     return float(np.mean(hits_per_user)) if hits_per_user else 0.0
 
 
-def compute_mrr_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_mrr_at_k(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    user_ids: np.ndarray,
+    k: int,
+    user_groups: list[np.ndarray] | None = None,
+) -> float:
     """Compute MRR@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: MRR@K] user_ids must be provided for MRR@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = group_indices_by_user(user_ids, n)
+    groups = user_groups if user_groups is not None else group_indices_by_user(user_ids, n)
     mrrs = []
     for idx in groups:
         if idx.size == 0:
@@ -243,13 +300,19 @@ def compute_dcg_at_k(labels: np.ndarray, k: int) -> float:
     return float(np.sum(gains / discounts))
 
 
-def compute_ndcg_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_ndcg_at_k(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    user_ids: np.ndarray,
+    k: int,
+    user_groups: list[np.ndarray] | None = None,
+) -> float:
     """Compute NDCG@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: NDCG@K] user_ids must be provided for NDCG@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = group_indices_by_user(user_ids, n)
+    groups = user_groups if user_groups is not None else group_indices_by_user(user_ids, n)
     ndcgs = []
     for idx in groups:
         if idx.size == 0:
@@ -270,13 +333,19 @@ def compute_ndcg_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarr
     return float(np.mean(ndcgs)) if ndcgs else 0.0
 
 
-def compute_map_at_k(y_true: np.ndarray, y_pred: np.ndarray, user_ids: np.ndarray, k: int) -> float:
+def compute_map_at_k(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    user_ids: np.ndarray,
+    k: int,
+    user_groups: list[np.ndarray] | None = None,
+) -> float:
     """Mean Average Precision@K."""
     if user_ids is None:
         raise ValueError("[Metrics Error: MAP@K] user_ids must be provided for MAP@K computation.")
     y_true = (y_true > 0).astype(int)
     n = len(y_true)
-    groups = group_indices_by_user(user_ids, n)
+    groups = user_groups if user_groups is not None else group_indices_by_user(user_ids, n)
     aps = []
     for idx in groups:
         if idx.size == 0:
@@ -471,6 +540,7 @@ def compute_single_metric(
     task_type: str,
     user_ids: np.ndarray | None = None,
     threshold: float = 0.5,
+    user_groups: list[np.ndarray] | None = None,
 ) -> float:
     """Compute a single metric given true and predicted values."""
 
@@ -490,23 +560,23 @@ def compute_single_metric(
             return compute_lift_at_k(y_true, y_pred, k_percent)
         if metric.startswith("recall@"):
             k = int(metric.split("@")[1])
-            return compute_recall_at_k(y_true, y_pred, user_ids, k)  # type: ignore
+            return compute_recall_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("precision@"):
             k = int(metric.split("@")[1])
-            return compute_precision_at_k(y_true, y_pred, user_ids, k)  # type: ignore
+            return compute_precision_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("hitrate@") or metric.startswith("hr@"):
             k_str = metric.split("@")[1]
             k = int(k_str)
-            return compute_hitrate_at_k(y_true, y_pred, user_ids, k)  # type: ignore
+            return compute_hitrate_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("mrr@"):
             k = int(metric.split("@")[1])
-            return compute_mrr_at_k(y_true, y_pred, user_ids, k)  # type: ignore
+            return compute_mrr_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("ndcg@"):
             k = int(metric.split("@")[1])
-            return compute_ndcg_at_k(y_true, y_pred, user_ids, k)  # type: ignore
+            return compute_ndcg_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("map@"):
             k = int(metric.split("@")[1])
-            return compute_map_at_k(y_true, y_pred, user_ids, k)  # type: ignore
+            return compute_map_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         # cosine for matching task
         if metric == "cosine":
             return compute_cosine_separation(y_true, y_pred)
@@ -519,7 +589,7 @@ def compute_single_metric(
                 )
             )
         elif metric == "gauc":
-            value = float(compute_gauc(y_true, y_pred, user_ids))
+            value = float(compute_gauc(y_true, y_pred, user_ids, user_groups=user_groups))
         elif metric == "ks":
             value = float(compute_ks(y_true, y_pred))
         elif metric == "logloss":
@@ -665,6 +735,15 @@ def evaluate_metrics(
     """
 
     result = {}
+
+    def needs_user_group(metric_names: list[MetricsName]) -> bool:
+        for m in metric_names:
+            if m == "gauc":
+                return True
+            if m.startswith(RANKING_METRIC_PREFIXES):
+                return True
+        return False
+
     if y_true is None or y_pred is None:
         return result
     # Main evaluation logic
@@ -682,9 +761,20 @@ def evaluate_metrics(
                     user_ids = user_ids[valid_mask]
             else:
                 return result
+        user_groups = (
+            group_indices_by_user(user_ids, len(y_true)) if user_ids is not None and needs_user_group(metrics) else None
+        )
         for metric in metrics:
             threshold = thresholds_by_target.get(target_names[0], 0.5)
-            value = compute_single_metric(metric, y_true, y_pred, primary_task, user_ids, threshold=threshold)
+            value = compute_single_metric(
+                metric,
+                y_true,
+                y_pred,
+                primary_task,
+                user_ids,
+                threshold=threshold,
+                user_groups=user_groups,
+            )
             result[metric] = value
     # Multi-task evaluation
     else:
@@ -696,67 +786,48 @@ def evaluate_metrics(
                 task_types.append(task)
             else:
                 task_types.append("binary")
-        metric_allowlist = {
-            "binary": {
-                "auc",
-                "gauc",
-                "ks",
-                "logloss",
-                "accuracy",
-                "acc",
-                "precision",
-                "recall",
-                "f1",
-                "micro_f1",
-                "macro_f1",
-            },
-            "regression": {
-                "mse",
-                "mae",
-                "rmse",
-                "r2",
-                "mape",
-                "msle",
-            },
-        }
         for task_idx in range(nums_task):
             task_type = task_types[task_idx]
             target_name = target_names[task_idx]
             if task_specific_metrics is not None and task_idx < len(target_names):
                 allowed_metrics = {m for m in task_specific_metrics.get(target_name, [])}
             else:
-                allowed_metrics = metric_allowlist.get(task_type)
+                allowed_metrics = TASK_METRIC_ALLOWLIST.get(task_type)
+            y_true_task = y_true[:, task_idx]
+            y_pred_task = y_pred[:, task_idx]
+            task_user_ids = user_ids
+            if ignore_label is not None:
+                valid_mask = y_true_task != ignore_label
+                if np.any(valid_mask):
+                    y_true_task = y_true_task[valid_mask]
+                    y_pred_task = y_pred_task[valid_mask]
+                    if task_user_ids is not None:
+                        task_user_ids = task_user_ids[valid_mask]
+                else:
+                    for metric in metrics:
+                        if allowed_metrics is not None and metric not in allowed_metrics:
+                            if not metric.startswith(RANKING_METRIC_PREFIXES):
+                                continue
+                        result[f"{metric}_{target_name}"] = 0.0
+                    continue
+            task_metrics_to_compute = [
+                m
+                for m in metrics
+                if allowed_metrics is None
+                or m in allowed_metrics
+                or m.startswith(RANKING_METRIC_PREFIXES)
+            ]
+            need_group_for_task = needs_user_group(task_metrics_to_compute)
+            user_groups_task = (
+                group_indices_by_user(task_user_ids, len(y_true_task))
+                if task_user_ids is not None and need_group_for_task
+                else None
+            )
             for metric in metrics:
                 if allowed_metrics is not None and metric not in allowed_metrics:
-                    if metric.startswith(
-                        (
-                            "recall@",
-                            "precision@",
-                            "hitrate@",
-                            "hr@",
-                            "mrr@",
-                            "ndcg@",
-                            "map@",
-                            "topk_recall@",
-                            "topk_precision@",
-                            "lift@",
-                        )
-                    ):
+                    if metric.startswith(RANKING_METRIC_PREFIXES):
                         pass
                     else:
-                        continue
-                y_true_task = y_true[:, task_idx]
-                y_pred_task = y_pred[:, task_idx]
-                task_user_ids = user_ids
-                if ignore_label is not None:
-                    valid_mask = y_true_task != ignore_label
-                    if np.any(valid_mask):
-                        y_true_task = y_true_task[valid_mask]
-                        y_pred_task = y_pred_task[valid_mask]
-                        if task_user_ids is not None:
-                            task_user_ids = task_user_ids[valid_mask]
-                    else:
-                        result[f"{metric}_{target_name}"] = 0.0
                         continue
                 # Compute metric
                 threshold = thresholds_by_target.get(target_name, 0.5)
@@ -767,6 +838,7 @@ def evaluate_metrics(
                     task_type,
                     task_user_ids,
                     threshold=threshold,
+                    user_groups=user_groups_task,
                 )
                 result[f"{metric}_{target_name}"] = value
     return result

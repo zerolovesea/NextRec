@@ -8,7 +8,7 @@ URL: https://dl.acm.org/doi/10.1145/3340531.3412713
 https://github.com/alipay/MMLRec-A-Unified-Multi-Task-and-Multi-Scenario-Learning-Benchmark-for-Recommendation/
 
 Hierarchical Mixture-of-Experts (HMOE) was proposed by the Meituan team in ICDE 2023 for multi-task and
-multi-scenario learning in e-commerce. 
+multi-scenario learning in e-commerce.
 HMOE extends MMOE for multi-task and
 multi-scenario ranking by adding a task-level relation modeling stage in
 label/representation space.
