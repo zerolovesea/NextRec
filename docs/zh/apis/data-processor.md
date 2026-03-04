@@ -15,9 +15,9 @@ from nextrec.data.preprocessor import DataProcessor
 # 创建处理器
 processor = DataProcessor()
 
-# 添加特征
-processor.add_numeric_feature("age", scaler="standard")
-processor.add_numeric_feature("age", scaler="log")
+# 添加特征，将会生成{特征名}_{处理方式}的特征列
+processor.add_numeric_feature("age", scaler="standard") # 将构造 age_standard 特征
+processor.add_numeric_feature("age", scaler="log")      # 将构造 age_log 特征
 processor.add_numeric_feature("income", scaler="minmax")
 processor.add_sparse_feature("item_id", encode_method="hash", hash_size=1000000)
 processor.add_sparse_feature("category", encode_method="label")
@@ -49,7 +49,7 @@ test_processed = processor.transform(test_df)
 | 参数 | 说明 |
 |-----|------|
 | `name` | **[必需]** 特征名称 |
-| `scaler` | 缩放器类型：`"standard"`,`"minmax"`,`"robust"`,`"maxabs"`,`"log"`,`"none"` |
+| `scaler` | 缩放器类型：`"standard"`,`"minmax"`,`"robust"`,`"maxabs"`,`"log"`,`"none"`，将根据`scaler`类型构造生成特征名|
 | `fill_na` | 缺失值的填充值 |
 
 ### scaler
@@ -74,7 +74,7 @@ test_processed = processor.transform(test_df)
 | 参数 | 说明 |
 |-----|------|
 | `name` | **[必需]** 特征名称 |
-| `encode_method` | 编码方法：哈希编码：`"hash"` 或 标签编码`"label"` |
+| `encode_method` | 编码方法：哈希编码：`"hash"` 或 标签编码`"label"`，将根据`encode_method`类型构造生成特征名|
 | `hash_size` | 哈希编码的哈希桶大小 |
 | `min_freq` | 最小频率，数据里低于此频率的值将被视为 `<UNK>` |
 | `fill_na` | 缺失值的填充值 |
@@ -90,7 +90,7 @@ test_processed = processor.transform(test_df)
 | 参数 | 说明 |
 |-----|------|
 | `name` | **[必需]** 特征名称 |
-| `encode_method` | 编码方法：哈希编码：`"hash"` 或 标签编码`"label"` |
+| `encode_method` | 编码方法：哈希编码：`"hash"` 或 标签编码`"label"`，将根据`encode_method`类型构造生成特征名 |
 | `hash_size` | 哈希编码的哈希桶大小 |
 | `min_freq` | 最小频率，数据里低于此频率的值将被视为 `<UNK>` |
 | `max_len` | 最大序列长度 |
@@ -99,6 +99,7 @@ test_processed = processor.transform(test_df)
 | `separator` | 字符串序列的分隔符 |
 | `filter_value` | 可选；过滤token列表，序列中包含任一token时该样本会被过滤掉 |
 | `keep_value` | 可选；保留token列表，序列中至少包含一个token时该样本才会保留 |
+| `match_mode` | 匹配模式：`"exact"`（精确匹配，默认）/ `"contains"`（子串匹配）/ `"regex"`（正则匹配） |
 
 ## sparse/sequence 样本过滤
 
@@ -113,6 +114,7 @@ test_processed = processor.transform(test_df)
 
 - sparse 特征：按“列值是否命中列表”判断。
 - sequence 特征：按“序列token是否包含列表元素”判断。
+- 默认 `match_mode="exact"`；也支持 `contains` 与 `regex`。
 - `keep_value` 与 `filter_value` 同时配置时，按“与（AND）”组合：
   样本必须先满足 `keep_value`，再不命中 `filter_value` 才会保留。
 - 过滤规则在 `fit` 和 `transform` 阶段都会生效。
@@ -128,6 +130,7 @@ processor.add_sparse_feature(
     encode_method="label",
     keep_value=["u1", "u2"],         # 只保留 u1/u2
     filter_value=["u_bad"],          # 额外过滤黑名单
+    match_mode="exact",              # exact / contains / regex
 )
 processor.add_sequence_feature(
     "hist_item_seq",
@@ -136,6 +139,7 @@ processor.add_sequence_feature(
     separator=",",
     keep_value=["item_a", "item_b"], # 序列至少包含其一
     filter_value=["item_x"],         # 序列包含 item_x 则过滤
+    match_mode="contains",
 )
 processor.add_target("label", target_type="binary")
 
@@ -151,14 +155,14 @@ train_processed = processor.transform(df_train)
 sparse:
   user_id:
     processor_config:
-      - {encode_method: label, keep_value: [u1, u2], filter_value: [u_bad]}
+      - {encode_method: label, keep_value: [u1, u2], filter_value: [u_bad], match_mode: exact}
     embedding_config:
       - {embedding_dim: 8, padding_idx: 0}
 
 sequence:
   hist_item_seq:
     processor_config:
-      - {encode_method: hash, hash_size: 5000, separator: ",", keep_value: [item_a, item_b], filter_value: [item_x]}
+      - {encode_method: hash, hash_size: 5000, separator: ",", keep_value: [item_a, item_b], filter_value: [item_x], match_mode: contains}
     embedding_config:
       - {vocab_size: 5000, max_len: 50, combiner: mean, embedding_dim: 8, padding_idx: 0}
 ```

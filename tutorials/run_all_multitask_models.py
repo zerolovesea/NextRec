@@ -20,7 +20,7 @@
     6. MMOE (Multi-gate Mixture of Experts): 多门控专家混合
     7. PEPNet (Parameter and Embedding Personalized Network): 参数和嵌入个性化网络
     8. PLE (Progressive Layered Extraction): 渐进式分层提取
-    9. POSO 
+    9. POSO
     10. ShareBottom: 共享底层网络
 
 使用方法:

@@ -154,3 +154,50 @@ def test_sparse_and_sequence_row_filters_are_applied_in_fit_and_transform():
     assert set(output["user_id"].tolist()) <= {"u1", "u2"}
     assert all("x" not in str(v) for v in output["hist"].tolist())
     assert processor.sparse_features["user_id_label"]["vocab_size"] == 3  # u1, u2, <UNK>
+
+
+def test_sparse_row_filters_support_contains_match_mode():
+    df = pd.DataFrame(
+        {
+            "user_id": ["usr_100", "guest_001", "usr_200"],
+            "label": [1, 0, 1],
+        }
+    )
+    processor = DataProcessor()
+    processor.add_sparse_feature(
+        "user_id",
+        encode_method="label",
+        keep_value=["usr_"],
+        match_mode="contains",
+    )
+    processor.add_target("label", target_type="binary")
+
+    output = processor.fit_transform(df, return_dict=True)
+
+    assert output["user_id"].shape == (2,)
+    assert set(output["user_id"].tolist()) == {"usr_100", "usr_200"}
+
+
+def test_sequence_row_filters_support_regex_match_mode():
+    df = pd.DataFrame(
+        {
+            "hist": ["a,b", "x1,y", "x9,z", "b,c"],
+            "label": [1, 0, 1, 0],
+        }
+    )
+    processor = DataProcessor()
+    processor.add_sequence_feature(
+        "hist",
+        encode_method="label",
+        max_len=3,
+        pad_value=0,
+        separator=",",
+        filter_value=[r"^x\d$"],
+        match_mode="regex",
+    )
+    processor.add_target("label", target_type="binary")
+
+    output = processor.fit_transform(df, return_dict=True)
+
+    assert output["hist"].shape == (2,)
+    assert set(output["hist"].tolist()) == {"a,b", "b,c"}

@@ -201,6 +201,7 @@ def register_processor_features(
                 fill_na=proc_cfg.get("fill_na", "<UNK>"),
                 filter_value=proc_cfg.get("filter_value", proc_cfg.get("filter_contains")),
                 keep_value=proc_cfg.get("keep_value", proc_cfg.get("keep_contains")),
+                match_mode=proc_cfg.get("match_mode", "exact"),
             )
 
     for name in sequence_names:
@@ -217,6 +218,7 @@ def register_processor_features(
                 separator=proc_cfg.get("separator", ","),
                 filter_value=proc_cfg.get("filter_value", proc_cfg.get("filter_contains")),
                 keep_value=proc_cfg.get("keep_value", proc_cfg.get("keep_contains")),
+                match_mode=proc_cfg.get("match_mode", "exact"),
             )
 
 

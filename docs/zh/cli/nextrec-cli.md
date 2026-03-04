@@ -128,7 +128,7 @@ export_onnx:
 
 在训练配置中，有一项`feature_config`配置，其中输入的是特征配置文件的路径。在特征配置文件里为模型需要的特征配置预处理和参数定义。示例配置文件如下，可以看到这里的配置和前面Python API的[预处理配置](../apis/data-processor.md)以及[特征配置](../apis/features.md)是一致的。
 
-对于 `sparse` 和 `sequence` 特征，还可在 `processor_config` 中增加 `filter_value` 与 `keep_value` 进行样本过滤，详细规则见[数据预处理](../apis/data-processor.md)中的“sparse/sequence 样本过滤教程”。
+对于 `sparse` 和 `sequence` 特征，还可在 `processor_config` 中增加 `filter_value` 与 `keep_value` 进行样本过滤，并通过 `match_mode` 指定匹配模式（`exact`/`contains`/`regex`），详细规则见[数据预处理](../apis/data-processor.md)中的“sparse/sequence 样本过滤教程”。
 
 ```yaml
 # 稠密特征（dense）：processor_config 使用 scaler
@@ -148,7 +148,7 @@ sparse:
       - {embedding_name: user_item_shared, embedding_dim: 32, padding_idx: 0, init_type: xavier_uniform}
   item_id:
     processor_config:
-      - {encode_method: hash, hash_size: 200000, min_freq: 2, keep_value: ["1001", "1002"], filter_value: ["-1"]}
+      - {encode_method: hash, hash_size: 200000, min_freq: 2, keep_value: ["1001", "1002"], filter_value: ["-1"], match_mode: exact}
     embedding_config:
       - {embedding_name: user_item_shared, embedding_dim: 32, padding_idx: 0}
 
@@ -165,7 +165,8 @@ sequence:
           pad_value: 0,
           truncate: pre,
           keep_value: ["1001", "1002"],
-          filter_value: ["-1"]
+          filter_value: ["-1"],
+          match_mode: contains
         }
     embedding_config:
       - {embedding_name: user_item_shared, embedding_dim: 32, max_len: 50, combiner: mean, padding_idx: 0}
@@ -174,6 +175,7 @@ sequence:
 说明：
 - `dense` 类型没有 `encode_method`，请使用 `scaler`。
 - `sparse` / `sequence` 类型没有 `type` 字段，请使用 `encode_method`。
+- 样本过滤默认 `match_mode: exact`，可选 `contains`（子串匹配）和 `regex`（正则匹配）。
 - 若不填写 `embedding_name`，默认使用该特征的输出名（例如 `item_id_hash`），即不与其他特征共享 embedding 表。
 
 ### 模型配置
