@@ -201,3 +201,37 @@ def test_sequence_row_filters_support_regex_match_mode():
 
     assert output["hist"].shape == (2,)
     assert set(output["hist"].tolist()) == {"a,b", "b,c"}
+
+
+def test_keep_row_filters_across_features_use_or_semantics():
+    df = pd.DataFrame(
+        {
+            "seq_a": ["ZQ-001,x", "x,y", "none"],
+            "seq_b": ["none", "GP-777,z", "none"],
+            "label": [1, 0, 1],
+        }
+    )
+    processor = DataProcessor()
+    processor.add_sequence_feature(
+        "seq_a",
+        encode_method="label",
+        max_len=4,
+        separator=",",
+        keep_value=["ZQ-"],
+        match_mode="contains",
+    )
+    processor.add_sequence_feature(
+        "seq_b",
+        encode_method="label",
+        max_len=4,
+        separator=",",
+        keep_value=["GP-"],
+        match_mode="contains",
+    )
+    processor.add_target("label", target_type="binary")
+
+    output = processor.fit_transform(df, return_dict=True)
+
+    assert output["seq_a"].shape == (2,)
+    assert output["seq_b"].shape == (2,)
+    assert output["label"].shape == (2,)

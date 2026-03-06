@@ -23,6 +23,17 @@ train:
   optimizer: adam
   optimizer_params:
     lr: 0.001
+  # Optional LR scheduler: step | cosine
+  # scheduler: cosine
+  # scheduler_params:
+  #   T_max: 10
+  # Optional warmup (default disabled)
+  # Works even without scheduler (warmup then keep base lr)
+  # warmup:
+  #   enabled: true
+  #   epochs: 2
+  #   start_factor: 0.1
+  #   end_factor: 1.0
   loss: ['bce','bce']                            # Loss function
   # loss_params:                                # Optional loss params
   # loss_weights:                               # Optional loss weights or GradNorm

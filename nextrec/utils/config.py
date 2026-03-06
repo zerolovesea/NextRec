@@ -21,8 +21,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 import pandas as pd
 import torch
 
-from nextrec.utils.torch_utils import to_list
-
 if TYPE_CHECKING:
     from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
     from nextrec.data.preprocessor import DataProcessor
@@ -330,57 +328,6 @@ def build_feature_objects(
     return dense_features, sparse_features, sequence_features
 
 
-def extract_feature_groups(
-    feature_cfg: Dict[str, Any], df_columns: List[str]
-) -> Tuple[Dict[str, List[str]], List[str]]:
-    """
-    Extract and validate feature groups from feature configuration.
-
-    Args:
-        feature_cfg: Feature configuration dictionary
-        df_columns: Available dataframe columns
-    """
-    feature_groups = feature_cfg.get("feature_groups") or {}
-    if not feature_groups:
-        return {}, []
-
-    defined = (
-        set((feature_cfg.get("dense") or {}).keys())
-        | set((feature_cfg.get("sparse") or {}).keys())
-        | set((feature_cfg.get("sequence") or {}).keys())
-    )
-    available_cols = set(df_columns)
-    resolved: Dict[str, List[str]] = {}
-    collected: List[str] = []
-
-    for group_name, names in feature_groups.items():
-        name_list = to_list(names)
-        filtered = []
-        missing_defined = [n for n in name_list if n not in defined]
-        missing_cols = [n for n in name_list if n not in available_cols]
-
-        if missing_defined:
-            print(
-                f"[Feature Config] feature_groups.{group_name} contains features not defined in dense/sparse/sequence: {missing_defined}"
-            )
-
-        for n in name_list:
-            if n in available_cols:
-                if n not in filtered:
-                    filtered.append(n)
-            else:
-                if n not in missing_cols:
-                    missing_cols.append(n)
-
-        if missing_cols:
-            print(f"[Feature Config] feature_groups.{group_name} missing data columns: {missing_cols}")
-
-        resolved[group_name] = filtered
-        collected.extend(filtered)
-
-    return resolved, collected
-
-
 def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
     """
     Load model class from configuration.
@@ -492,25 +439,12 @@ def build_model_instance(
         id_columns: Identifier column name(s) for GAUC or ID passthrough
         device: Device string (e.g., 'cpu', 'cuda:0')
     """
-    dense_map = {f.name: f for f in dense_features}
-    sparse_map = {f.name: f for f in sparse_features}
-    sequence_map = {f.name: f for f in sequence_features}
-    feature_pool: Dict[str, Any] = {**dense_map, **sparse_map, **sequence_map}
-
     model_cls = load_model_class(model_cfg, model_cfg_path.parent)
     params_cfg = deepcopy(model_cfg.get("params") or {})
-    feature_groups = params_cfg.pop("feature_groups", {}) or {}
-    feature_bindings_cfg = model_cfg.get("feature_bindings") or params_cfg.pop("feature_bindings", {}) or {}
+    # Deprecated: remove auto feature binding configs from init kwargs.
+    params_cfg.pop("feature_groups", None)
+    params_cfg.pop("feature_bindings", None)
     sig_params = inspect.signature(model_cls.__init__).parameters
-
-    def _select(names: List[str] | None, pool: Dict[str, Any], desc: str) -> List[Any]:
-        """Select features from pool by names."""
-        if names is None:
-            return list(pool.values())
-        missing = [n for n in names if n not in feature_pool]
-        if missing:
-            raise ValueError(f"feature_groups.{desc} contains unknown features: {missing}")
-        return [feature_pool[n] for n in names]
 
     def accepts(name: str) -> bool:
         """Check if parameter name is accepted by model __init__."""
@@ -519,65 +453,7 @@ def build_model_instance(
     accepts_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in sig_params.values())
 
     init_kwargs = dict(params_cfg)
-
-    # Explicit bindings (model_config.feature_bindings) take priority
-    for param_name, binding in feature_bindings_cfg.items():
-        if param_name in init_kwargs:
-            continue
-
-        if isinstance(binding, (list, tuple, set)):
-            if accepts(param_name) or accepts_var_kwargs:
-                init_kwargs[param_name] = _select(list(binding), feature_pool, f"feature_bindings.{param_name}")
-            continue
-
-        if isinstance(binding, dict):
-            direct_features = binding.get("features") or binding.get("feature_names")
-            if direct_features and (accepts(param_name) or accepts_var_kwargs):
-                init_kwargs[param_name] = _select(
-                    to_list(direct_features),
-                    feature_pool,
-                    f"feature_bindings.{param_name}",
-                )
-                continue
-            group_key = binding.get("group") or binding.get("group_key")
-        else:
-            group_key = binding
-
-        if group_key not in feature_groups:
-            print(f"[Feature Config] feature_bindings refers to unknown group '{group_key}', skipped")
-            continue
-
-        if accepts(param_name) or accepts_var_kwargs:
-            init_kwargs[param_name] = _select(feature_groups[group_key], feature_pool, str(group_key))
-
-    # Dynamic feature groups: any key in feature_groups that matches __init__ will be filled
-    for group_key, names in feature_groups.items():
-        if accepts(str(group_key)):
-            init_kwargs.setdefault(str(group_key), _select(names, feature_pool, str(group_key)))
-
-    # Generalized mapping: match params to feature_groups by normalized names
-    def _normalize_group_key(key: str) -> str:
-        """Normalize group key by removing common suffixes."""
-        key = key.lower()
-        for suffix in ("_features", "_feature", "_feats", "_feat", "_list", "_group"):
-            if key.endswith(suffix):
-                key = key[: -len(suffix)]
-        return key
-
-    normalized_groups = {}
-    for gk in feature_groups:
-        norm = _normalize_group_key(gk)
-        normalized_groups.setdefault(norm, gk)
-
-    for param_name in sig_params:
-        if param_name in ("self",) or param_name in init_kwargs:
-            continue
-        norm_param = _normalize_group_key(param_name)
-        if norm_param in normalized_groups and (accepts(param_name) or accepts_var_kwargs):
-            group_key = normalized_groups[norm_param]
-            init_kwargs[param_name] = _select(feature_groups[group_key], feature_pool, str(group_key))
-
-    # Feature wiring: prefer explicit groups when provided
+    # Feature wiring is explicit only: pass full feature lists when the model accepts them.
     if accepts("dense_features"):
         init_kwargs.setdefault("dense_features", dense_features)
     if accepts("sparse_features"):

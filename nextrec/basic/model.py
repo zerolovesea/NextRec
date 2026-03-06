@@ -91,6 +91,7 @@ from nextrec.utils.torch_utils import (
     get_device,
     gather_numpy,
     get_optimizer,
+    get_warmup,
     get_scheduler,
     init_process_group,
     to_tensor,
@@ -428,6 +429,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             | None
         ) = None,
         scheduler_params: dict | None = None,
+        warmup: bool | dict | None = None,
         loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         loss_weights: int | float | list[int | float] | dict | None = None,
@@ -440,6 +442,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             optimizer_params: Optimizer parameters. e.g., {'lr': 1e-3, 'weight_decay': 1e-5}.
             scheduler: Learning rate scheduler name or instance. e.g., 'step', 'cosine', or torch.optim.lr_scheduler.StepLR().
             scheduler_params: Scheduler parameters. e.g., {'step_size': 10, 'gamma': 0.1}.
+            warmup: Optional warmup config for scheduler.
+                - False/None (default): disable warmup.
+                - True: enable with defaults {'epochs': 1, 'start_factor': 0.1, 'end_factor': 1.0}.
+                - dict: configure {'enabled': bool, 'epochs': int, 'start_factor': float, 'end_factor': float}.
             loss: Loss function name, instance, or list for multi-task. e.g., 'bce', 'mse', or torch.nn.BCELoss(), you can also use custom loss functions.
             loss_params: Loss function parameters, or list for multi-task. e.g., {'weight': tensor([0.25, 0.75])}.
             loss_weights: Weights for each task loss, int/float for single-task or list for multi-task. e.g., 1.0, or [1.0, 0.5].
@@ -454,6 +460,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.loss_params = loss_params or {}
         self.optimizer_params = optimizer_params or {}
         self.scheduler_params = scheduler_params or {}
+        self.warmup = get_warmup(warmup)
 
         self.optimizer_name = optimizer if isinstance(optimizer, str) else optimizer.__class__.__name__
         self.optimizer_fn = get_optimizer(
@@ -469,6 +476,30 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         else:
             self.scheduler_name = getattr(scheduler, "__name__", scheduler.__class__.__name__)  # type: ignore
         self.scheduler_fn = get_scheduler(scheduler, self.optimizer_fn, **self.scheduler_params) if scheduler else None
+        if self.warmup is not None:
+            warmup_epochs = int(self.warmup["epochs"])
+            warmup_start = float(self.warmup["start_factor"])
+            warmup_end = float(self.warmup["end_factor"])
+            warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+                self.optimizer_fn,
+                start_factor=warmup_start,
+                end_factor=warmup_end,
+                total_iters=warmup_epochs,
+            )
+            if self.scheduler_fn is None:
+                self.scheduler_fn = warmup_scheduler
+                self.scheduler_name = "warmup"
+            else:
+                if hasattr(self.scheduler_fn, "mode"):
+                    raise ValueError(
+                        "[BaseModel-compile Error] warmup currently does not support ReduceLROnPlateau-like schedulers."
+                    )
+                self.scheduler_fn = torch.optim.lr_scheduler.SequentialLR(
+                    self.optimizer_fn,
+                    schedulers=[warmup_scheduler, self.scheduler_fn],
+                    milestones=[warmup_epochs],
+                )
+                self.scheduler_name = f"warmup+{self.scheduler_name}"
 
         self.loss_config = loss_list if self.nums_task > 1 else loss_list[0]
         if isinstance(self.loss_params, dict):
@@ -3125,6 +3156,7 @@ class BaseMatchModel(BaseModel):
             | None
         ) = None,
         scheduler_params: dict | None = None,
+        warmup: bool | dict | None = None,
         loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
         loss_params: dict | list[dict] | None = None,
         loss_weights: int | float | list[int | float] | dict | str | None = None,
@@ -3138,6 +3170,7 @@ class BaseMatchModel(BaseModel):
             optimizer_params: Parameters for the optimizer. e.g., {'lr': 0.001}.
             scheduler: Learning rate scheduler (name, instance, or class). e.g., 'step_lr'.
             scheduler_params: Parameters for the scheduler. e.g., {'step_size': 10, 'gamma': 0.1}.
+            warmup: Optional warmup config for scheduler.
             loss: Loss function(s) to use (name, instance, or list). e.g., 'bce'.
             loss_params: Parameters for the loss function(s). e.g., {'reduction': 'mean'}.
             loss_weights: Weights for the loss function(s). e.g., 1.0 or [0.7, 0.3].
@@ -3177,6 +3210,7 @@ class BaseMatchModel(BaseModel):
             optimizer_params=optimizer_params,
             scheduler=scheduler,
             scheduler_params=scheduler_params,
+            warmup=warmup,
             loss=effective_loss,
             loss_params=loss_params,
             loss_weights=loss_weights,

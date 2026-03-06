@@ -391,6 +391,9 @@ def train_model(train_config_path: str) -> None:
     model.compile(
         optimizer=train_cfg.get("optimizer", "adam"),
         optimizer_params=train_cfg.get("optimizer_params", {}),
+        scheduler=train_cfg.get("scheduler"),
+        scheduler_params=train_cfg.get("scheduler_params", {}),
+        warmup=train_cfg.get("warmup", train_cfg.get("warmup")),
         loss=train_cfg.get("loss", "focal"),
         loss_params=train_cfg.get("loss_params", {}),
         loss_weights=train_cfg.get("loss_weights"),

@@ -326,7 +326,8 @@ class DataProcessor(FeatureSet):
 
     def apply_row_filters(self, lazy_frame, schema: Dict[str, Any]):
         logger = logging.getLogger()
-        filters = []
+        keep_filters = []
+        drop_filters = []
 
         for name, config in self.sparse_features.items():
             source_name = self._config_source_name(name, config)
@@ -340,9 +341,9 @@ class DataProcessor(FeatureSet):
                 continue
             col = pl.col(source_name).cast(pl.Utf8).fill_null(config.get("fill_na", "<UNK>"))
             if keep_values:
-                filters.append(self._build_sparse_match_expr(col, keep_values, match_mode))
+                keep_filters.append(self._build_sparse_match_expr(col, keep_values, match_mode))
             if filter_values:
-                filters.append(~self._build_sparse_match_expr(col, filter_values, match_mode))
+                drop_filters.append(self._build_sparse_match_expr(col, filter_values, match_mode))
             logger.info(
                 f"Apply sparse row filter on {output_name}: keep_value={keep_values}, "
                 f"filter_value={filter_values}, match_mode={match_mode}"
@@ -360,17 +361,23 @@ class DataProcessor(FeatureSet):
                 continue
             seq_col = self.sequence_expr(source_name, config, schema)
             if keep_values:
-                filters.append(self._build_sequence_match_expr(seq_col, keep_values, match_mode))
+                keep_filters.append(self._build_sequence_match_expr(seq_col, keep_values, match_mode))
             if filter_values:
-                filters.append(~self._build_sequence_match_expr(seq_col, filter_values, match_mode))
+                drop_filters.append(self._build_sequence_match_expr(seq_col, filter_values, match_mode))
             logger.info(
                 f"Apply sequence row filter on {output_name}: keep_value={keep_values}, "
                 f"filter_value={filter_values}, match_mode={match_mode}"
             )
 
-        if not filters:
+        predicates = []
+        if keep_filters:
+            predicates.append(pl.any_horizontal(keep_filters))
+        if drop_filters:
+            predicates.append(~pl.any_horizontal(drop_filters))
+
+        if not predicates:
             return lazy_frame
-        return lazy_frame.filter(pl.all_horizontal(filters))
+        return lazy_frame.filter(pl.all_horizontal(predicates))
 
     def apply_transforms(self, lazy_frame, schema: Dict[str, Any]):
         """

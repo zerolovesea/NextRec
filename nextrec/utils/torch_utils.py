@@ -232,6 +232,50 @@ def get_scheduler(
     return scheduler_fn
 
 
+def get_warmup(
+    warmup: bool | dict | None,
+) -> dict | None:
+    if warmup in (None, False):
+        return None
+
+    config = {"enabled": True, "epochs": 1, "start_factor": 0.1, "end_factor": 1.0}
+    if warmup is True:
+        pass
+    elif isinstance(warmup, dict):
+        config.update(warmup)
+    else:
+        raise TypeError(
+            f"[BaseModel-compile Error] warmup must be bool, dict, or None, got {type(warmup)}"
+        )
+
+    if not bool(config.get("enabled", True)):
+        return None
+
+    warmup_epochs = int(config.get("epochs", 0))
+    if warmup_epochs <= 0:
+        return None
+
+    start_factor = float(config.get("start_factor", 0.1))
+    end_factor = float(config.get("end_factor", 1.0))
+    if start_factor <= 0 or start_factor > 1:
+        raise ValueError(
+            f"[BaseModel-compile Error] warmup.start_factor must be in (0, 1], got {start_factor}."
+        )
+    if end_factor <= 0 or end_factor > 1:
+        raise ValueError(
+            f"[BaseModel-compile Error] warmup.end_factor must be in (0, 1], got {end_factor}."
+        )
+    if start_factor > end_factor:
+        raise ValueError("[BaseModel-compile Error] warmup.start_factor must be <= end_factor.")
+
+    return {
+        "enabled": True,
+        "epochs": warmup_epochs,
+        "start_factor": start_factor,
+        "end_factor": end_factor,
+    }
+
+
 def init_process_group(distributed: bool, rank: int, world_size: int, device_id: int | None = None) -> None:
     """
     initialize distributed process group for multi-GPU training.
