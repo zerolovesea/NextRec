@@ -85,6 +85,15 @@ model.compile(
     scheduler_params={"T_max": 10, "eta_min": 1e-6}
 )
 
+# 带warmup的学习率调度
+model.compile(
+    optimizer="adam",
+    optimizer_params={"lr": 0.001},
+    scheduler="cosine",
+    scheduler_params={"T_max": 10},
+    warmup={"epochs": 2, "start_factor": 0.1, "end_factor": 1.0}
+)
+
 # 多任务训练（带损失权重）
 model.compile(
     optimizer="adam",
@@ -110,6 +119,7 @@ model.compile(
 | `optimizer_params` | 优化器参数，如 `{"lr": 0.001, "weight_decay": 1e-5}` |
 | `scheduler` | 学习率调度器：`"step"`,`"cosine"`|
 | `scheduler_params` | 调度器参数，如 `{"step_size": 10, "gamma": 0.1}` |
+| `warmup` | 可选 warmup 配置，支持 `False/None/True/dict`。`True` 使用默认值：`{"epochs":1,"start_factor":0.1,"end_factor":1.0}`；`dict` 可显式配置 `enabled/epochs/start_factor/end_factor`。即使不配置 `scheduler` 也可单独使用 warmup（结束后保持 `base_lr`）。 |
 | `loss` | 损失函数：`"bce"`,`"weighted_bce"`,`"mse"`,`"focal"`,`"bpr"`等 |
 | `loss_params` | 损失函数参数，多任务时可为列表，其中为每个损失函数的参数 |
 | `loss_weights` | 多任务损失权重，如 `{"click": 1.0, "buy": 0.5}`时代表click任务的样本权重为1，buy任务的样本权重为0.5；使用时 `{"method": "grad_norm", "alpha": 1.5, "lr": 0.025}` 启用 GradNorm 进行动态权重计算|

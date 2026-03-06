@@ -73,6 +73,16 @@ train:
   optimizer: adam   
   optimizer_params:  
     lr: 0.001
+  # 可选学习率调度器：step / cosine
+  scheduler: cosine
+  scheduler_params:
+    T_max: 10
+  # 可选warmup（默认关闭）
+  warmup:
+    enabled: true
+    epochs: 1
+    start_factor: 0.1
+    end_factor: 1.0
   # 损失函数，多任务时需要配置多个损失函数
   loss:                                                                         
     - 'bce'
@@ -123,6 +133,19 @@ export_onnx:
        
 # nextrec --mode train --train_config train_config.yaml
 ```
+
+Warmup 参数说明：
+
+- `train.warmup` 支持 `null/bool/dict`。
+- 默认关闭：不填或设为 `false`。
+- 设为 `true` 时使用默认值：`epochs=1,start_factor=0.1,end_factor=1.0`。
+- 设为 `dict` 时可自定义：
+  - `enabled`：是否启用 warmup。
+  - `epochs`：warmup 持续的 epoch 数。
+  - `start_factor`：warmup 起始学习率系数，实际学习率为 `base_lr * start_factor`。
+  - `end_factor`：warmup 结束学习率系数，通常设为 `1.0`。
+- 不配置 `scheduler` 也可以单独使用 warmup，此时 warmup 完成后学习率保持在 `base_lr`。
+- warmup 会先执行，再进入 `scheduler` 指定的主调度策略（例如 `cosine` 或 `step`）。
 
 ### 特征配置
 
