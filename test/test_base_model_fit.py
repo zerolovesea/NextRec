@@ -62,3 +62,39 @@ def test_fit_without_validation_monitors_loss_for_early_stop(monkeypatch, caplog
     assert checkpoint_saver.monitor == "loss"
     assert checkpoint_saver.mode == "min"
     assert "Early stopping conditioned on metric `val_auc_y1`" not in caplog.text
+
+
+def test_fit_with_valid_group_by_uses_overall_metrics_for_callbacks(monkeypatch, caplog):
+    model = _DummyMultiTaskFitModel()
+
+    monkeypatch.setattr("nextrec.basic.model.init_process_group", lambda *args, **kwargs: None)
+    monkeypatch.setattr(model, "prepare_data_loader", lambda *args, **kwargs: (DataLoader([0], batch_size=1), [0]))
+    monkeypatch.setattr(model, "prepare_validation_data", lambda *args, **kwargs: (DataLoader([0], batch_size=1), None))
+    monkeypatch.setattr(model, "train_epoch", lambda *args, **kwargs: 0.25)
+    monkeypatch.setattr(
+        model,
+        "evaluate",
+        lambda *args, **kwargs: {
+            "overall": {"auc_y1": 0.8, "auc_y2": 0.7},
+            "grouped": [{"product": "p1", "samples": 1, "auc_y1": 0.8, "auc_y2": 0.7}],
+        },
+    )
+    monkeypatch.setattr(model, "summary", lambda *args, **kwargs: None)
+    monkeypatch.setattr(model, "build_train_data_summary", lambda *args, **kwargs: None)
+    monkeypatch.setattr(model, "build_valid_data_summary", lambda *args, **kwargs: None)
+    monkeypatch.setattr(model, "load_model", lambda *args, **kwargs: None)
+
+    caplog.set_level(logging.WARNING)
+
+    model.fit(
+        train_data={},
+        valid_data={},
+        metrics=["auc"],
+        epochs=1,
+        batch_size=1,
+        early_stop_patience=2,
+        valid_group_by="product",
+        use_tensorboard=False,
+    )
+
+    assert "which is not available" not in caplog.text

@@ -725,6 +725,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         valid_split: float | None = None,
         early_stop_patience: int = 20,
         early_stop_monitor_task: str | None = None,
+        valid_group_by: str | list[str] | None = None,
         num_workers: int = 0,
         use_tensorboard: bool = True,
         use_wandb: bool = False,
@@ -753,6 +754,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
             early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
             early_stop_monitor_task: Task name to monitor for early stopping in multi-task scenario. If None, uses first target. e.g., 'click'.
+            valid_group_by: Optional validation group-by column(s) for grouped metric reporting during training.
             num_workers: DataLoader worker count.
 
             use_tensorboard: Enable tensorboard logging.
@@ -815,6 +817,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         self.early_stop_patience = early_stop_patience
         self.early_stop_monitor_task = early_stop_monitor_task
+        self.valid_group_by = valid_group_by
         self.note = note
 
         training_config = {}
@@ -1148,23 +1151,33 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     val_metrics = self.evaluate(
                         valid_loader,
                         user_ids=valid_user_ids if self.needs_user_ids else None,
+                        user_id_column=user_id_column or "user_id",
+                        group_by=self.valid_group_by,
                         num_workers=num_workers,
                     )
-                    display_metrics_table(
-                        epoch=epoch + 1,
-                        epochs=epochs,
-                        split="Valid",
-                        loss=None,
-                        metrics=val_metrics,
-                        target_names=self.target_columns,
-                        base_metrics=(self.metrics if isinstance(self.metrics, list) else None),
-                        is_main_process=self.is_main_process,
-                        colorize=lambda s: colorize("  " + s, color="cyan"),
+                    val_metrics_for_state = (
+                        val_metrics.get("overall", {})
+                        if isinstance(val_metrics, dict) and "overall" in val_metrics and "grouped" in val_metrics
+                        else val_metrics
                     )
+                    if not self.valid_group_by:
+                        display_metrics_table(
+                            epoch=epoch + 1,
+                            epochs=epochs,
+                            split="Valid",
+                            loss=None,
+                            metrics=val_metrics_for_state,
+                            target_names=self.target_columns,
+                            base_metrics=(self.metrics if isinstance(self.metrics, list) else None),
+                            is_main_process=self.is_main_process,
+                            colorize=lambda s: colorize("  " + s, color="cyan"),
+                        )
                     self.callbacks.on_validation_end()
-                    if val_metrics and self.training_logger:
-                        self.training_logger.log_metrics(val_metrics, step=epoch + 1, split="valid")
-                if not val_metrics:
+                    if val_metrics_for_state and self.training_logger:
+                        self.training_logger.log_metrics(val_metrics_for_state, step=epoch + 1, split="valid")
+                else:
+                    val_metrics_for_state = None
+                if not val_metrics_for_state:
                     if should_eval_valid and self.is_main_process:
                         logging.info(
                             colorize(
@@ -1175,7 +1188,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     epoch_logs = {**train_log_payload}
                 else:
                     epoch_logs = {**train_log_payload}
-                    for k, v in val_metrics.items():
+                    for k, v in val_metrics_for_state.items():
                         epoch_logs[f"val_{k}"] = v
             else:
                 epoch_logs = {**train_log_payload}

@@ -152,6 +152,7 @@ train:
                                                        # More epochs = more training but risk overfitting
   early_stop_patience: 20                              # Early stopping patience; 0 disables early stopping
   # early_stop_monitor_task: click                     # Multi-task only: choose which target to monitor
+  # valid_group_by: custom_scenario_column             # Validation only: grouped metric display during training
 
   shuffle: true                                        # Shuffle training data
                                                        # Recommended: true for better convergence

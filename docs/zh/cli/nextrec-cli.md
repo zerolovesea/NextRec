@@ -114,6 +114,8 @@ train:
   early_stop_patience: 5
   # 多任务时可指定早停监控的任务名，监控指标仍取metrics中的第一个
   early_stop_monitor_task: label_register
+  # 训练中的验证阶段按列分组展示指标
+  valid_group_by: product
   shuffle: true
   device: cpu
   # 每N个batch记录一次日志，1表示每个batch都记录
@@ -141,6 +143,7 @@ export_onnx:
 - `train.early_stop_patience` 控制早停轮数，设为 `0` 表示关闭早停。
 - `train.early_stop_monitor_task` 仅在多任务训练下生效，用于指定早停监控哪个任务。
 - 当前早停监控的指标仍然取 `train.metrics` 中的第一个指标，例如 `metrics: [auc, ...]` 时会监控 `val_auc_{task}`。
+- `train.valid_group_by` 只作用在训练中的验证阶段，用于按列分组展示验证指标，不改变训练 loss，也不改变 early stop 监控口径。
 
 Warmup 参数说明：
 
