@@ -5,7 +5,7 @@ This module provides utilities for loading and processing configuration files,
 including feature configuration, model configuration, and training configuration.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -41,6 +41,10 @@ _EMBEDDING_CFG_KEYS = {
     "proj_dim",
     "input_dim",
     "use_projection",
+    "projection_type",
+    "mlp_hidden_dims",
+    "mlp_activation",
+    "mlp_dropout",
 }
 
 
@@ -68,7 +72,11 @@ def _normalize_processor_config(entry: Dict[str, Any], feature_type: str) -> Lis
 
 def _processor_method_name(feature_type: str, proc_cfg: Dict[str, Any]) -> str:
     if feature_type == "dense":
-        return str(proc_cfg.get("scaler") or "none")
+        scaler = proc_cfg.get("scaler")
+        if isinstance(scaler, list):
+            names = [str(v).strip().lower() for v in scaler if str(v).strip()]
+            return "_".join(names) if names else "none"
+        return str(scaler or "none")
     return str(proc_cfg.get("encode_method") or "hash")
 
 
@@ -258,6 +266,10 @@ def build_feature_objects(
                     proj_dim=embed_cfg.get("proj_dim"),
                     input_dim=embed_cfg.get("input_dim", 1),
                     use_projection=embed_cfg.get("use_projection", False),
+                    projection_type=embed_cfg.get("projection_type", "linear"),
+                    mlp_hidden_dims=embed_cfg.get("mlp_hidden_dims"),
+                    mlp_activation=embed_cfg.get("mlp_activation", "relu"),
+                    mlp_dropout=embed_cfg.get("mlp_dropout", 0.0),
                 )
             )
 

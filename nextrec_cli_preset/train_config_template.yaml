@@ -150,7 +150,9 @@ train:
   epochs: 10                                           # Number of training epochs
                                                        # One epoch = one full pass through training data
                                                        # More epochs = more training but risk overfitting
-  
+  early_stop_patience: 20                              # Early stopping patience; 0 disables early stopping
+  # early_stop_monitor_task: click                     # Multi-task only: choose which target to monitor
+
   shuffle: true                                        # Shuffle training data
                                                        # Recommended: true for better convergence
 

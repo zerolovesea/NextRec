@@ -111,6 +111,9 @@ train:
     - topk_precision@5
     - topk_precision@10
   epochs: 3
+  early_stop_patience: 5
+  # 多任务时可指定早停监控的任务名，监控指标仍取metrics中的第一个
+  early_stop_monitor_task: label_register
   shuffle: true
   device: cpu
   # 每N个batch记录一次日志，1表示每个batch都记录
@@ -133,6 +136,11 @@ export_onnx:
        
 # nextrec --mode train --train_config train_config.yaml
 ```
+
+说明：
+- `train.early_stop_patience` 控制早停轮数，设为 `0` 表示关闭早停。
+- `train.early_stop_monitor_task` 仅在多任务训练下生效，用于指定早停监控哪个任务。
+- 当前早停监控的指标仍然取 `train.metrics` 中的第一个指标，例如 `metrics: [auc, ...]` 时会监控 `val_auc_{task}`。
 
 Warmup 参数说明：
 
@@ -159,8 +167,10 @@ dense:
   price:
     processor_config:
       - {scaler: robust, fill_na: 0.0}   # 可选 scaler: standard/minmax/robust/maxabs/log/none
+      - {scaler: [log, minmax], fill_na: 0.0}  # 支持顺序变换：先 log1p 再 minmax
     embedding_config:
       - {embedding_dim: 16, input_dim: 1, use_projection: true, proj_dim: 8}
+      - {input_dim: 1, use_projection: true, proj_dim: 1, projection_type: mlp, mlp_hidden_dims: [8, 4], mlp_activation: relu, mlp_dropout: 0.0}
 
 # 稀疏特征（sparse）：processor_config 使用 encode_method
 sparse:
@@ -197,6 +207,8 @@ sequence:
 
 说明：
 - `dense` 类型没有 `encode_method`，请使用 `scaler`。
+- `dense.processor_config.scaler` 支持字符串或列表（列表按顺序执行）。
+- `dense.embedding_config` 支持 `projection_type/mlp_hidden_dims/mlp_activation/mlp_dropout`，可用于多维 dense 的 MLP 投影。
 - `sparse` / `sequence` 类型没有 `type` 字段，请使用 `encode_method`。
 - 样本过滤默认 `match_mode: exact`，可选 `contains`（子串匹配）和 `regex`（正则匹配）。
 - 若不填写 `embedding_name`，默认使用该特征的输出名（例如 `item_id_hash`），即不与其他特征共享 embedding 表。
@@ -230,6 +242,10 @@ predict:
   name: pred 
   # 推理集保存格式，支持csv与parquet
   save_data_format: csv 
+  # 推理前按候选值展开样本；每条样本会做笛卡尔积复制
+  # 用于多场景任务下，每个样本需要根据不同的场景特征进行推理
+  expand:
+    custom_col: [custom_class_1, custom_class_2, custom_class_3]
   # 推理结束查看前N行数据
   preview_rows: 5
   batch_size: 512
@@ -248,6 +264,13 @@ predict:
 
 文件准备完成后，使用`nextrec --mode predict --predict_config predict_config.yaml`即可开始推理。
 
+说明：
+- `predict.expand` 为“列名 -> 候选值列表”的映射。
+- 推理时会先对每条样本做笛卡尔积展开，再送入模型。
+- 上述示例会把每条样本复制 3 次，并分别写入 `custom_class_1/custom_class_2/custom_class_3` 到 `custom_col` 列。
+- 展开列会自动追加到预测结果中，便于区分不同场景。
+- 流式推理会按 chunk 展开，不会先把整份数据一次性放大到内存中，但展开倍数越大，单个 chunk 的内存与写出量也会同步增长，需要根据用户的机器性能来选择合适的参数。
+
 ### 验证配置
 
 通过验证配置，能够使用`nextrec --mode evaluate --evaluate_config=evaluate_config.yaml`来一键使用现有的模型在新数据集上执行验证。示例配置文件如下：
@@ -265,6 +288,8 @@ evaluate:
   # 验证集数据格式
   source_data_format: csv                 
   id_column: user_id                    
+  # 按自定义的场景列进行分组评估，可填单列
+  group_by: custom_col
   # 目标列
   target:
     - click
@@ -287,6 +312,12 @@ evaluate:
                                          
 # nextrec --mode evaluate --evaluate_config evaluate_config.yaml
 ```
+
+说明：
+- `evaluate.group_by` 用于按列分组统计指标，例如 `custom_col=custom_class_1/custom_class_2/...`。
+- 配置后会同时输出整体指标和分组指标。
+- 分组结果会保存到 `{checkpoint_path}/evaluate/{name}/metrics_by.csv` 与 `metrics_by.json`。
+- `gauc` 等依赖 `id_column` 的指标仍然使用 `id_column` 作为用户 ID，`group_by` 只负责切分统计口径。
 
 ## 下一步
 

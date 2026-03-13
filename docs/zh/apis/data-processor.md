@@ -18,6 +18,7 @@ processor = DataProcessor()
 # 添加特征，将会生成{特征名}_{处理方式}的特征列
 processor.add_numeric_feature("age", scaler="standard") # 将构造 age_standard 特征
 processor.add_numeric_feature("age", scaler="log")      # 将构造 age_log 特征
+processor.add_numeric_feature("age", scaler=["log", "minmax"]) # 将构造 age_log_minmax（顺序变换）
 processor.add_numeric_feature("income", scaler="minmax")
 processor.add_sparse_feature("item_id", encode_method="hash", hash_size=1000000)
 processor.add_sparse_feature("category", encode_method="label")
@@ -49,7 +50,7 @@ test_processed = processor.transform(test_df)
 | 参数 | 说明 |
 |-----|------|
 | `name` | **[必需]** 特征名称 |
-| `scaler` | 缩放器类型：`"standard"`,`"minmax"`,`"robust"`,`"maxabs"`,`"log"`,`"none"`，将根据`scaler`类型构造生成特征名|
+| `scaler` | 缩放器类型，支持字符串或字符串列表：`"standard"`,`"minmax"`,`"robust"`,`"maxabs"`,`"log"`,`"none"`，将根据`scaler`构造生成特征名 |
 | `fill_na` | 缺失值的填充值 |
 
 ### scaler
@@ -64,6 +65,22 @@ test_processed = processor.transform(test_df)
 | `maxabs` | 归一化到 [-1,1] | 稀疏数据 |
 | `log` | 对数变换 | 偏斜分布 |
 | `none` | 不做缩放 | 已有归一化数据 |
+
+### 顺序多次变换（Pipeline）
+
+`scaler` 支持传入有序 `list`，系统会按顺序依次执行变换：
+
+```python
+processor.add_numeric_feature("price", scaler=["log", "minmax"])
+```
+
+上面的配置表示先 `log1p`，再做 `minmax`，输出列名为 `price_log_minmax`。  
+同一列也可以同时注册多个处理分支（并行产出）：
+
+```python
+processor.add_numeric_feature("price", scaler="robust")           # price_robust
+processor.add_numeric_feature("price", scaler=["log", "minmax"])  # price_log_minmax
+```
 
 ## add_sparse_feature
 

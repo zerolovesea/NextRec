@@ -235,3 +235,17 @@ def test_keep_row_filters_across_features_use_or_semantics():
     assert output["seq_a"].shape == (2,)
     assert output["seq_b"].shape == (2,)
     assert output["label"].shape == (2,)
+
+
+def test_numeric_scaler_pipeline_supports_ordered_transform_list():
+    df = pd.DataFrame({"age": [0.0, 1.0, 9.0, 99.0], "label": [0, 1, 0, 1]})
+    processor = DataProcessor()
+    processor.add_numeric_feature("age", scaler=["log", "minmax"])
+    processor.add_target("label", target_type="binary")
+
+    output = processor.fit_transform(df, return_dict=True)
+
+    assert "age_log_minmax" in output
+    transformed = output["age_log_minmax"]
+    assert np.isclose(transformed.min(), 0.0)
+    assert np.isclose(transformed.max(), 1.0)

@@ -2,7 +2,7 @@
 Layer implementations used across NextRec.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 14/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -154,11 +154,29 @@ class EmbeddingLayer(nn.Module):
 
                 input_dim = feature.input_dim
                 out_dim = feature.embedding_dim if feature.embedding_dim is not None else input_dim
-
-                dense_linear = nn.Linear(input_dim, out_dim, bias=True)
-                nn.init.xavier_uniform_(dense_linear.weight)
-                nn.init.zeros_(dense_linear.bias)
-                self.dense_transforms[feature.name] = dense_linear
+                if feature.projection_type == "mlp":
+                    layers = []
+                    prev_dim = input_dim
+                    for hidden_dim in feature.mlp_hidden_dims:
+                        linear = nn.Linear(prev_dim, hidden_dim, bias=True)
+                        nn.init.xavier_uniform_(linear.weight)
+                        nn.init.zeros_(linear.bias)
+                        layers.append(linear)
+                        layers.append(activation_layer(feature.mlp_activation))
+                        if feature.mlp_dropout > 0:
+                            layers.append(nn.Dropout(feature.mlp_dropout))
+                        prev_dim = hidden_dim
+                    out_linear = nn.Linear(prev_dim, out_dim, bias=True)
+                    nn.init.xavier_uniform_(out_linear.weight)
+                    nn.init.zeros_(out_linear.bias)
+                    layers.append(out_linear)
+                    dense_projection: nn.Module = nn.Sequential(*layers)
+                else:
+                    dense_linear = nn.Linear(input_dim, out_dim, bias=True)
+                    nn.init.xavier_uniform_(dense_linear.weight)
+                    nn.init.zeros_(dense_linear.bias)
+                    dense_projection = dense_linear
+                self.dense_transforms[feature.name] = dense_projection
                 self.dense_input_dims[feature.name] = input_dim
             else:
                 raise TypeError(f"[EmbeddingLayer Error]: Unsupported feature type: {type(feature)}")

@@ -2,7 +2,7 @@
 Metrics computation and configuration for model evaluation.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -813,9 +813,7 @@ def evaluate_metrics(
             task_metrics_to_compute = [
                 m
                 for m in metrics
-                if allowed_metrics is None
-                or m in allowed_metrics
-                or m.startswith(RANKING_METRIC_PREFIXES)
+                if allowed_metrics is None or m in allowed_metrics or m.startswith(RANKING_METRIC_PREFIXES)
             ]
             need_group_for_task = needs_user_group(task_metrics_to_compute)
             user_groups_task = (
