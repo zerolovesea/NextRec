@@ -156,6 +156,7 @@ def train_model(train_config_path: str) -> None:
     data_path = resolve_path(data_cfg["path"], config_dir)
     target = to_list(data_cfg["target"])
     val_data_path = data_cfg.get("valid_path")
+    valid_group_by = to_list(train_cfg.get("valid_group_by"))
 
     feature_cfg = read_yaml(feature_cfg_path)
     model_cfg = read_yaml(model_cfg_path)
@@ -163,6 +164,7 @@ def train_model(train_config_path: str) -> None:
     # Extract id_column from data config for GAUC metrics
     id_column = data_cfg.get("id_column")
     id_columns = [id_column] if id_column else []
+    loader_id_columns = list(dict.fromkeys([*id_columns, *valid_group_by]))
 
     log_cli_section("Data")
     log_kv_lines(
@@ -172,6 +174,7 @@ def train_model(train_config_path: str) -> None:
             ("Streaming", streaming),
             ("Target", target),
             ("ID column", id_column or "(not set)"),
+            ("Valid group by", ", ".join(valid_group_by) if valid_group_by else "disabled"),
         ]
     )
     if data_cfg.get("valid_ratio") is not None:
@@ -242,7 +245,7 @@ def train_model(train_config_path: str) -> None:
 
     dense_names, sparse_names, sequence_names = select_features(feature_cfg, df_columns)
 
-    used_columns = dense_names + sparse_names + sequence_names + target + id_columns
+    used_columns = dense_names + sparse_names + sequence_names + target + loader_id_columns
 
     # keep order but drop duplicates
     seen = set()
@@ -332,7 +335,7 @@ def train_model(train_config_path: str) -> None:
         sparse_features=sparse_features,
         sequence_features=sequence_features,
         target=target,
-        id_columns=id_columns,
+        id_columns=loader_id_columns,
         processor=processor if streaming else None,
     )
     loader_base_kwargs = {
@@ -424,6 +427,7 @@ def train_model(train_config_path: str) -> None:
         user_id_column=id_column,
         early_stop_patience=train_cfg.get("early_stop_patience", 20),
         early_stop_monitor_task=train_cfg.get("early_stop_monitor_task"),
+        valid_group_by=valid_group_by or None,
         use_tensorboard=False,
         use_wandb=train_cfg.get("use_wandb", False),
         use_swanlab=train_cfg.get("use_swanlab", False),
