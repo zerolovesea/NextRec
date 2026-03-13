@@ -329,7 +329,7 @@ def display_metrics_table(
     task_width = max([len("Task")] + [len(str(task_name)) for task_name in task_order], default=4)
 
     table = Table(
-        title=title,
+        title=Text(title),
         box=box.ROUNDED,
         header_style="bold",
         title_style="bold",
@@ -364,7 +364,7 @@ def display_metrics_table(
             col_widths.append(max(len(metric_name), 8))
         col_count = len(col_widths)
         estimated = sum(width + 2 for width in col_widths) + col_count + 1
-        return max(120, estimated)
+        return max(120, estimated, len(title) + 8)
 
     def fmt(value: float | None) -> str:
         if value is None:
@@ -415,7 +415,7 @@ def display_metrics_table(
         logging.INFO,
         __file__,
         0,
-        "[MetricsTable]\n" + table_text,
+        "[MetricsTable]\n" + title + "\n" + table_text,
         args=(),
         exc_info=None,
         extra=None,
@@ -429,7 +429,7 @@ def display_metrics_table(
 
     if not emitted:
         # Fallback: no file handlers configured, use standard logging.
-        root_logger.log(logging.INFO, "[MetricsTable]\n" + table_text)
+        root_logger.log(logging.INFO, "[MetricsTable]\n" + title + "\n" + table_text)
 
 
 def render_confusion_matrix(
