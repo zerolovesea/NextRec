@@ -173,7 +173,7 @@ model.fit(
 | `user_id_column` | GAUC 计算所需的用户 ID 列 |
 | `valid_split` | 当未输入valid_data时，从train_data进行划分出验证集的比例，如 `0.1` |
 | `early_stop_patience` | 早停轮数 |
-| `early_stop_monitor_task` | 早停参考的任务，会根据指定的任务的指标变化进行早停 |
+| `early_stop_monitor_task` | 早停参考的任务，会根据指定任务和 `metrics` 中第一个指标进行早停，例如 `metrics=['auc', ...]` 时监控 `val_auc_{task}` |
 | `num_workers` | Pytorch DataLoader 进程数，提高以加速数据加载 |
 | `use_tensorboard` | 是否启用 tensorboard 日志 |
 | `use_wandb` | 是否启用 Weights & Biases 日志 |
@@ -186,6 +186,10 @@ model.fit(
 | `log_interval` | 每 N 轮记录验证指标 |
 | `note` | 训练运行的备注 |
 | `summary_sections` | 打印的摘要部分，如 `["feature", "model", "train", "data"]` |
+
+说明：
+- `early_stop_monitor_task` 仅在多任务训练下生效。
+- 当前早停监控的指标固定取 `metrics` 中的第一个指标。
 
 ### 训练产物
 
@@ -229,6 +233,15 @@ metrics = model.evaluate(
         "buy": ["auc", "logloss"]
     }
 )
+
+# 按场景分组评估
+metrics = model.evaluate(
+    valid_df,
+    metrics=["auc", "precision", "recall"],
+    group_by="product"
+)
+print(metrics["overall"])
+print(metrics["grouped"])
 ```
 
 ### 参数说明
@@ -240,6 +253,7 @@ metrics = model.evaluate(
 | `batch_size` | 批次大小 |
 | `user_ids` | GAUC 计算的用户 ID 列名 |
 | `user_id_column` | 用户 ID 列名 |
+| `group_by` | 按列分组评估，可传单列或列名列表 |
 | `num_workers` | Pytorch DataLoader 进程数，提高以加速数据加载 |
 | `thresholds` | 二分类任务的阈值 |
 | `show_data_summary` | 是否记录数据分布的统计摘要 |

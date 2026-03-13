@@ -2,11 +2,12 @@
 Feature definitions for NextRec models.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import torch
+from typing import Literal
 
 from nextrec.utils.embedding import get_auto_embedding_dim
 from nextrec.utils.torch_utils import to_list
@@ -165,6 +166,10 @@ class DenseFeature(BaseFeature):
         input_dim: int = 1,
         proj_dim: int | None = 0,
         use_projection: bool = False,
+        projection_type: Literal["linear", "mlp"] = "linear",
+        mlp_hidden_dims: list[int] | None = None,
+        mlp_activation: str = "relu",
+        mlp_dropout: float = 0.0,
         trainable: bool = True,
         pretrained_weight: torch.Tensor | None = None,
         freeze_pretrained: bool = False,
@@ -177,6 +182,10 @@ class DenseFeature(BaseFeature):
             input_dim: Input dimension for continuous values.
             proj_dim: Projection dimension. If None or 0, no projection is applied.
             use_projection: Whether to project inputs to higher dimension.
+            projection_type: Dense projection type: "linear" or "mlp".
+            mlp_hidden_dims: Hidden dimensions used when projection_type="mlp".
+            mlp_activation: Activation used by mlp projection.
+            mlp_dropout: Dropout used by mlp projection.
             trainable: Whether the projection is trainable.
             pretrained_weight: Optional pretrained projection weights.
             freeze_pretrained: If True, keep pretrained weights frozen.
@@ -190,6 +199,22 @@ class DenseFeature(BaseFeature):
             self.use_projection = True
         else:
             self.use_projection = use_projection
+        self.projection_type = projection_type
+        self.mlp_hidden_dims = [int(d) for d in (mlp_hidden_dims or [])]
+        self.mlp_activation = mlp_activation
+        self.mlp_dropout = float(mlp_dropout)
+
+        if self.projection_type not in {"linear", "mlp"}:
+            raise ValueError(
+                f"[Features Error] DenseFeature: projection_type must be 'linear' or 'mlp', got {projection_type!r}"
+            )
+        if self.projection_type == "mlp":
+            if self.proj_dim in (None, 0):
+                raise ValueError("[Features Error] DenseFeature: projection_type='mlp' requires proj_dim > 0")
+            self.use_projection = True
+        if any(d <= 0 for d in self.mlp_hidden_dims):
+            raise ValueError("[Features Error] DenseFeature: mlp_hidden_dims must be positive integers")
+
         self.embedding_dim = self.input_dim if not self.use_projection else self.proj_dim  # for compatibility
 
         self.trainable = trainable

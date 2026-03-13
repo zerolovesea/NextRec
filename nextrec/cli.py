@@ -32,6 +32,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
+import numpy as np
 import pandas as pd
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
@@ -50,7 +51,9 @@ from nextrec.utils.config import (
 from nextrec.utils.console import get_nextrec_version
 from nextrec.utils.data import (
     count_rows,
+    get_expand_factor,
     iter_file_chunks,
+    get_expand_columns,
     read_table,
     read_yaml,
     resolve_file_paths,
@@ -70,6 +73,16 @@ def log_cli_section(title: str) -> None:
 def log_kv_lines(items: list[tuple[str, Any]]) -> None:
     for label, value in items:
         logger.info(format_kv(label, value))
+
+
+def to_builtin_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    normalized_metrics = {}
+    for key, value in metrics.items():
+        if isinstance(value, np.generic):
+            normalized_metrics[key] = value.item()
+        else:
+            normalized_metrics[key] = value
+    return normalized_metrics
 
 
 def train_model(train_config_path: str) -> None:
@@ -409,6 +422,8 @@ def train_model(train_config_path: str) -> None:
         shuffle=train_cfg.get("shuffle", True),
         num_workers=dataloader_cfg.get("num_workers", 0),
         user_id_column=id_column,
+        early_stop_patience=train_cfg.get("early_stop_patience", 20),
+        early_stop_monitor_task=train_cfg.get("early_stop_monitor_task"),
         use_tensorboard=False,
         use_wandb=train_cfg.get("use_wandb", False),
         use_swanlab=train_cfg.get("use_swanlab", False),
@@ -549,8 +564,12 @@ def predict_model(predict_config_path: str) -> None:
     # Load id_columns override from predict config
     input_id_columns = predict_cfg.get("id_column")
     effective_id_columns = to_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
+    expand = get_expand_columns(predict_cfg.get("expand"))
+    output_id_columns = list(dict.fromkeys([*effective_id_columns, *expand.keys()]))
     if input_id_columns is not None:
-        model.id_columns = effective_id_columns
+        model.id_columns = output_id_columns
+    elif expand:
+        model.id_columns = output_id_columns
 
     log_cli_section("Features")
     log_kv_lines(
@@ -559,7 +578,7 @@ def predict_model(predict_config_path: str) -> None:
             ("Sparse features", len(sparse_features)),
             ("Sequence features", len(sequence_features)),
             ("Targets", len(target_cols)),
-            ("ID columns", len(effective_id_columns)),
+            ("ID columns", len(output_id_columns)),
         ]
     )
 
@@ -666,6 +685,8 @@ def predict_model(predict_config_path: str) -> None:
                 ),
             ),
             ("Profile", profile_enabled),
+            ("Expand columns", ", ".join(expand.keys()) if expand else "disabled"),
+            ("Expand factor", get_expand_factor(expand)),
         ]
     )
 
@@ -674,9 +695,13 @@ def predict_model(predict_config_path: str) -> None:
         row_count = count_rows(data_path, data_format_effective)
         if row_count is not None:
             logger.info(format_kv("Row count", row_count))
+            if expand:
+                logger.info(format_kv("Expanded rows (est.)", row_count * get_expand_factor(expand)))
     else:
         df = read_table(data_path, data_format=data_format_effective)
         logger.info(format_kv("Row count", len(df)))
+        if expand:
+            logger.info(format_kv("Expanded rows (est.)", len(df) * get_expand_factor(expand)))
 
     if num_processes_auto is not None and num_processes_cfg is None:
         logger.info(format_kv("CPU cores", os.cpu_count() or 1))
@@ -693,8 +718,9 @@ def predict_model(predict_config_path: str) -> None:
         sparse_features=model.sparse_features,
         sequence_features=model.sequence_features,
         target=None,
-        id_columns=effective_id_columns,
+        id_columns=output_id_columns,
         processor=processor,
+        expand=expand,
     )
 
     if num_processes > 1:
@@ -733,7 +759,8 @@ def predict_model(predict_config_path: str) -> None:
             onnx_path=onnx_path,
             data=pred_data,
             batch_size=effective_batch_size,
-            include_ids=bool(effective_id_columns),
+            include_ids=bool(output_id_columns),
+            id_columns=output_id_columns,
             return_dataframe=False,
             save_path=str(save_path),
             save_format=save_format,
@@ -741,6 +768,7 @@ def predict_model(predict_config_path: str) -> None:
             num_processes=num_processes,
             profiler=profiler,
             processor=processor,
+            expand=expand,
         )
     else:
         result = model.predict(
@@ -753,6 +781,7 @@ def predict_model(predict_config_path: str) -> None:
             num_processes=num_processes,
             processor=processor,
             profiler=profiler,
+            expand=expand,
         )
     duration = time.time() - start
     # When return_dataframe=False, result is the actual file path
@@ -918,8 +947,10 @@ def evaluate_model(evaluate_config_path: str) -> None:
 
     input_id_columns = evaluate_cfg.get("id_column")
     effective_id_columns = to_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
+    by_columns = to_list(evaluate_cfg.get("group_by"))
     if input_id_columns is not None:
         model.id_columns = effective_id_columns
+    loader_id_columns = list(dict.fromkeys([*effective_id_columns, *by_columns]))
 
     log_cli_section("Features")
     log_kv_lines(
@@ -929,6 +960,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
             ("Sequence features", len(sequence_features)),
             ("Targets", len(target_cols)),
             ("ID columns", len(effective_id_columns)),
+            ("Group by", ", ".join(by_columns) if by_columns else "disabled"),
         ]
     )
 
@@ -963,6 +995,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
             ("Chunk size", chunk_size),
             ("Streaming", streaming),
             ("Num workers", num_workers),
+            ("Group by", ", ".join(by_columns) if by_columns else "disabled"),
         ]
     )
 
@@ -971,7 +1004,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
         sparse_features=model.sparse_features,
         sequence_features=model.sequence_features,
         target=target_cols,
-        id_columns=effective_id_columns,
+        id_columns=loader_id_columns,
         processor=processor,
     )
     data_loader = rec_dataloader.create_dataloader(
@@ -1002,14 +1035,34 @@ def evaluate_model(evaluate_config_path: str) -> None:
     if "thresholds" in confusion_cfg:
         thresholds_cfg = confusion_cfg.get("thresholds")
 
-    metrics_dict = model.evaluate(
+    metrics_result = model.evaluate(
         data_loader,
         metrics=None,
+        user_id_column=effective_id_columns[0] if effective_id_columns else "user_id",
+        group_by=by_columns or None,
         num_workers=num_workers,
         thresholds=thresholds_cfg,
-        show_data_summary=True,
-        show_confusion_matrix=confusion_enabled,
+        show_data_summary=not by_columns,
+        show_confusion_matrix=confusion_enabled and not by_columns,
     )
+    if by_columns:
+        metrics_dict = to_builtin_metrics(metrics_result.get("overall", {}))
+        grouped_rows = [
+            {key: (value.item() if isinstance(value, np.generic) else value) for key, value in row.items()}
+            for row in metrics_result.get("grouped", [])
+        ]
+        (evaluate_dir / "metrics.json").write_text(
+            json.dumps(metrics_dict, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        pd.DataFrame(grouped_rows).to_csv(evaluate_dir / "metrics_by.csv", index=False)
+        (evaluate_dir / "metrics_by.json").write_text(
+            json.dumps(grouped_rows, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        logger.info(format_kv("Grouped metrics", evaluate_dir / "metrics_by.csv"))
+    else:
+        metrics_dict = metrics_result
     if not metrics_dict:
         raise ValueError("[NextRec CLI Error] Not enough evaluation data to compute metrics.")
 

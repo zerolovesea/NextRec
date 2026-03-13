@@ -2,7 +2,7 @@
 DataProcessor for data preprocessing including numeric, sparse, sequence features and target processing.
 
 Date: create on 13/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -90,6 +90,36 @@ class DataProcessor(FeatureSet):
         return f"{source_name}_{method_name}"
 
     @staticmethod
+    def _normalize_numeric_scalers(
+        scaler: Optional[
+            Union[
+                Literal["standard", "minmax", "robust", "maxabs", "log", "none"],
+                Iterable[Literal["standard", "minmax", "robust", "maxabs", "log", "none"]],
+            ]
+        ],
+    ) -> list[str]:
+        if scaler is None:
+            values = ["none"]
+        elif isinstance(scaler, str):
+            values = [scaler]
+        else:
+            values = [str(v) for v in scaler]
+        values = [str(v).strip().lower() for v in values if str(v).strip()]
+        if not values:
+            values = ["none"]
+        allowed = {"standard", "minmax", "robust", "maxabs", "log", "none"}
+        invalid = [v for v in values if v not in allowed]
+        if invalid:
+            raise ValueError(
+                f"[Data Processor Error] Unsupported numeric scaler(s): {invalid}. " f"Supported: {sorted(allowed)}"
+            )
+        return values
+
+    @staticmethod
+    def _numeric_scaler_key(feature_key: str, stage_idx: int, scaler_type: str) -> str:
+        return f"{feature_key}__stage{stage_idx}__{scaler_type}"
+
+    @staticmethod
     def _config_source_name(feature_name: str, config: Dict[str, Any]) -> str:
         return str(config.get("source_name", feature_name))
 
@@ -151,21 +181,28 @@ class DataProcessor(FeatureSet):
     def add_numeric_feature(
         self,
         name: str,
-        scaler: Optional[Literal["standard", "minmax", "robust", "maxabs", "log", "none"]] = "standard",
+        scaler: Optional[
+            Union[
+                Literal["standard", "minmax", "robust", "maxabs", "log", "none"],
+                Iterable[Literal["standard", "minmax", "robust", "maxabs", "log", "none"]],
+            ]
+        ] = "standard",
         fill_na: Optional[float] = None,
     ):
         """Add a numeric feature configuration.
 
         Args:
             name (str): Feature name.
-            scaler (Optional[Literal["standard", "minmax", "robust", "maxabs", "log", "none"]], optional): Scaler type. Defaults to "standard".
+            scaler: Scaler type or ordered scaler list. Supported values:
+                "standard", "minmax", "robust", "maxabs", "log", "none".
             fill_na (Optional[float], optional): Fill value for missing entries. Defaults to None.
         """
-
-        method_name = str(scaler or "none")
+        scaler_pipeline = self._normalize_numeric_scalers(scaler)
+        method_name = "_".join(scaler_pipeline)
         output_name = self._build_output_name(name, method_name)
         self.numeric_features[output_name] = {
-            "scaler": scaler,
+            "scaler": scaler if isinstance(scaler, str) or scaler is None else list(scaler),
+            "scaler_pipeline": scaler_pipeline,
             "fill_na": fill_na,
             "source_name": name,
             "output_name": output_name,
@@ -408,35 +445,40 @@ class DataProcessor(FeatureSet):
             if source_name not in schema:
                 logger.warning(f"Numeric feature {source_name} not found in data")
                 continue
-            scaler_type = config["scaler"]
+            scaler_pipeline = self._normalize_numeric_scalers(config.get("scaler_pipeline", config.get("scaler")))
             fill_na_value = config.get("fill_na_value", 0)
             col = pl.col(source_name).cast(pl.Float64).fill_null(fill_na_value)
-
-            # Apply scaling
-            if scaler_type == "log":
-                col = col.clip(lower_bound=0).log1p()
-            elif scaler_type == "none":
-                pass
-            else:
-                scaler = self.scalers.get(name)
+            for idx, scaler_type in enumerate(scaler_pipeline):
+                if scaler_type == "log":
+                    col = col.clip(lower_bound=0).log1p()
+                    continue
+                if scaler_type == "none":
+                    continue
+                scaler_key = self._numeric_scaler_key(name, idx, scaler_type)
+                scaler = self.scalers.get(scaler_key)
+                # Backward compatibility for old single-scaler checkpoints.
+                if scaler is None and len(scaler_pipeline) == 1:
+                    scaler = self.scalers.get(name)
                 if scaler is None:
-                    logger.warning(f"Scaler for {output_name} not fitted, returning original values")
-                else:
-                    if scaler_type == "standard":
-                        mean = float(scaler.mean_[0])
-                        scale = float(scaler.scale_[0]) if scaler.scale_[0] != 0 else 1.0
-                        col = (col - mean) / scale
-                    elif scaler_type == "minmax":
-                        scale = float(scaler.scale_[0])
-                        min_val = float(scaler.min_[0])
-                        col = col * scale + min_val
-                    elif scaler_type == "maxabs":
-                        max_abs = float(scaler.max_abs_[0]) or 1.0
-                        col = col / max_abs
-                    elif scaler_type == "robust":
-                        center = float(scaler.center_[0])
-                        scale = float(scaler.scale_[0]) if scaler.scale_[0] != 0 else 1.0
-                        col = (col - center) / scale
+                    logger.warning(
+                        f"Scaler(stage={idx}, type={scaler_type}) for {output_name} not fitted, returning current values"
+                    )
+                    continue
+                if scaler_type == "standard":
+                    mean = float(scaler.mean_[0])
+                    scale = float(scaler.scale_[0]) if scaler.scale_[0] != 0 else 1.0
+                    col = (col - mean) / scale
+                elif scaler_type == "minmax":
+                    scale = float(scaler.scale_[0])
+                    min_val = float(scaler.min_[0])
+                    col = col * scale + min_val
+                elif scaler_type == "maxabs":
+                    max_abs = float(scaler.max_abs_[0]) or 1.0
+                    col = col / max_abs
+                elif scaler_type == "robust":
+                    center = float(scaler.center_[0])
+                    scale = float(scaler.scale_[0]) if scaler.scale_[0] != 0 else 1.0
+                    col = (col - center) / scale
             append_output(col, output_name)
 
         # Sparse features
@@ -576,104 +618,49 @@ class DataProcessor(FeatureSet):
                 f"The following configured features were not found in provided data: {sorted(missing_features)}"
             )
 
-        # numeric aggregates in a single pass
-        if self.numeric_features:
-            agg_exprs = []
-            numeric_sources = list(
-                dict.fromkeys(self._config_source_name(name, config) for name, config in self.numeric_features.items())
-            )
-            robust_sources = {
-                self._config_source_name(name, config)
-                for name, config in self.numeric_features.items()
-                if config.get("scaler") == "robust"
-            }
-            for source_name in numeric_sources:
-                if source_name not in schema:
-                    continue
-                col = pl.col(source_name).cast(pl.Float64)
-                agg_exprs.extend(
-                    [
-                        col.sum().alias(f"{source_name}__sum"),
-                        (col * col).sum().alias(f"{source_name}__sumsq"),
-                        col.count().alias(f"{source_name}__count"),
-                        col.min().alias(f"{source_name}__min"),
-                        col.max().alias(f"{source_name}__max"),
-                        col.abs().max().alias(f"{source_name}__max_abs"),
-                    ]
-                )
-                if source_name in robust_sources:
-                    agg_exprs.extend(
-                        [
-                            col.quantile(0.25).alias(f"{source_name}__q1"),
-                            col.quantile(0.75).alias(f"{source_name}__q3"),
-                            col.median().alias(f"{source_name}__median"),
-                        ]
-                    )
-            stats = lazy_frame.select(agg_exprs).collect().to_dicts()[0] if agg_exprs else {}
-        else:
-            stats = {}
-
         for name, config in self.numeric_features.items():
             source_name = self._config_source_name(name, config)
             output_name = self._config_output_name(name, config)
             if source_name not in schema:
                 continue
-            count = float(stats.get(f"{source_name}__count", 0) or 0)
+            scaler_pipeline = self._normalize_numeric_scalers(config.get("scaler_pipeline", config.get("scaler")))
+            col_df = lazy_frame.select(pl.col(source_name).cast(pl.Float64).alias(source_name)).collect()
+            raw = col_df[source_name].to_numpy()
+            raw = np.asarray(raw, dtype=np.float64)
+            valid_mask = ~np.isnan(raw)
+            count = float(valid_mask.sum())
             if count == 0:
                 logger.warning(f"Numeric feature {output_name} has no valid values in provided data")
                 continue
-            sum_val = float(stats.get(f"{source_name}__sum", 0) or 0)
-            sumsq = float(stats.get(f"{source_name}__sumsq", 0) or 0)
-            mean_val = sum_val / count
+            mean_val = float(np.nanmean(raw))
             if config["fill_na"] is not None:
                 config["fill_na_value"] = config["fill_na"]
             else:
                 config["fill_na_value"] = mean_val
-            scaler_type = config["scaler"]
-            if scaler_type == "standard":
-                var = max(sumsq / count - mean_val * mean_val, 0.0)
-                scaler = StandardScaler()
-                scaler.mean_ = np.array([mean_val], dtype=np.float64)
-                scaler.var_ = np.array([var], dtype=np.float64)
-                scaler.scale_ = np.array([np.sqrt(var) if var > 0 else 1.0], dtype=np.float64)
-                scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
-                self.scalers[name] = scaler
-            elif scaler_type == "minmax":
-                data_min = float(stats.get(f"{source_name}__min", 0) or 0)
-                data_max = float(stats.get(f"{source_name}__max", data_min) or data_min)
-                scaler = MinMaxScaler()
-                scaler.data_min_ = np.array([data_min], dtype=np.float64)
-                scaler.data_max_ = np.array([data_max], dtype=np.float64)
-                scaler.data_range_ = scaler.data_max_ - scaler.data_min_
-                scaler.data_range_[scaler.data_range_ == 0] = 1.0
-                feature_min, feature_max = scaler.feature_range
-                scale = (feature_max - feature_min) / scaler.data_range_
-                scaler.scale_ = scale
-                scaler.min_ = feature_min - scaler.data_min_ * scale
-                scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
-                self.scalers[name] = scaler
-            elif scaler_type == "maxabs":
-                max_abs = float(stats.get(f"{source_name}__max_abs", 1.0) or 1.0)
-                scaler = MaxAbsScaler()
-                scaler.max_abs_ = np.array([max_abs], dtype=np.float64)
-                scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
-                self.scalers[name] = scaler
-            elif scaler_type == "robust":
-                q1 = float(stats.get(f"{source_name}__q1", 0) or 0)
-                q3 = float(stats.get(f"{source_name}__q3", q1) or q1)
-                median = float(stats.get(f"{source_name}__median", 0) or 0)
-                scale = q3 - q1
-                if scale == 0:
-                    scale = 1.0
-                scaler = RobustScaler()
-                scaler.center_ = np.array([median], dtype=np.float64)
-                scaler.scale_ = np.array([scale], dtype=np.float64)
-                scaler.n_samples_seen_ = np.array([int(count)], dtype=np.int64)
-                self.scalers[name] = scaler
-            elif scaler_type in ("log", "none"):
-                continue
-            else:
-                raise ValueError(f"Unknown scaler type: {scaler_type}")
+            stage_values = np.where(np.isnan(raw), float(config["fill_na_value"]), raw).reshape(-1, 1)
+            for idx, scaler_type in enumerate(scaler_pipeline):
+                if scaler_type == "log":
+                    stage_values = np.log1p(np.clip(stage_values, a_min=0.0, a_max=None))
+                    continue
+                if scaler_type == "none":
+                    continue
+                if scaler_type == "standard":
+                    scaler = StandardScaler()
+                elif scaler_type == "minmax":
+                    scaler = MinMaxScaler()
+                elif scaler_type == "maxabs":
+                    scaler = MaxAbsScaler()
+                elif scaler_type == "robust":
+                    scaler = RobustScaler()
+                else:
+                    raise ValueError(f"Unknown scaler type: {scaler_type}")
+                scaler.fit(stage_values)
+                scaler_key = self._numeric_scaler_key(name, idx, scaler_type)
+                self.scalers[scaler_key] = scaler
+                # Backward compatibility for old single-stage keys.
+                if len(scaler_pipeline) == 1:
+                    self.scalers[name] = scaler
+                stage_values = scaler.transform(stage_values)
 
         # sparse features
         for name, config in self.sparse_features.items():

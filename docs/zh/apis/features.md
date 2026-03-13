@@ -30,8 +30,13 @@ dense_features = [
         ),
     DenseFeature(
         name="price", 
-        input_dim=1, 
-        use_projection=False,
+        input_dim=8, 
+        use_projection=True,
+        proj_dim=1,
+        projection_type="mlp",
+        mlp_hidden_dims=[16, 8],
+        mlp_activation="relu",
+        mlp_dropout=0.0,
         trainable=True
         )    
     ]
@@ -45,9 +50,26 @@ dense_features = [
 | `input_dim` | 特征的输入维度，对于单个数值为 1 |
 | `use_projection` | 是否使用投影层将输入投影到更高维度 |
 | `proj_dim` | 投影层维度，如果为 None 或 0，则不应用投影 |
+| `projection_type` | 投影类型，支持 `"linear"`（默认）和 `"mlp"` |
+| `mlp_hidden_dims` | 当 `projection_type="mlp"` 时使用的隐藏层维度列表 |
+| `mlp_activation` | 当 `projection_type="mlp"` 时使用的激活函数 |
+| `mlp_dropout` | 当 `projection_type="mlp"` 时使用的 Dropout |
 | `trainable` | 投影层是否可训练 |
 | `pretrained_weight` | 可选的预训练投影权重 |
 | `freeze_pretrained` | 如果为 True，保持预训练权重冻结 |
+
+### 多维 Dense 映射到 1 维示例
+
+```python
+DenseFeature(
+    name="dense_vec",
+    input_dim=12,            # 输入是 12 维连续特征
+    use_projection=True,
+    proj_dim=1,              # 输出映射为 1 维
+    projection_type="mlp",   # 使用 MLP 投影
+    mlp_hidden_dims=[32, 16],
+)
+```
 
 ---
 

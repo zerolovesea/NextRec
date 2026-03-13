@@ -43,6 +43,10 @@ predict:
   save_data_format: csv                    # Output format: csv, parquet
   # save_format: csv                       # Alias for save_data_format
   preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
+  # Expand each row into multiple candidates before prediction
+  # expand:
+  #   custom_scenario_label_1: [product1, product2, product3]
+  #   custom_scenario_label_2: [app, h5]
   
   # ----- Performance Settings -----
   batch_size: 20000                          # Batch size for inference

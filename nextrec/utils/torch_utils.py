@@ -5,7 +5,7 @@ This module groups device setup, distributed helpers, optimizers/schedulers,
 initialization, and tensor helpers.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -244,9 +244,7 @@ def get_warmup(
     elif isinstance(warmup, dict):
         config.update(warmup)
     else:
-        raise TypeError(
-            f"[BaseModel-compile Error] warmup must be bool, dict, or None, got {type(warmup)}"
-        )
+        raise TypeError(f"[BaseModel-compile Error] warmup must be bool, dict, or None, got {type(warmup)}")
 
     if not bool(config.get("enabled", True)):
         return None
@@ -258,13 +256,9 @@ def get_warmup(
     start_factor = float(config.get("start_factor", 0.1))
     end_factor = float(config.get("end_factor", 1.0))
     if start_factor <= 0 or start_factor > 1:
-        raise ValueError(
-            f"[BaseModel-compile Error] warmup.start_factor must be in (0, 1], got {start_factor}."
-        )
+        raise ValueError(f"[BaseModel-compile Error] warmup.start_factor must be in (0, 1], got {start_factor}.")
     if end_factor <= 0 or end_factor > 1:
-        raise ValueError(
-            f"[BaseModel-compile Error] warmup.end_factor must be in (0, 1], got {end_factor}."
-        )
+        raise ValueError(f"[BaseModel-compile Error] warmup.end_factor must be in (0, 1], got {end_factor}.")
     if start_factor > end_factor:
         raise ValueError("[BaseModel-compile Error] warmup.start_factor must be <= end_factor.")
 

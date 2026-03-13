@@ -2,7 +2,7 @@
 Dataloader definitions
 
 Date: create on 27/10/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -28,6 +28,7 @@ from nextrec.data.batch_utils import collate_fn
 from nextrec.data.data_processing import get_column_data
 from nextrec.data.preprocessor import DataProcessor
 from nextrec.utils.data import (
+    expand_tabular_rows,
     iter_file_chunks,
     read_table,
     resolve_file_paths,
@@ -78,6 +79,7 @@ class FileDataset(FeatureSet, IterableDataset):
         shard_rank: int = 0,
         shard_count: int = 1,
         profiler: StageTimer | None = None,
+        expand: dict[str, list] | None = None,
     ):
         """Streaming dataset for reading files in chunks.
 
@@ -99,6 +101,7 @@ class FileDataset(FeatureSet, IterableDataset):
         self.shard_rank = int(shard_rank)
         self.shard_count = int(shard_count)
         self.profiler = profiler
+        self.expand = expand or {}
 
         self.set_all_features(
             dense_features,
@@ -152,6 +155,8 @@ class FileDataset(FeatureSet, IterableDataset):
                 shard_count=shard_count if use_row_group_shard else 1,
                 profiler=self.profiler,
             ):
+                if self.expand:
+                    chunk = expand_tabular_rows(chunk, self.expand)
                 if shard_count > 1 and self.total_files == 1 and not use_row_group_shard:
                     if (chunk_index % shard_count) != shard_rank:
                         chunk_index += 1
@@ -199,6 +204,7 @@ class RecDataLoader(FeatureSet):
         target: list[str] | None | str = None,
         id_columns: str | list[str] | None = None,
         processor: DataProcessor | None = None,
+        expand: dict[str, list] | None = None,
     ):
         """
         RecDataLoader is a unified dataloader for supporting in-memory and streaming data.
@@ -213,6 +219,7 @@ class RecDataLoader(FeatureSet):
             processor: an instance of DataProcessor, if provided, will be used to transform data before creating tensors.
         """
         self.processor = processor
+        self.expand = expand or {}
         self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
     def create_dataloader(
@@ -292,6 +299,9 @@ class RecDataLoader(FeatureSet):
 
         # keep a copy of raw data for id columns
         raw_data = data
+        if self.expand:
+            raw_data = expand_tabular_rows(raw_data, self.expand)
+            data = raw_data
 
         if self.processor is not None:
             if not self.processor.is_fitted:
@@ -430,6 +440,7 @@ class RecDataLoader(FeatureSet):
             shard_rank=shard_rank,
             shard_count=shard_count,
             profiler=profiler,
+            expand=self.expand,
         )
         return DataLoader(
             dataset,

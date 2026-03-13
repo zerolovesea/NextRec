@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 08/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -97,6 +97,7 @@ from nextrec.utils.torch_utils import (
     to_tensor,
 )
 from nextrec.utils.config import safe_value
+from nextrec.utils.data import get_expand_columns
 from nextrec.utils.model import (
     compute_ranking_loss,
     get_loss_list,
@@ -902,18 +903,22 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         existing_callbacks = self.callbacks.callbacks
 
         has_validation = valid_data is not None or valid_split is not None
+        early_stop_monitor = monitor_metric
+        early_stop_mode = self.best_metrics_mode
         checkpoint_monitor = monitor_metric
         checkpoint_mode = self.best_metrics_mode
         if not has_validation:
+            early_stop_monitor = "loss"
+            early_stop_mode = "min"
             checkpoint_monitor = "loss"
             checkpoint_mode = "min"
 
         if self.early_stop_patience > 0 and not any(isinstance(cb, EarlyStopper) for cb in existing_callbacks):
             self.callbacks.append(
                 EarlyStopper(
-                    monitor=monitor_metric,
+                    monitor=early_stop_monitor,
                     patience=self.early_stop_patience,
-                    mode=self.best_metrics_mode,
+                    mode=early_stop_mode,
                     restore_best_weights=not self.distributed,
                     verbose=1 if self.is_main_process else 0,
                 )
@@ -1369,6 +1374,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         batch_size: int = 32,
         user_ids: np.ndarray | None = None,
         user_id_column: str = "user_id",
+        group_by: str | list[str] | None = None,
         num_workers: int = 0,
         thresholds: float | dict[str, float] | list[float] | None = None,
         show_data_summary: bool = False,
@@ -1388,6 +1394,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             batch_size: Batch size (per process when distributed).
             user_ids: Optional array of user IDs for GAUC-style metrics; if None and needed, will be extracted from data using user_id_column. e.g. np.array([...])
             user_id_column: Column name for user IDs if user_ids is not provided. e.g. 'user_id'
+            group_by: Optional column name(s) for grouped evaluation. When provided,
+                returns a dict with `overall` and `grouped` results.
             num_workers: DataLoader worker count.
             thresholds: Threshold(s) for binary metrics/confusion matrix. Supports a single
                 float for all targets, a list aligned to target order, or a dict keyed by
@@ -1402,17 +1410,50 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             raise ValueError(
                 "[BaseModel-evaluate Error] No metrics specified for evaluation. Please provide metrics parameter or call fit() first."
             )
-        needs_user_ids = check_user_id(eval_metrics, self.task_specific_metrics)
+        task_specific_metrics = getattr(self, "task_specific_metrics", None)
+        needs_user_ids = check_user_id(eval_metrics, task_specific_metrics)
+        group_by_columns = [group_by] if isinstance(group_by, str) else [str(name) for name in (group_by or [])]
 
         if isinstance(data, DataLoader):
             data_loader = data
         else:
             if user_ids is None and needs_user_ids:
                 user_ids = get_user_ids(data=data, id_columns=user_id_column)
-            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+            if group_by_columns:
+                eval_id_columns = list(
+                    dict.fromkeys(
+                        [
+                            *(self.id_columns or []),
+                            *(group_by_columns or []),
+                            *([user_id_column] if needs_user_ids and user_ids is None and user_id_column else []),
+                        ]
+                    )
+                )
+                rec_loader = RecDataLoader(
+                    dense_features=self.dense_features,
+                    sparse_features=self.sparse_features,
+                    sequence_features=self.sequence_features,
+                    target=self.target_columns,
+                    id_columns=eval_id_columns,
+                    processor=None,
+                )
+                data_loader = rec_loader.create_dataloader(
+                    data=data,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                )
+            else:
+                data_loader = self.prepare_data_loader(
+                    data,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                )
         y_true_list = []
         y_pred_list = []
         collected_user_ids = []
+        collected_groups = {name: [] for name in group_by_columns}
         batch_count = 0
         with torch.no_grad():
             for batch_data in data_loader:
@@ -1428,6 +1469,20 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
                     if batch_user_id is not None:
                         collected_user_ids.append(batch_user_id)
+                if group_by_columns:
+                    ids_dict = batch_dict.get("ids") or {}
+                    for column in group_by_columns:
+                        if column not in ids_dict:
+                            raise KeyError(
+                                f"[BaseModel-evaluate Error] group_by column '{column}' not found in evaluation data."
+                            )
+                        group_values = ids_dict[column]
+                        group_np = (
+                            group_values.detach().cpu().numpy()
+                            if isinstance(group_values, torch.Tensor)
+                            else np.asarray(group_values)
+                        )
+                        collected_groups[column].append(group_np.reshape(group_np.shape[0]))
 
         y_true_all_local = np.concatenate(y_true_list, axis=0) if y_true_list else None
         y_pred_all_local = np.concatenate(y_pred_list, axis=0) if y_pred_list else None
@@ -1451,6 +1506,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         y_true_all = gather_numpy(self, y_true_all_local)
         y_pred_all = gather_numpy(self, y_pred_all_local)
         final_user_ids = gather_numpy(self, final_user_ids_local) if needs_user_ids else None
+        group_arrays = (
+            {
+                name: gather_numpy(self, np.concatenate(values, axis=0) if values else None)
+                for name, values in collected_groups.items()
+            }
+            if group_by_columns
+            else {}
+        )
         if y_true_all is None or y_pred_all is None or len(y_true_all) == 0 or len(y_pred_all) == 0:
             if self.is_main_process:
                 logging.info(
@@ -1468,11 +1531,73 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             metrics=metrics_to_use,
             task=self.task,
             target_names=self.target_columns,
-            task_specific_metrics=self.task_specific_metrics,
+            task_specific_metrics=task_specific_metrics,
             user_ids=final_user_ids,
             ignore_label=self.ignore_label,
             thresholds=thresholds,
         )
+
+        if group_by_columns:
+            if self.is_main_process:
+                logging.info("")
+                logging.info(colorize("[Metrics]", color="cyan", bold=True))
+                logging.info(colorize("-" * 80, color="cyan"))
+                display_metrics_table(
+                    epoch=1,
+                    epochs=1,
+                    split="Eval",
+                    loss=None,
+                    metrics=metrics_dict,
+                    target_names=self.target_columns,
+                    base_metrics=(metrics_to_use if isinstance(metrics_to_use, list) else None),
+                    is_main_process=True,
+                    colorize=lambda s: colorize(s),
+                )
+
+            group_frame = pd.DataFrame(group_arrays)
+            grouped_results = []
+            for key, group in group_frame.groupby(group_by_columns, sort=False, dropna=False):
+                indices = group.index.to_numpy()
+                group_user_ids = final_user_ids[indices] if final_user_ids is not None else None
+                group_metrics = evaluate_metrics(
+                    y_true=y_true_all[indices],
+                    y_pred=y_pred_all[indices],
+                    metrics=metrics_to_use,
+                    task=self.task,
+                    target_names=self.target_columns,
+                    task_specific_metrics=task_specific_metrics,
+                    user_ids=group_user_ids,
+                    ignore_label=self.ignore_label,
+                    thresholds=thresholds,
+                )
+                key_tuple = key if isinstance(key, tuple) else (key,)
+                row = {column: value for column, value in zip(group_by_columns, key_tuple)}
+                row["samples"] = int(len(indices))
+                row.update(group_metrics)
+                grouped_results.append(row)
+
+            if self.is_main_process:
+                logging.info("")
+                logging.info(colorize("[Grouped Metrics]", color="cyan", bold=True))
+                logging.info(colorize("-" * 80, color="cyan"))
+                for row in grouped_results:
+                    group_label = ", ".join(f"{name}={row[name]}" for name in group_by_columns)
+                    row_metrics = {
+                        key: value for key, value in row.items() if key not in set(group_by_columns) | {"samples"}
+                    }
+                    display_metrics_table(
+                        epoch=1,
+                        epochs=1,
+                        split=f"Eval[{group_label}]",
+                        loss=None,
+                        metrics=row_metrics,
+                        target_names=self.target_columns,
+                        base_metrics=(metrics_to_use if isinstance(metrics_to_use, list) else None),
+                        is_main_process=True,
+                        colorize=lambda s: colorize(s),
+                    )
+
+            return {"overall": metrics_dict, "grouped": grouped_results}
 
         if show_data_summary and self.is_main_process:
             logging.info("")
@@ -1643,6 +1768,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_processes: int = 1,
         processor: Any | None = None,
         profiler: StageTimer | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ) -> pd.DataFrame: ...
 
     @overload
@@ -1659,6 +1785,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_processes: int = 1,
         processor: Any | None = None,
         profiler: StageTimer | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ) -> np.ndarray: ...
 
     @overload
@@ -1676,6 +1803,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_processes: int = 1,
         processor: Any | None = None,
         profiler: StageTimer | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ) -> Path: ...
 
     def predict(
@@ -1691,6 +1819,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         num_processes: int = 1,
         processor: Any | None = None,
         profiler: StageTimer | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ) -> pd.DataFrame | np.ndarray | Path:
         """
         Make predictions on the given data.
@@ -1707,12 +1836,15 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_processes: Number of inference processes for streaming file inference.
             processor: Optional DataProcessor for transforming input data.
             profiler: Optional StageTimer for profiling pipeline stages.
+            expand: Optional mapping of column -> candidate values used to expand
+                each input row into multiple inference rows before prediction.
 
         Note:
             predict does not support distributed mode currently; streaming file inference can use
             multiple processes via num_processes > 1, which may change output order.
         """
         self.eval()
+        expand = get_expand_columns(expand)
 
         # streaming mode prediction
         if save_path is not None and not return_dataframe:
@@ -1734,9 +1866,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 num_processes=num_processes,
                 processor=processor,
                 profiler=profiler,
+                expand=expand,
             )
 
-        predict_id_columns = list(self.id_columns)
+        predict_id_columns = list(dict.fromkeys([*(self.id_columns or []), *expand.keys()]))
         include_ids = bool(predict_id_columns)
         if isinstance(data, DataLoader):
             data_loader = data
@@ -1748,6 +1881,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 target=self.target_columns,
                 id_columns=predict_id_columns,
                 processor=processor,
+                expand=expand,
             )
             data_loader = rec_loader.create_dataloader(
                 data=data,
@@ -1760,7 +1894,30 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 profiler=profiler,
             )
         else:
-            data_loader = self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+            if expand:
+                rec_loader = RecDataLoader(
+                    dense_features=self.dense_features,
+                    sparse_features=self.sparse_features,
+                    sequence_features=self.sequence_features,
+                    target=self.target_columns,
+                    id_columns=predict_id_columns,
+                    processor=processor,
+                    expand=expand,
+                )
+                data_loader = rec_loader.create_dataloader(
+                    data=data,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    prefetch_factor=prefetch_factor,
+                )
+            else:
+                data_loader = self.prepare_data_loader(
+                    data,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                )
 
         y_pred_list = []
         id_buffers = {name: [] for name in predict_id_columns} if include_ids else {}
@@ -1864,6 +2021,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         shard_rank: int = 0,
         shard_count: int = 1,
         profiler: StageTimer | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ):
         """
         Make predictions on the given data using streaming mode for large datasets.
@@ -1882,7 +2040,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             shard_rank: Process shard rank for multi-process inference.
             shard_count: Total number of shards for multi-process inference.
         """
-        predict_id_columns = self.id_columns
+        expand = get_expand_columns(expand)
+        predict_id_columns = list(dict.fromkeys([*(self.id_columns or []), *expand.keys()]))
         include_ids = bool(predict_id_columns)
         if save_format not in {"csv", "parquet"}:
             raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
@@ -1931,6 +2090,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         processor,
                         rank,
                         num_processes,
+                        expand,
                         profile_paths[rank] if profile_paths else None,
                         error_paths[rank],
                     ),
@@ -2007,6 +2167,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 target=self.target_columns,
                 id_columns=predict_id_columns,
                 processor=processor,
+                expand=expand,
             )
             data_loader = rec_loader.create_dataloader(
                 data=data,
@@ -2023,13 +2184,31 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         elif isinstance(data, DataLoader):
             data_loader = data
         else:
-            data_loader = self.prepare_data_loader(
-                data,
-                batch_size=batch_size,
-                shuffle=False,
-                num_workers=num_workers,
-                prefetch_factor=prefetch_factor,
-            )
+            if expand:
+                rec_loader = RecDataLoader(
+                    dense_features=self.dense_features,
+                    sparse_features=self.sparse_features,
+                    sequence_features=self.sequence_features,
+                    target=self.target_columns,
+                    id_columns=predict_id_columns,
+                    processor=processor,
+                    expand=expand,
+                )
+                data_loader = rec_loader.create_dataloader(
+                    data=data,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    prefetch_factor=prefetch_factor,
+                )
+            else:
+                data_loader = self.prepare_data_loader(
+                    data,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=num_workers,
+                    prefetch_factor=prefetch_factor,
+                )
 
         target_path = get_save_path(
             path=save_path,
@@ -2125,6 +2304,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         processor: Any | None = None,
         shard_rank: int = 0,
         shard_count: int = 1,
+        expand: dict[str, list[Any]] | None = None,
     ) -> DataLoader:
         """
         Prepare a DataLoader for ONNX prediction.
@@ -2136,6 +2316,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_workers: Number of DataLoader workers.
 
         """
+        expand = get_expand_columns(expand)
         if isinstance(data, DataLoader):
             return data
         # if data is a file path, use streaming DataLoader
@@ -2149,6 +2330,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 target=self.target_columns,
                 id_columns=id_columns if id_columns is not None else self.id_columns,
                 processor=effective_processor,
+                expand=expand,
             )
             return rec_loader.create_dataloader(
                 data=data,
@@ -2159,6 +2341,23 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 num_workers=num_workers,
                 shard_rank=shard_rank,
                 shard_count=shard_count,
+            )
+        if expand:
+            effective_id_columns = list(dict.fromkeys([*(id_columns or self.id_columns or []), *expand.keys()]))
+            rec_loader = RecDataLoader(
+                dense_features=self.dense_features,
+                sparse_features=self.sparse_features,
+                sequence_features=self.sequence_features,
+                target=self.target_columns,
+                id_columns=effective_id_columns,
+                processor=processor,
+                expand=expand,
+            )
+            return rec_loader.create_dataloader(
+                data=data,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
             )
         return self.prepare_data_loader(data, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
@@ -2239,6 +2438,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         profiler: StageTimer | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ) -> pd.DataFrame: ...
 
     @overload
@@ -2257,6 +2457,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         profiler: StageTimer | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ) -> np.ndarray: ...
 
     @overload
@@ -2276,6 +2477,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         profiler: StageTimer | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ) -> Path: ...
 
     def predict_onnx(
@@ -2293,6 +2495,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         profiler: StageTimer | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ) -> pd.DataFrame | np.ndarray | Path | None:
         """
         Run ONNX inference on the given data.
@@ -2310,9 +2513,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_processes: Number of inference processes for ONNX streaming file inference.
             onnx_session: Optional pre-created ONNX Runtime session.
         """
+        expand = get_expand_columns(expand)
         predict_id_columns = id_columns if id_columns is not None else self.id_columns
         if isinstance(predict_id_columns, str):
             predict_id_columns = [predict_id_columns]
+        predict_id_columns = list(dict.fromkeys([*(predict_id_columns or []), *expand.keys()]))
 
         include_ids = bool(predict_id_columns) if include_ids is None else include_ids and bool(predict_id_columns)
         if save_path is not None and save_format not in {"csv", "parquet"}:
@@ -2345,6 +2550,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 num_processes=num_processes,
                 profiler=profiler,
                 processor=processor,
+                expand=expand,
             )
 
         session = onnx_session or load_onnx_session(Path(onnx_path))
@@ -2358,6 +2564,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             num_workers=num_workers,
             id_columns=predict_id_columns,
             processor=processor,
+            expand=expand,
         )
 
         y_pred_list = []
@@ -2499,12 +2706,16 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         shard_count: int = 1,
         profiler: StageTimer | None = None,
         processor: Any | None = None,
+        expand: dict[str, list[Any]] | None = None,
     ):
         """
         Run ONNX inference using streaming mode for large datasets.
         """
         if save_format not in {"csv", "parquet"}:
             raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
+        expand = get_expand_columns(expand)
+        if id_columns is not None:
+            id_columns = list(dict.fromkeys([*id_columns, *expand.keys()]))
         if num_processes > 1:
             if onnx_session is not None:
                 raise ValueError(
@@ -2562,6 +2773,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         num_processes,
                         num_workers,
                         processor,
+                        expand,
                         profile_paths[rank] if profile_paths else None,
                         error_paths[rank],
                     ),
@@ -2643,6 +2855,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             processor=processor,
             shard_rank=shard_rank,
             shard_count=shard_count,
+            expand=expand,
         )
 
         target_path = get_save_path(
@@ -2944,6 +3157,7 @@ def predict_streaming_worker(
     processor: Any | None,
     shard_rank: int,
     shard_count: int,
+    expand: dict[str, list[Any]] | None = None,
     profile_path: str | os.PathLike | None = None,
     error_path: str | os.PathLike | None = None,
 ) -> None:
@@ -2964,6 +3178,7 @@ def predict_streaming_worker(
             shard_rank=shard_rank,
             shard_count=shard_count,
             profiler=profiler,
+            expand=expand,
         )
         if profiler is not None and profile_path is not None:
             profiler.dump(Path(profile_path))
@@ -2991,6 +3206,7 @@ def predict_onnx_streaming_worker(
     shard_count: int,
     num_workers: int,
     processor: Any | None = None,
+    expand: dict[str, list[Any]] | None = None,
     profile_path: str | os.PathLike | None = None,
     error_path: str | os.PathLike | None = None,
 ) -> None:
@@ -3013,6 +3229,7 @@ def predict_onnx_streaming_worker(
             shard_count=shard_count,
             profiler=profiler,
             processor=processor,
+            expand=expand,
         )
         if profiler is not None and profile_path is not None:
             profiler.dump(Path(profile_path))

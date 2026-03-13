@@ -4,7 +4,7 @@ Data utilities for NextRec.
 This module provides file I/O helpers and synthetic data generation.
 
 Date: create on 19/12/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 13/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import time
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,81 @@ import polars as pl
 import pyarrow.parquet as pq
 import torch
 import yaml
+
+
+def get_expand_columns(config: dict[str, Any] | None) -> dict[str, list[Any]]:
+    """
+    Validate and normalize prediction-time row expansion config.
+    """
+    if config is None:
+        return {}
+
+    normalized = {}
+    for raw_name, raw_values in config.items():
+        name = str(raw_name).strip()
+        if isinstance(raw_values, (str, bytes)) or not isinstance(raw_values, (list, tuple)):
+            raise TypeError(f"[Predict Config Error] predict.expand.{name} must be a list of candidate values.")
+        values = list(raw_values)
+        normalized[name] = values
+    return normalized
+
+
+def get_expand_factor(expand: dict[str, list[Any]] | None) -> int:
+    factor = 1
+    for values in (expand or {}).values():
+        factor *= max(len(values), 1)
+    return factor
+
+
+def expand_tabular_rows(
+    data: dict[str, Any] | pd.DataFrame | pl.DataFrame,
+    expand: dict[str, list[Any]] | None,
+) -> dict[str, Any] | pd.DataFrame | pl.DataFrame:
+    """
+    Expand each row into the cartesian product defined by `expand`.
+    """
+    if not expand:
+        return data
+
+    factor = get_expand_factor(expand)
+    if factor <= 1:
+        return data
+
+    if isinstance(data, pd.DataFrame):
+        row_indices = np.repeat(np.arange(len(data), dtype=np.int64), factor)
+        expanded_df = data.iloc[row_indices].reset_index(drop=True)
+        prefix = 1
+        for column, values in expand.items():
+            suffix = factor // (prefix * len(values))
+            pattern = np.tile(np.repeat(np.asarray(values, dtype=object), suffix), prefix)
+            expanded_df[column] = np.tile(pattern, len(data))
+            prefix *= len(values)
+        return expanded_df
+
+    if isinstance(data, pl.DataFrame):
+        expanded_df = data
+        for column, values in expand.items():
+            if column in expanded_df.columns:
+                expanded_df = expanded_df.drop(column)
+            expanded_df = expanded_df.join(pl.DataFrame({column: values}), how="cross")
+        return expanded_df
+
+    if isinstance(data, dict):
+        lengths_seen = {len(v) for v in data.values()}
+        n_rows = lengths_seen.pop()
+        expanded = {}
+        for key, values in data.items():
+            arr = np.asarray(values, dtype=object)
+            expanded[key] = np.repeat(arr, factor, axis=0)
+        prefix = 1
+        for column, values in expand.items():
+            suffix = factor // (prefix * len(values))
+            pattern = np.tile(np.repeat(np.asarray(values, dtype=object), suffix), prefix)
+            expanded[column] = np.tile(pattern, n_rows)
+            prefix *= len(values)
+        return expanded
+
+    raise TypeError(f"[Predict Expand Error] Unsupported tabular type: {type(data)}")
 
 
 def resolve_file_paths(path: str) -> tuple[list[str], str]:
@@ -120,19 +195,8 @@ def iter_file_chunks(
         shard_rank: Shard index for parquet row-group sharding
         shard_count: Number of shards for parquet row-group sharding
         profiler: Optional StageTimer for timing data read
-
-    Yields:
-        DataFrame chunks
-
-    Raises:
-        ValueError: If format doesn't support streaming
     """
     file_type = file_type.lower()
-    if file_type not in {"csv", "parquet"}:
-        raise ValueError(
-            f"Format '{file_type}' does not support streaming reads. Formats with streaming support: csv, parquet"
-        )
-
     if file_type == "csv":
         lazy_frame = pl.scan_csv(file_path)
         batch_iter = iter(lazy_frame.collect_batches(chunk_size=chunk_size))
@@ -165,20 +229,24 @@ def iter_file_chunks(
             if profiler is not None:
                 profiler.add("data_read", time.perf_counter() - start)
             yield pl.from_arrow(batch)
+    else:
+        raise ValueError(
+            f"Unsupported streaming format: {file_type}. Supported formats for streaming: csv, parquet."
+        )
 
 
 def count_rows(
     path: str | Path,
     data_format: str | None = None,
 ) -> int | None:
-    file_paths, detected_fmt = resolve_file_paths(str(path))
-    requested_fmt = str(data_format).lower() if data_format else "auto"
-    if requested_fmt in {"auto", detected_fmt}:
-        fmt = detected_fmt
+    file_paths, file_type = resolve_file_paths(str(path))
+    requested_format = str(data_format).lower() if data_format else "auto"
+    if requested_format in {"auto", file_type}:
+        format = file_type
     else:
-        fmt = detected_fmt
+        format = file_type
 
-    if fmt == "parquet":
+    if format == "parquet":
         total = 0
         for file_path in file_paths:
             parquet_file = pq.ParquetFile(file_path)
@@ -188,7 +256,7 @@ def count_rows(
             total += int(metadata.num_rows)
         return total
 
-    if fmt == "csv":
+    if format == "csv":
         total = 0
         for file_path in file_paths:
             df = pl.scan_csv(file_path).select(pl.len()).collect()

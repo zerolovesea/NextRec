@@ -439,6 +439,24 @@ class TestEmbeddingLayer:
 
         logger.info("EmbeddingLayer self_attention test successful")
 
+    def test_embedding_layer_dense_mlp_projection_to_scalar(self):
+        batch_size = 8
+        dense_feature = DenseFeature(
+            name="dense_vec",
+            input_dim=4,
+            use_projection=True,
+            proj_dim=1,
+            projection_type="mlp",
+            mlp_hidden_dims=[8, 4],
+        )
+        embedding_layer = EmbeddingLayer(features=[dense_feature])
+        x = {"dense_vec": torch.randn(batch_size, 4)}
+
+        output = embedding_layer(x, features=[dense_feature], squeeze_dim=True)
+
+        assert output.shape == (batch_size, 1)
+        assert not torch.isnan(output).any()
+
 
 class TestFieldAwareEmbeddingLayer:
     """Test suite for FieldAwareEmbeddingLayer"""
