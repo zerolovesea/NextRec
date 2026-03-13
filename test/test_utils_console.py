@@ -131,6 +131,31 @@ def test_display_metrics_table_file_export_preserves_long_metric_names(tmp_path)
     assert "topk_precisio…" not in text
 
 
+def test_display_metrics_table_file_export_preserves_split_brackets(tmp_path):
+    log_path = tmp_path / "metrics.log"
+    root_logger = logging.getLogger()
+    previous_level = root_logger.level
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(handler)
+    try:
+        console_utils.display_metrics_table(
+            epoch=1,
+            epochs=1,
+            split="Eval[product=product1]",
+            loss=None,
+            metrics={"auc_task1": 0.9},
+            target_names=["task1"],
+        )
+    finally:
+        root_logger.removeHandler(handler)
+        handler.close()
+        root_logger.setLevel(previous_level)
+
+    text = log_path.read_text(encoding="utf-8")
+    assert "Epoch 1/1 - Eval[product=product1]" in text
+
+
 def test_progress_iterable(monkeypatch):
     class DummyProgress:
         def __init__(self, *args, **kwargs):
