@@ -230,9 +230,7 @@ def iter_file_chunks(
                 profiler.add("data_read", time.perf_counter() - start)
             yield pl.from_arrow(batch)
     else:
-        raise ValueError(
-            f"Unsupported streaming format: {file_type}. Supported formats for streaming: csv, parquet."
-        )
+        raise ValueError(f"Unsupported streaming format: {file_type}. Supported formats for streaming: csv, parquet.")
 
 
 def count_rows(
