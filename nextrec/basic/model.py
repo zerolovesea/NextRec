@@ -1568,8 +1568,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 )
 
             group_frame = pd.DataFrame(group_arrays)
+            groupby_key = (
+                group_by_columns[0] if len(group_by_columns) == 1 else group_by_columns
+            )
             grouped_results = []
-            for key, group in group_frame.groupby(group_by_columns, sort=False, dropna=False):
+            for key, group in group_frame.groupby(groupby_key, sort=False, dropna=False):
                 indices = group.index.to_numpy()
                 group_user_ids = final_user_ids[indices] if final_user_ids is not None else None
                 group_metrics = evaluate_metrics(
