@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 13/03/2026
+Checkpoint: edit on 17/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -45,7 +45,13 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from nextrec import __version__
-from nextrec.basic.asserts import assert_task
+from nextrec.basic.asserts import (
+    assert_loss_weights,
+    assert_onnx_session_mp_compat,
+    assert_save_format,
+    assert_streaming_data_is_filepath,
+    assert_task,
+)
 from nextrec.basic.callback import (
     CallbackList,
     CheckpointSaver,
@@ -522,26 +528,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             self.loss_weights = None
         elif loss_weights is None:
             self.loss_weights = None
-        elif self.nums_task == 1:
-            if isinstance(loss_weights, (list, tuple)):
-                if len(loss_weights) != 1:
-                    raise ValueError(
-                        "[BaseModel-compile Error] loss_weights list must have exactly one element for single-task setup."
-                    )
-                loss_weights = loss_weights[0]
-            self.loss_weights = [float(loss_weights)]
-        elif isinstance(loss_weights, (int, float)):
-            self.loss_weights = [float(loss_weights)] * self.nums_task
-        elif isinstance(loss_weights, (list, tuple)):
-            weights = [float(w) for w in loss_weights]
-            if len(weights) != self.nums_task:
-                raise ValueError(
-                    f"[BaseModel-compile Error] Number of loss_weights ({len(weights)}) must match number of tasks ({self.nums_task})."
-                )
-            self.loss_weights = weights
         else:
-            raise TypeError(
-                f"[BaseModel-compile Error] loss_weights must be int, float, list or tuple, got {type(loss_weights)}"
+            self.loss_weights = assert_loss_weights(
+                loss_weights,
+                self.nums_task,
+                model_name="BaseModel-compile",
             )
         self.compiled = True
 
@@ -1568,9 +1559,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 )
 
             group_frame = pd.DataFrame(group_arrays)
-            groupby_key = (
-                group_by_columns[0] if len(group_by_columns) == 1 else group_by_columns
-            )
+            groupby_key = group_by_columns[0] if len(group_by_columns) == 1 else group_by_columns
             grouped_results = []
             for key, group in group_frame.groupby(groupby_key, sort=False, dropna=False):
                 indices = group.index.to_numpy()
@@ -1864,8 +1853,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         # streaming mode prediction
         if save_path is not None and not return_dataframe:
-            if num_processes > 1 and not isinstance(data, (str, os.PathLike)):
-                raise ValueError("[BaseModel-predict Error] Multi-process streaming requires data to be a file path.")
+            if num_processes > 1:
+                assert_streaming_data_is_filepath(data, model_name="BaseModel-predict")
             if num_processes > 1 and num_workers != 0:
                 logging.info("[BaseModel-predict-streaming Info] Multi-process streaming enforces num_workers=0.")
                 logging.info("")
@@ -1989,8 +1978,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         else:
             output = pd.DataFrame(y_pred_all, columns=pred_columns) if return_dataframe else y_pred_all
         if save_path is not None:
-            if save_format not in {"csv", "parquet"}:
-                raise ValueError(f"Unsupported save format: {save_format}. " "Supported: csv, parquet")
+            assert_save_format(save_format, model_name="BaseModel-predict")
             target_path = get_save_path(
                 path=save_path,
                 default_dir=self.session.predictions_dir,
@@ -2059,8 +2047,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         expand = get_expand_columns(expand)
         predict_id_columns = list(dict.fromkeys([*(self.id_columns or []), *expand.keys()]))
         include_ids = bool(predict_id_columns)
-        if save_format not in {"csv", "parquet"}:
-            raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
+        assert_save_format(save_format, model_name="BaseModel-predict-streaming")
 
         # Multi-process streaming
         if num_processes > 1:
@@ -2536,22 +2523,20 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         predict_id_columns = list(dict.fromkeys([*(predict_id_columns or []), *expand.keys()]))
 
         include_ids = bool(predict_id_columns) if include_ids is None else include_ids and bool(predict_id_columns)
-        if save_path is not None and save_format not in {"csv", "parquet"}:
-            raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
+        if save_path is not None:
+            assert_save_format(save_format, model_name="BaseModel-predict-onnx")
 
         if save_path is not None and not return_dataframe:
-            if num_processes > 1 and not isinstance(data, (str, os.PathLike)):
-                raise ValueError(
-                    "[BaseModel-predict-onnx Error] Multi-process streaming requires data to be a file path."
-                )
+            if num_processes > 1:
+                assert_streaming_data_is_filepath(data, model_name="BaseModel-predict-onnx")
             if num_processes > 1 and num_workers != 0:
                 logging.info("[BaseModel-predict-onnx-streaming Info] Multi-process streaming enforces num_workers=0.")
                 num_workers = 0
-            if num_processes > 1 and onnx_session is not None:
-                raise ValueError(
-                    "[BaseModel-predict-onnx Error] onnx_session is not supported when num_processes > 1. "
-                    "Please pass onnx_path and let each worker create its own session."
-                )
+            assert_onnx_session_mp_compat(
+                onnx_session,
+                num_processes,
+                model_name="BaseModel-predict-onnx",
+            )
             return self.predict_onnx_streaming(
                 onnx_path=onnx_path,
                 data=data,
@@ -2727,21 +2712,17 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         """
         Run ONNX inference using streaming mode for large datasets.
         """
-        if save_format not in {"csv", "parquet"}:
-            raise ValueError(f"Unsupported save format: {save_format}. Supported: csv, parquet")
+        assert_save_format(save_format, model_name="BaseModel-predict-onnx-streaming")
         expand = get_expand_columns(expand)
         if id_columns is not None:
             id_columns = list(dict.fromkeys([*id_columns, *expand.keys()]))
         if num_processes > 1:
-            if onnx_session is not None:
-                raise ValueError(
-                    "[BaseModel-predict-onnx Error] onnx_session is not supported when num_processes > 1. "
-                    "Please pass onnx_path and let each worker create its own session."
-                )
-            if not isinstance(data, (str, os.PathLike)):
-                raise ValueError(
-                    "[BaseModel-predict-onnx Error] Multi-process streaming requires data to be a file path."
-                )
+            assert_onnx_session_mp_compat(
+                onnx_session,
+                num_processes,
+                model_name="BaseModel-predict-onnx",
+            )
+            assert_streaming_data_is_filepath(data, model_name="BaseModel-predict-onnx")
             if num_workers > 0:
                 logging.info("[BaseModel-predict-onnx-streaming Info] Multi-process streaming enforces num_workers=0.")
             if return_dataframe:

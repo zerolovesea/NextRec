@@ -56,7 +56,6 @@ dense_features = [
 | `mlp_dropout` | 当 `projection_type="mlp"` 时使用的 Dropout |
 | `trainable` | 投影层是否可训练 |
 | `pretrained_weight` | 可选的预训练投影权重 |
-| `freeze_pretrained` | 如果为 True，保持预训练权重冻结 |
 
 ### 多维 Dense 映射到 1 维示例
 
@@ -112,7 +111,6 @@ sparse_features = [
 | `l2_reg` | 嵌入向量的 L2 正则化权重 |
 | `trainable` | 嵌入向量是否可训练 |
 | `pretrained_weight` | 可选的预训练嵌入权重 |
-| `freeze_pretrained` | 如果为 True，保持预训练权重冻结 |
 
 ## 序列特征
 
@@ -158,7 +156,6 @@ sequence_features = [
 | `l2_reg` | 嵌入向量的 L2 正则化权重 |
 | `trainable` | 嵌入向量是否可训练 |
 | `pretrained_weight` | 可选的预训练嵌入权重 |
-| `freeze_pretrained` | 如果为 True，保持预训练权重冻结 |
 
 ---
 
