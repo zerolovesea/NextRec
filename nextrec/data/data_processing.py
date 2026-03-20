@@ -14,21 +14,26 @@ import torch
 import polars as pl
 
 
-def get_column_data(data: dict | pd.DataFrame | pl.DataFrame, name: str):
+def take_split_values(values: Any, indices: np.ndarray) -> np.ndarray:
+    if isinstance(values, np.ndarray):
+        return values[indices]
+    if isinstance(values, pd.Series):
+        return values.iloc[indices].to_numpy()
+    return np.asarray(values, dtype=object)[indices]
 
+
+def get_column_data(data: dict | pd.DataFrame | pl.DataFrame, name: str):
     if isinstance(data, dict):
         return data[name] if name in data else None
-    elif isinstance(data, pd.DataFrame):
+    if isinstance(data, pd.DataFrame):
         return data[name].values
-    elif isinstance(data, pl.DataFrame):
+    if isinstance(data, pl.DataFrame):
         series = data.get_column(name)
         return series.to_numpy()
-    else:
-        raise KeyError(f"Only dict or DataFrame supported, got {type(data)}")
+    raise KeyError(f"Only dict or DataFrame supported, got {type(data)}")
 
 
 def get_data_length(data: Any) -> int | None:
-
     if isinstance(data, pd.DataFrame):
         return len(data)
     if isinstance(data, pl.DataFrame):
@@ -38,8 +43,7 @@ def get_data_length(data: Any) -> int | None:
             return None
         sample_key = next(iter(data))
         return len(data[sample_key])
-    else:
-        return None
+    return None
 
 
 def split_dict_random(data_dict, test_size=0.2, random_state=None):
@@ -54,17 +58,8 @@ def split_dict_random(data_dict, test_size=0.2, random_state=None):
     cut = int(round(n * (1 - test_size)))
     train_idx, test_idx = perm[:cut], perm[cut:]
 
-    def take(v, idx):
-        if isinstance(v, np.ndarray):
-            return v[idx]
-        elif isinstance(v, pd.Series):
-            return v.iloc[idx].to_numpy()
-        else:
-            v_arr = np.asarray(v, dtype=object)
-            return v_arr[idx]
-
-    train_dict = {k: take(v, train_idx) for k, v in data_dict.items()}
-    test_dict = {k: take(v, test_idx) for k, v in data_dict.items()}
+    train_dict = {k: take_split_values(v, train_idx) for k, v in data_dict.items()}
+    test_dict = {k: take_split_values(v, test_idx) for k, v in data_dict.items()}
     return train_dict, test_dict
 
 

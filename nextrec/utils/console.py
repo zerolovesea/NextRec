@@ -150,13 +150,38 @@ def progress(iterable, *, description=None, total=None, disable=False):
         interval_seconds = min_interval_seconds
         completed = 0
 
-        def emit(now: float):
-            elapsed = max(0.0, now - start_time)
+        for item in iterable:
+            yield item
+            completed += 1
+            now = time.monotonic()
+            if now - last_tick >= interval_seconds:
+                elapsed = max(0.0, now - start_time)
+                speed = completed / elapsed if elapsed > 0 else 0.0
+                if resolved_total is not None and speed > 0:
+                    remaining = max(0.0, resolved_total - completed)
+                    eta_text = str(timedelta(seconds=int(remaining / speed)))
+                else:
+                    eta_text = "--:--:--"
+                total_text = str(resolved_total) if resolved_total is not None else "?"
+                stream.write(
+                    f"{description or 'Working'}: {completed}/{total_text} "
+                    f"elapsed={timedelta(seconds=int(elapsed))} "
+                    f"speed={speed:.2f}/s ETA={eta_text}\n"
+                )
+                stream.flush()
+                last_tick = now
+                if speed > 0:
+                    interval_seconds = min(
+                        max_interval_seconds,
+                        max(min_interval_seconds, target_steps / speed),
+                    )
+        end_now = time.monotonic()
+        if end_now - last_tick >= 1e-6:
+            elapsed = max(0.0, end_now - start_time)
             speed = completed / elapsed if elapsed > 0 else 0.0
             if resolved_total is not None and speed > 0:
                 remaining = max(0.0, resolved_total - completed)
-                eta_seconds = remaining / speed
-                eta_text = str(timedelta(seconds=int(eta_seconds)))
+                eta_text = str(timedelta(seconds=int(remaining / speed)))
             else:
                 eta_text = "--:--:--"
             total_text = str(resolved_total) if resolved_total is not None else "?"
@@ -166,23 +191,6 @@ def progress(iterable, *, description=None, total=None, disable=False):
                 f"speed={speed:.2f}/s ETA={eta_text}\n"
             )
             stream.flush()
-            return speed
-
-        for item in iterable:
-            yield item
-            completed += 1
-            now = time.monotonic()
-            if now - last_tick >= interval_seconds:
-                speed = emit(now)
-                last_tick = now
-                if speed > 0:
-                    interval_seconds = min(
-                        max_interval_seconds,
-                        max(min_interval_seconds, target_steps / speed),
-                    )
-        end_now = time.monotonic()
-        if end_now - last_tick >= 1e-6:
-            emit(end_now)
         return
 
     # TTY: rich

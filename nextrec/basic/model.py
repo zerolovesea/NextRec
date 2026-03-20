@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 17/03/2026
+Checkpoint: edit on 20/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -16,7 +16,7 @@ import socket
 import multiprocessing as mp
 import time
 from pathlib import Path
-from typing import Any, Literal, cast, overload
+from typing import Any, Literal, overload
 import io
 from contextlib import redirect_stdout
 import numpy as np
@@ -146,7 +146,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         target: list[str] | str | None = None,
         id_columns: list[str] | str | None = None,
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
-        training_mode: TrainingModeName | list[TrainingModeName] | None = None,
+        training_mode: TrainingModeName | None = None,
         embedding_l1_reg: float = 0.0,
         dense_l1_reg: float = 0.0,
         embedding_l2_reg: float = 0.0,
@@ -169,7 +169,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             target: Target column name. e.g., 'label_ctr' or ['label_ctr', 'label_cvr'].
             id_columns: Identifier column name, only need to specify if GAUC is required. e.g., 'user_id'.
             task: Task types, e.g., 'binary', 'regression', or ['binary', 'regression']. If None, falls back to self.default_task.
-            training_mode: Training mode for different tasks. e.g., 'pointwise', ['pointwise', 'pairwise'].
+            training_mode: Training mode shared by all tasks. e.g., 'pointwise'.
 
             embedding_l1_reg: L1 regularization strength for embedding params. e.g., 1e-6.
             dense_l1_reg: L1 regularization strength for dense params. e.g., 1e-5.
@@ -190,7 +190,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         """
         super(BaseModel, self).__init__()
 
-        # distributed training settings
+        # distributed training setup
         env_rank = int(os.environ.get("RANK", "0"))
         env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
         env_local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -203,6 +203,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.ddp_model: DDP | None = None
         self.device = get_device(self.distributed, self.local_rank, device)
 
+        # session and features setup
         self.session_id = session_id
         self.session = create_session(session_id)
         self.session_path = self.session.root  # pwd/session_id, path for this session
@@ -213,14 +214,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.features_config_path = os.path.join(self.session_path, "features_config.pkl")
         self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
-        self.task = cast(TaskTypeName | list[TaskTypeName], task or self.default_task)
+        self.task = task or self.default_task
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
 
         training_mode = training_mode or "pointwise"
-        if isinstance(training_mode, list):
-            self.training_modes = list(training_mode)
-        else:
-            self.training_modes = [training_mode] * self.nums_task
+        self.training_modes = [training_mode] * self.nums_task
 
         self.embedding_l1_reg = embedding_l1_reg
         self.dense_l1_reg = dense_l1_reg
@@ -259,20 +257,20 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         """
         exclude_modules = exclude_modules or []
         include_modules = include_modules or []
+
         embedding_layer = getattr(self, embedding_attr, None)
         embed_dict = getattr(embedding_layer, "embed_dict", None)
+        # get embedding parameters from embed_dict if exists, or get weight from embedding_layer directly
         if embed_dict is not None:
             embedding_params = [embed.weight for embed in embed_dict.values() if hasattr(embed, "weight")]
-        else:
+        else: # from nn.Embedding or nn.EmbeddingBag layer
             weight = getattr(embedding_layer, "weight", None)
             embedding_params = [weight] if isinstance(weight, torch.Tensor) else []
 
         existing_embedding_ids = {id(param) for param in self.embedding_params}
-        for param in embedding_params:
-            if id(param) not in existing_embedding_ids:
-                self.embedding_params.append(param)
-                existing_embedding_ids.add(id(param))
+        self.embedding_params.extend(param for param in embedding_params if id(param) not in existing_embedding_ids)
 
+        # skip bn and dropout layers and linear layers in embedding layer
         skip_types = (
             nn.BatchNorm1d,
             nn.BatchNorm2d,
@@ -281,23 +279,27 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             nn.Dropout2d,
             nn.Dropout3d,
         )
+
         existing_reg_ids = {id(param) for param in self.regularization_weights}
         for name, module in self.named_modules():
-            if module is self or embedding_attr in name or isinstance(module, skip_types):
+            in_embedding_subtree = name == embedding_attr or name.startswith(f"{embedding_attr}.")
+            is_dense_projection = in_embedding_subtree and ".dense_transforms." in name
+            if (
+                module is self
+                or (in_embedding_subtree and not is_dense_projection)
+                or isinstance(module, skip_types)
+                or not isinstance(module, nn.Linear)
+                or (include_modules and not any(inc in name for inc in include_modules))
+                or (exclude_modules and any(exc in name for exc in exclude_modules))
+                or id(module.weight) in existing_reg_ids
+            ):
                 continue
-            if include_modules and not any(inc in name for inc in include_modules):
-                continue
-            if exclude_modules and any(exc in name for exc in exclude_modules):
-                continue
-            if isinstance(module, nn.Linear):
-                if id(module.weight) not in existing_reg_ids:
-                    self.regularization_weights.append(module.weight)
-                    existing_reg_ids.add(id(module.weight))
+            self.regularization_weights.append(module.weight)
+            existing_reg_ids.add(id(module.weight))
+
 
     def add_reg_loss(self) -> torch.Tensor:
-        """
-        Compute the regularization loss based on registered parameters and their respective regularization strengths.
-        """
+        
         reg_loss = torch.tensor(0.0, device=self.device)
 
         if self.embedding_l1_reg > 0:
@@ -311,7 +313,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             reg_loss += self.dense_l2_reg * sum((param**2).sum() for param in self.regularization_weights)
         return reg_loss
 
-    # todo: support build pairwise/listwise label in input
     def get_input(self, input_data: dict, require_labels: bool = True):
         """
         Prepare unified input features and labels from the given input data.
@@ -324,9 +325,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             target tensor shape will always be (batch_size, num_targets)
         """
         feature_source = input_data.get("features", {})
-        # todo: pairwise/listwise label support
-        # "labels": {...} should contain pointwise/pair index/list index/ relevance scores
-        # now only have pointwise label support
         label_source = input_data.get("labels")
 
         X_input = {}
@@ -377,11 +375,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         batch_size: int,
         shuffle: bool,
         num_workers: int = 0,
+        split_stratify_by: str | None = None,
+        split_group_by: str | None = None,
+        random_state: int = 42,
     ):
         """
         This function will split training data into training and validation sets when:
-        1. valid_data is None;
-        2. valid_split is provided.
+        valid_data is None and valid_split is provided.
 
         Returns:
             train_loader: DataLoader for training data.
@@ -389,9 +389,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         """
         if not (0 < valid_split < 1):
             raise ValueError(f"[BaseModel-validation Error] valid_split must be between 0 and 1, got {valid_split}")
+
         if isinstance(train_data, pd.DataFrame):
             total_length = len(train_data)
         elif isinstance(train_data, dict):
+            if not train_data:
+                raise ValueError("[BaseModel-validation Error] train_data dict is empty.")
             sample_key = next(iter(train_data))
             total_length = len(train_data[sample_key])
             for k, v in train_data.items():
@@ -403,11 +406,117 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             raise TypeError(
                 f"[BaseModel-validation Error] If you want to use valid_split, train_data must be DataFrame or a dict, now got {type(train_data)}"
             )
-        rng = np.random.default_rng(42)
-        indices = rng.permutation(total_length)
-        split_idx = int(total_length * (1 - valid_split))
-        train_indices = indices[:split_idx]
-        valid_indices = indices[split_idx:]
+        rng = np.random.default_rng(random_state)
+
+        if split_group_by is not None:
+            if isinstance(train_data, pd.DataFrame):
+                if split_group_by not in train_data.columns:
+                    raise KeyError(
+                        f"[BaseModel-validation Error] Column '{split_group_by}' not found for split control."
+                    )
+                group_values = np.asarray(train_data[split_group_by])
+            else:
+                if split_group_by not in train_data:
+                    raise KeyError(
+                        f"[BaseModel-validation Error] Field '{split_group_by}' not found for split control."
+                    )
+                group_values = np.asarray(train_data[split_group_by])
+            if len(group_values) != total_length:
+                raise ValueError(
+                    f"[BaseModel-validation Error] split_group_by column '{split_group_by}' length does not match data length."
+                )
+            unique_groups, inverse_group_idx = np.unique(group_values, return_inverse=True)
+            group_indices = np.arange(len(unique_groups))
+
+            if split_stratify_by is None:
+                shuffled_groups = rng.permutation(group_indices)
+                split_idx = int(len(shuffled_groups) * (1 - valid_split))
+                train_group_idx = shuffled_groups[:split_idx]
+                valid_group_idx = shuffled_groups[split_idx:]
+            else:
+                if isinstance(train_data, pd.DataFrame):
+                    if split_stratify_by not in train_data.columns:
+                        raise KeyError(
+                            f"[BaseModel-validation Error] Column '{split_stratify_by}' not found for split control."
+                        )
+                    stratify_values = np.asarray(train_data[split_stratify_by])
+                else:
+                    if split_stratify_by not in train_data:
+                        raise KeyError(
+                            f"[BaseModel-validation Error] Field '{split_stratify_by}' not found for split control."
+                        )
+                    stratify_values = np.asarray(train_data[split_stratify_by])
+                if len(stratify_values) != total_length:
+                    raise ValueError(
+                        f"[BaseModel-validation Error] split_stratify_by column '{split_stratify_by}' length does not match data length."
+                    )
+                group_labels = []
+                for group_idx in group_indices:
+                    group_mask = inverse_group_idx == group_idx
+                    group_unique_labels = pd.unique(np.asarray(stratify_values)[group_mask])
+                    if len(group_unique_labels) == 1:
+                        group_labels.append(str(group_unique_labels[0]))
+                    else:
+                        group_labels.append("|".join(sorted(map(str, group_unique_labels))))
+                group_labels = np.asarray(group_labels, dtype=str)
+                train_group_parts = []
+                valid_group_parts = []
+                for label in np.unique(group_labels):
+                    label_group_idx = group_indices[group_labels == label]
+                    shuffled_groups = rng.permutation(label_group_idx)
+                    split_idx = int(len(shuffled_groups) * (1 - valid_split))
+                    train_group_parts.append(shuffled_groups[:split_idx])
+                    valid_group_parts.append(shuffled_groups[split_idx:])
+                train_group_idx = (
+                    np.concatenate(train_group_parts) if train_group_parts else np.asarray([], dtype=np.int64)
+                )
+                valid_group_idx = (
+                    np.concatenate(valid_group_parts) if valid_group_parts else np.asarray([], dtype=np.int64)
+                )
+            train_indices = np.flatnonzero(np.isin(inverse_group_idx, train_group_idx))
+            valid_indices = np.flatnonzero(np.isin(inverse_group_idx, valid_group_idx))
+        elif split_stratify_by is not None:
+            if isinstance(train_data, pd.DataFrame):
+                if split_stratify_by not in train_data.columns:
+                    raise KeyError(
+                        f"[BaseModel-validation Error] Column '{split_stratify_by}' not found for split control."
+                    )
+                stratify_values = np.asarray(train_data[split_stratify_by])
+            else:
+                if split_stratify_by not in train_data:
+                    raise KeyError(
+                        f"[BaseModel-validation Error] Field '{split_stratify_by}' not found for split control."
+                    )
+                stratify_values = np.asarray(train_data[split_stratify_by])
+            if len(stratify_values) != total_length:
+                raise ValueError(
+                    f"[BaseModel-validation Error] split_stratify_by column '{split_stratify_by}' length does not match data length."
+                )
+            all_indices = np.arange(total_length)
+            train_parts = []
+            valid_parts = []
+            for label in pd.unique(stratify_values):
+                label_indices = all_indices[np.asarray(stratify_values) == label]
+                shuffled_indices = rng.permutation(label_indices)
+                split_idx = int(len(shuffled_indices) * (1 - valid_split))
+                train_parts.append(shuffled_indices[:split_idx])
+                valid_parts.append(shuffled_indices[split_idx:])
+            train_indices = np.concatenate(train_parts) if train_parts else np.asarray([], dtype=np.int64)
+            valid_indices = np.concatenate(valid_parts) if valid_parts else np.asarray([], dtype=np.int64)
+        else:
+            indices = rng.permutation(total_length)
+            split_idx = int(total_length * (1 - valid_split))
+            train_indices = indices[:split_idx]
+            valid_indices = indices[split_idx:]
+
+        if len(train_indices) == 0 or len(valid_indices) == 0:
+            raise ValueError(
+                "[BaseModel-validation Error] Split produced an empty train or validation set. "
+                "Adjust valid_split / split_stratify_by / split_group_by."
+            )
+
+        train_indices = rng.permutation(train_indices)
+        valid_indices = rng.permutation(valid_indices)
         if isinstance(train_data, pd.DataFrame):
             train_split_data = train_data.iloc[train_indices].reset_index(drop=True)
             valid_split_data = train_data.iloc[valid_indices].reset_index(drop=True)
@@ -420,7 +529,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             shuffle=shuffle,
             num_workers=num_workers,
         )
-        logging.info(f"Split data: {len(train_indices)} training samples, {len(valid_indices)} validation samples")
+        logging.info(
+            f"Split data: {len(train_indices)} training samples, {len(valid_indices)} validation samples (split_stratify_by={split_stratify_by}, split_group_by={split_group_by})"
+        )
         return train_loader, valid_split_data
 
     def compile(
@@ -714,6 +825,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         batch_size: int = 32,
         user_id_column: str | None = None,
         valid_split: float | None = None,
+        split_stratify_by: str | None = None,
+        split_group_by: str | None = None,
         early_stop_patience: int = 20,
         early_stop_monitor_task: str | None = None,
         valid_group_by: str | list[str] | None = None,
@@ -742,6 +855,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             batch_size: Batch size (per process when distributed).
             user_id_column: Column name for GAUC-style metrics;.
             valid_split: Ratio to split training data when valid_data is None. e.g., 0.1 for 10% validation.
+            split_stratify_by: Optional column/field used during auto split to preserve label or bucket distribution.
+                Only applies when valid_data is None, valid_split is set, and train_data is an in-memory dict or
+                DataFrame. Not supported for pre-built DataLoader or streaming input.
+            split_group_by: Optional column/field used during auto split to keep all rows from the same group
+                in either train or validation, avoiding group leakage. Only applies when valid_data is None,
+                valid_split is set, and train_data is an in-memory dict or DataFrame. Not supported for
+                pre-built DataLoader or streaming input.
 
             early_stop_patience: Epochs for early stopping. 0 to disable. e.g., 20.
             early_stop_monitor_task: Task name to monitor for early stopping in multi-task scenario. If None, uses first target. e.g., 'click'.
@@ -823,6 +943,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 "shuffle": shuffle,
                 "num_workers": num_workers,
                 "valid_split": valid_split,
+                "split_stratify_by": split_stratify_by,
+                "split_group_by": split_group_by,
+                "random_state": 42,
                 "optimizer": getattr(self, "optimizer_name", None),
                 "optimizer_params": getattr(self, "optimizer_params", None),
                 "scheduler": getattr(self, "scheduler_name", None),
@@ -962,7 +1085,16 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         train_sampler = None
         if valid_split is not None and valid_data is None:
-            train_loader, valid_data = self.handle_valid_split(train_data=train_data, valid_split=valid_split, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)  # type: ignore
+            train_loader, valid_data = self.handle_valid_split(
+                train_data=train_data,  # type: ignore[arg-type]
+                valid_split=valid_split,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                split_stratify_by=split_stratify_by,
+                split_group_by=split_group_by,
+                random_state=42,
+            )
             if use_ddp_sampler:
                 base_dataset = getattr(train_loader, "dataset", None)
                 if base_dataset is not None and not isinstance(
@@ -1876,18 +2008,19 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         predict_id_columns = list(dict.fromkeys([*(self.id_columns or []), *expand.keys()]))
         include_ids = bool(predict_id_columns)
+        loader_kwargs = dict(
+            dense_features=self.dense_features,
+            sparse_features=self.sparse_features,
+            sequence_features=self.sequence_features,
+            target=self.target_columns,
+            id_columns=predict_id_columns,
+            processor=processor,
+            expand=expand,
+        )
         if isinstance(data, DataLoader):
             data_loader = data
         elif isinstance(data, (str, os.PathLike)):
-            rec_loader = RecDataLoader(
-                dense_features=self.dense_features,
-                sparse_features=self.sparse_features,
-                sequence_features=self.sequence_features,
-                target=self.target_columns,
-                id_columns=predict_id_columns,
-                processor=processor,
-                expand=expand,
-            )
+            rec_loader = RecDataLoader(**loader_kwargs)
             data_loader = rec_loader.create_dataloader(
                 data=data,
                 batch_size=batch_size,
@@ -1898,31 +2031,21 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 prefetch_factor=prefetch_factor,
                 profiler=profiler,
             )
+        elif expand:
+            data_loader = RecDataLoader(**loader_kwargs).create_dataloader(
+                data=data,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
+            )
         else:
-            if expand:
-                rec_loader = RecDataLoader(
-                    dense_features=self.dense_features,
-                    sparse_features=self.sparse_features,
-                    sequence_features=self.sequence_features,
-                    target=self.target_columns,
-                    id_columns=predict_id_columns,
-                    processor=processor,
-                    expand=expand,
-                )
-                data_loader = rec_loader.create_dataloader(
-                    data=data,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    num_workers=num_workers,
-                    prefetch_factor=prefetch_factor,
-                )
-            else:
-                data_loader = self.prepare_data_loader(
-                    data,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    num_workers=num_workers,
-                )
+            data_loader = self.prepare_data_loader(
+                data,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+            )
 
         y_pred_list = []
         id_buffers = {name: [] for name in predict_id_columns} if include_ids else {}
@@ -2047,6 +2170,15 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         expand = get_expand_columns(expand)
         predict_id_columns = list(dict.fromkeys([*(self.id_columns or []), *expand.keys()]))
         include_ids = bool(predict_id_columns)
+        loader_kwargs = dict(
+            dense_features=self.dense_features,
+            sparse_features=self.sparse_features,
+            sequence_features=self.sequence_features,
+            target=self.target_columns,
+            id_columns=predict_id_columns,
+            processor=processor,
+            expand=expand,
+        )
         assert_save_format(save_format, model_name="BaseModel-predict-streaming")
 
         # Multi-process streaming
@@ -2163,15 +2295,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             return target_path
         # Single-process streaming
         if isinstance(data, (str, os.PathLike)):
-            rec_loader = RecDataLoader(
-                dense_features=self.dense_features,
-                sparse_features=self.sparse_features,
-                sequence_features=self.sequence_features,
-                target=self.target_columns,
-                id_columns=predict_id_columns,
-                processor=processor,
-                expand=expand,
-            )
+            rec_loader = RecDataLoader(**loader_kwargs)
             data_loader = rec_loader.create_dataloader(
                 data=data,
                 batch_size=batch_size,
@@ -2186,32 +2310,22 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             )
         elif isinstance(data, DataLoader):
             data_loader = data
+        elif expand:
+            data_loader = RecDataLoader(**loader_kwargs).create_dataloader(
+                data=data,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
+            )
         else:
-            if expand:
-                rec_loader = RecDataLoader(
-                    dense_features=self.dense_features,
-                    sparse_features=self.sparse_features,
-                    sequence_features=self.sequence_features,
-                    target=self.target_columns,
-                    id_columns=predict_id_columns,
-                    processor=processor,
-                    expand=expand,
-                )
-                data_loader = rec_loader.create_dataloader(
-                    data=data,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    num_workers=num_workers,
-                    prefetch_factor=prefetch_factor,
-                )
-            else:
-                data_loader = self.prepare_data_loader(
-                    data,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    num_workers=num_workers,
-                    prefetch_factor=prefetch_factor,
-                )
+            data_loader = self.prepare_data_loader(
+                data,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
+            )
 
         target_path = get_save_path(
             path=save_path,
@@ -2263,25 +2377,19 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     id_df = pd.DataFrame(id_arrays_batch)
                     df_batch = pd.concat([id_df, df_batch], axis=1)
 
-                # Streaming save based on format
+                start = time.perf_counter()
                 if save_format == "csv":
-                    start = time.perf_counter()
                     df_batch.to_csv(target_path, mode="a", header=not header_written, index=False)
-                    if profiler is not None:
-                        profiler.add("write_output", time.perf_counter() - start)
                     header_written = True
-                    if return_dataframe:
-                        cached_frames.append(df_batch)
-                elif save_format == "parquet":
-                    start = time.perf_counter()
+                else:
                     table = pa.Table.from_pandas(df_batch, preserve_index=False)
                     if parquet_writer is None:
                         parquet_writer = pq.ParquetWriter(target_path, table.schema)
                     parquet_writer.write_table(table)
-                    if profiler is not None:
-                        profiler.add("write_output", time.perf_counter() - start)
-                    if return_dataframe:
-                        cached_frames.append(df_batch)
+                if profiler is not None:
+                    profiler.add("write_output", time.perf_counter() - start)
+                if return_dataframe:
+                    cached_frames.append(df_batch)
 
         # Close writers
         if parquet_writer is not None:
@@ -2676,17 +2784,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 df_to_save = pd.DataFrame(y_pred_all, columns=pred_columns)
                 if id_df is not None:
                     df_to_save = pd.concat([id_df, df_to_save], axis=1)
-
+            start = time.perf_counter()
             if save_format == "csv":
-                start = time.perf_counter()
                 df_to_save.to_csv(target_path, index=False)
-                if profiler is not None:
-                    profiler.add("write_output", time.perf_counter() - start)
-            elif save_format == "parquet":
-                start = time.perf_counter()
+            else:
                 df_to_save.to_parquet(target_path, index=False)
-                if profiler is not None:
-                    profiler.add("write_output", time.perf_counter() - start)
+            if profiler is not None:
+                profiler.add("write_output", time.perf_counter() - start)
             logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
         return output
 
@@ -2914,50 +3018,35 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     while len(pred_columns) < num_outputs:
                         pred_columns.append(f"pred_{len(pred_columns)}")
 
-                ids = batch_dict.get("ids") if include_ids and id_columns else None
-                if ids is not None and len(slice_ranges) > 1:
-                    ids = {name: value[start_idx:end_idx] for name, value in ids.items()}
-                if ids and fixed_batch is not None:
-                    ids, orig_id_batch = pad_id_batch(ids, fixed_batch)
-                else:
-                    orig_id_batch = None
-                id_arrays_batch = {
-                    id_name: (
-                        ids[id_name].detach().cpu().numpy()
-                        if isinstance(ids[id_name], torch.Tensor)
-                        else np.asarray(ids[id_name])
-                    ).reshape(-1)
-                    for id_name in (id_columns or [])
-                    if ids and id_name in ids
-                }
-                if orig_batch is not None and orig_batch > 0:
-                    id_arrays_batch = {k: v[:orig_batch] for k, v in id_arrays_batch.items()}
-                elif orig_id_batch is not None and orig_id_batch > 0:
-                    id_arrays_batch = {k: v[:orig_id_batch] for k, v in id_arrays_batch.items()}
+            ids = batch_dict.get("ids") if include_ids else None
+            id_arrays_batch = {
+                id_name: (
+                    ids[id_name].detach().cpu().numpy()
+                    if isinstance(ids[id_name], torch.Tensor)
+                    else np.asarray(ids[id_name])
+                ).reshape(-1)
+                for id_name in (id_columns or [])
+                if ids and id_name in ids
+            }
 
-                df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
-                if id_arrays_batch:
-                    id_df = pd.DataFrame(id_arrays_batch)
-                    df_batch = pd.concat([id_df, df_batch], axis=1)
+            df_batch = pd.DataFrame(y_pred_np, columns=pred_columns)
+            if id_arrays_batch:
+                id_df = pd.DataFrame(id_arrays_batch)
+                df_batch = pd.concat([id_df, df_batch], axis=1)
 
-                should_collect = return_dataframe
-                if should_collect:
-                    cached_frames.append(df_batch)
-
-                if save_format == "csv":
-                    start = time.perf_counter()
-                    df_batch.to_csv(target_path, mode="a", header=not header_written, index=False)
-                    if profiler is not None:
-                        profiler.add("write_output", time.perf_counter() - start)
-                    header_written = True
-                elif save_format == "parquet":
-                    start = time.perf_counter()
-                    table = pa.Table.from_pandas(df_batch, preserve_index=False)
-                    if parquet_writer is None:
-                        parquet_writer = pq.ParquetWriter(target_path, table.schema)
-                    parquet_writer.write_table(table)
-                    if profiler is not None:
-                        profiler.add("write_output", time.perf_counter() - start)
+            if return_dataframe:
+                cached_frames.append(df_batch)
+            start = time.perf_counter()
+            if save_format == "csv":
+                df_batch.to_csv(target_path, mode="a", header=not header_written, index=False)
+                header_written = True
+            else:
+                table = pa.Table.from_pandas(df_batch, preserve_index=False)
+                if parquet_writer is None:
+                    parquet_writer = pq.ParquetWriter(target_path, table.schema)
+                parquet_writer.write_table(table)
+            if profiler is not None:
+                profiler.add("write_output", time.perf_counter() - start)
             # Non-streaming formats are saved after collecting all batches.
 
         if parquet_writer is not None:
@@ -3296,7 +3385,6 @@ class BaseMatchModel(BaseModel):
         ddp_find_unused_parameters: bool = False,
         **kwargs,
     ):
-
         user_dense_features = list(user_dense_features or [])
         user_sparse_features = list(user_sparse_features or [])
         user_sequence_features = list(user_sequence_features or [])
@@ -3316,11 +3404,11 @@ class BaseMatchModel(BaseModel):
             id_columns=id_columns,
             task=task,
             training_mode=training_mode,
-            device=device,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
             dense_l2_reg=dense_l2_reg,
+            device=device,
             session_id=session_id,
             distributed=distributed,
             rank=rank,
@@ -3333,7 +3421,6 @@ class BaseMatchModel(BaseModel):
         self.user_dense_features = user_dense_features
         self.user_sparse_features = user_sparse_features
         self.user_sequence_features = user_sequence_features
-
         self.item_dense_features = item_dense_features
         self.item_sparse_features = item_sparse_features
         self.item_sequence_features = item_sequence_features

@@ -33,8 +33,6 @@ class TestRelativePositionBucket:
         logger.info("=" * 80)
 
         num_buckets = 32
-        max_exact = num_buckets // 2
-
         # Test small negative distances (causal attention)
         rel_pos = torch.tensor([[-1, -2, -3, -5, -10]])
         buckets = relative_position_bucket(rel_pos, num_buckets=num_buckets)

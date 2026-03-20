@@ -56,6 +56,13 @@ TASK_METRIC_ALLOWLIST = {
 }
 
 
+def needs_user_group(metric_names: list[MetricsName]) -> bool:
+    for metric_name in metric_names:
+        if metric_name == "gauc" or metric_name.startswith(RANKING_METRIC_PREFIXES):
+            return True
+    return False
+
+
 def check_user_id(*metric_sources: Any) -> bool:
     """Return True when GAUC or ranking@K metrics appear in the provided sources."""
     metric_names = set()
@@ -74,12 +81,7 @@ def check_user_id(*metric_sources: Any) -> bool:
             stack.extend(item)
         except TypeError:
             continue
-    for name in metric_names:
-        if name == "gauc":
-            return True
-        if name.startswith(RANKING_METRIC_PREFIXES):
-            return True
-    return False
+    return needs_user_group(list(metric_names))
 
 
 def compute_ks(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -735,14 +737,6 @@ def evaluate_metrics(
     """
 
     result = {}
-
-    def needs_user_group(metric_names: list[MetricsName]) -> bool:
-        for m in metric_names:
-            if m == "gauc":
-                return True
-            if m.startswith(RANKING_METRIC_PREFIXES):
-                return True
-        return False
 
     if y_true is None or y_pred is None:
         return result

@@ -178,6 +178,14 @@ class DataProcessor(FeatureSet):
         exprs = [seq_col.list.eval(pl.element().cast(pl.Utf8).str.contains(pat)).list.any() for pat in patterns]
         return pl.any_horizontal(exprs)
 
+    @staticmethod
+    def _map_with_default(expr, mapping: Dict[str, int], default: int, dtype):
+        # Compatible with older polars versions without Expr.map_dict
+        return expr.map_elements(
+            lambda x: mapping.get(x, default),
+            return_dtype=dtype,
+        )
+
     def add_numeric_feature(
         self,
         name: str,
@@ -425,19 +433,6 @@ class DataProcessor(FeatureSet):
         expressions = []
         output_aliases = set()
 
-        def append_output(expr, alias_name: str):
-            if alias_name in output_aliases:
-                return
-            output_aliases.add(alias_name)
-            expressions.append(expr.alias(alias_name))
-
-        def map_with_default(expr, mapping: Dict[str, int], default: int, dtype):
-            # Compatible with older polars versions without Expr.map_dict
-            return expr.map_elements(
-                lambda x: mapping.get(x, default),
-                return_dtype=dtype,
-            )
-
         # Numeric features
         for name, config in self.numeric_features.items():
             source_name = self._config_source_name(name, config)
@@ -479,7 +474,10 @@ class DataProcessor(FeatureSet):
                     center = float(scaler.center_[0])
                     scale = float(scaler.scale_[0]) if scaler.scale_[0] != 0 else 1.0
                     col = (col - center) / scale
-            append_output(col, output_name)
+            if output_name in output_aliases:
+                continue
+            output_aliases.add(output_name)
+            expressions.append(col.alias(output_name))
 
         # Sparse features
         for name, config in self.sparse_features.items():
@@ -496,7 +494,7 @@ class DataProcessor(FeatureSet):
                 if not isinstance(token_to_idx, dict):
                     raise ValueError(f"[Data Processor Error] Token index for {output_name} not fitted")
                 unk_index = int(config.get("_unk_index", 0))
-                col = map_with_default(col, token_to_idx, unk_index, pl.Int64)
+                col = self._map_with_default(col, token_to_idx, unk_index, pl.Int64)
             elif encode_method == "hash":
                 hash_size = config["hash_size"]
                 hash_expr = col.hash().cast(pl.UInt64) % int(hash_size)
@@ -509,7 +507,10 @@ class DataProcessor(FeatureSet):
                         unk_hash = self.hash_fn("<UNK>", int(hash_size))
                     hash_expr = pl.when(col.is_in(low_freq)).then(int(unk_hash)).otherwise(hash_expr)
                 col = hash_expr.cast(pl.Int64)
-            append_output(col, output_name)
+            if output_name in output_aliases:
+                continue
+            output_aliases.add(output_name)
+            expressions.append(col.alias(output_name))
 
         # Sequence features
         for name, config in self.sequence_features.items():
@@ -529,7 +530,7 @@ class DataProcessor(FeatureSet):
                 if not isinstance(token_to_idx, dict):
                     raise ValueError(f"[Data Processor Error] Token index for {output_name} not fitted")
                 unk_index = int(config.get("_unk_index", 0))
-                seq_col = seq_col.list.eval(map_with_default(pl.element(), token_to_idx, unk_index, pl.Int64))
+                seq_col = seq_col.list.eval(self._map_with_default(pl.element(), token_to_idx, unk_index, pl.Int64))
             elif encode_method == "hash":
                 hash_size = config.get("hash_size")
                 if hash_size is None:
@@ -552,7 +553,10 @@ class DataProcessor(FeatureSet):
                 seq_col = seq_col.list.head(max_len)
             pad_list = [pad_value] * max_len
             seq_col = pl.concat_list([seq_col, pl.lit(pad_list)]).list.head(max_len)
-            append_output(seq_col, output_name)
+            if output_name in output_aliases:
+                continue
+            output_aliases.add(output_name)
+            expressions.append(seq_col.alias(output_name))
 
         # Target features
         for name, config in self.target_features.items():
@@ -567,7 +571,7 @@ class DataProcessor(FeatureSet):
                 label_map = self.target_encoders.get(name)
                 if label_map is None:
                     raise ValueError(f"[Data Processor Error] Target encoder for {name} not fitted")
-                col = map_with_default(col.cast(pl.Utf8), label_map, 0, pl.Int64).cast(pl.Float32)
+                col = self._map_with_default(col.cast(pl.Utf8), label_map, 0, pl.Int64).cast(pl.Float32)
             else:
                 raise ValueError(f"[Data Processor Error] Unsupported target type: {target_type}")
             expressions.append(col.alias(name))

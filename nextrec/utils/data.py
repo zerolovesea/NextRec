@@ -21,6 +21,8 @@ import pyarrow.parquet as pq
 import torch
 import yaml
 
+from nextrec.utils.timing import StageTimer
+
 
 def get_expand_columns(config: dict[str, Any] | None) -> dict[str, list[Any]]:
     """

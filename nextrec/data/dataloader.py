@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset, get_worker_info
 

@@ -135,7 +135,16 @@ def setup_logger(
     logger.setLevel(logging.INFO)
 
     if logger.hasHandlers():
-        logger.handlers.clear()
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            try:
+                handler.flush()
+            except Exception:
+                pass
+            try:
+                handler.close()
+            except Exception:
+                pass
 
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setLevel(logging.INFO)

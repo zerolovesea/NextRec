@@ -80,8 +80,19 @@ def get_repo_root() -> Path:
 
 def ensure_tools(should_install: bool) -> None:
     """Ensure ruff and black are available (optionally installing them)."""
+    missing: List[str] = []
+    for tool in ("ruff", "black"):
+        if shutil.which(tool) is None:
+            missing.append(tool)
+
+    if not missing:
+        return
+
     if should_install:
-        print("Installing/Updating ruff and black via pip...", file=sys.stderr)
+        print(
+            "Missing tools detected: " + ", ".join(missing) + ". Installing via pip...",
+            file=sys.stderr,
+        )
         # Use the same interpreter running this script
         cmd = [
             sys.executable,
@@ -92,14 +103,17 @@ def ensure_tools(should_install: bool) -> None:
             "ruff>=0.6.0",
             "black>=24.0.0",
         ]
-        subprocess.check_call(cmd)
+        try:
+            subprocess.check_call(cmd)
+        except subprocess.CalledProcessError as exc:
+            print(
+                "Failed to install formatting tools automatically. "
+                "If you are offline, install them ahead of time or re-run with --no-install.\n"
+                f"pip exit code: {exc.returncode}",
+                file=sys.stderr,
+            )
+            sys.exit(exc.returncode)
         return
-
-    # --no-install: check that both commands are available
-    missing: List[str] = []
-    for tool in ("ruff", "black"):
-        if shutil.which(tool) is None:
-            missing.append(tool)
 
     if missing:
         print(
@@ -220,6 +234,7 @@ def main() -> None:
     print(f"Found {len(py_files)} Python files to process.")
 
     exit_code = 0  # 用于 --check 模式的最终退出码
+    black_target_version = f"py{sys.version_info.major}{sys.version_info.minor}"
 
     for chunk in chunked(py_files):
         paths_str = [str(p) for p in chunk]
@@ -238,6 +253,8 @@ def main() -> None:
             "black",
             "--line-length",
             str(args.line_length),
+            "--target-version",
+            black_target_version,
         ]
         if args.skip_magic_trailing_comma:
             black_common.append("--skip-magic-trailing-comma")
