@@ -16,11 +16,14 @@ from test.helpers import (
     assert_model_output_shape,
     assert_no_nan_or_inf,
     count_parameters,
+    run_model_forward,
     run_model_inference,
 )
 
 import pytest
 import torch
+import torch.nn as nn
+import numpy as np
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.models.retrieval.dssm import DSSM
@@ -136,7 +139,7 @@ class TestDSSM:
         # Forward pass
         model.eval()
         with torch.no_grad():
-            output = model(data)
+            output = run_model_forward(model, data)
 
         # Assertions
         assert_model_output_shape(output, (batch_size,), "DSSM output shape")
@@ -230,7 +233,16 @@ class TestDSSM:
 
         model.eval()
         with torch.no_grad():
-            output = model(data)
+            raw_output = model(data)
+            output = run_model_forward(model, data)
+
+        assert isinstance(raw_output, tuple)
+        assert len(raw_output) == 2
+        user_emb, item_emb = raw_output
+        assert_model_output_shape(user_emb, (batch_size, model.embedding_dim))
+        assert_model_output_shape(item_emb, (batch_size, model.embedding_dim))
+        assert_no_nan_or_inf(user_emb, f"DSSM user embedding ({similarity_metric})")
+        assert_no_nan_or_inf(item_emb, f"DSSM item embedding ({similarity_metric})")
 
         assert_model_output_shape(output, (batch_size,))
         assert_no_nan_or_inf(output, f"DSSM output ({similarity_metric})")
@@ -434,8 +446,8 @@ class TestMatchModelsComparison:
         model2.eval()
 
         with torch.no_grad():
-            output1 = model1(data)
-            output2 = model2(data)
+            output1 = run_model_forward(model1, data)
+            output2 = run_model_forward(model2, data)
 
         assert torch.allclose(output1, output2, atol=1e-6), "Models with same seed should produce identical outputs"
 
@@ -872,6 +884,243 @@ class TestTrainingModes:
         assert model.training_modes[0] == "listwise"
 
         logger.info(f"{loss_name} loss test successful")
+
+
+class UnsupportedInBatchLoss(nn.Module):
+    def forward(self, pos_logits: torch.Tensor, neg_logits: torch.Tensor) -> torch.Tensor:
+        return pos_logits.mean() - neg_logits.mean()
+
+
+class TestInBatchTraining:
+    @pytest.fixture
+    def inbatch_user_features(self):
+        user_dense = [DenseFeature(name="user_age", proj_dim=1)]
+        user_sparse = [SparseFeature(name="user_id", vocab_size=128, embedding_dim=8)]
+        user_sequence = [
+            SequenceFeature(
+                name="user_hist_items",
+                vocab_size=256,
+                max_len=10,
+                embedding_dim=8,
+                padding_idx=0,
+            )
+        ]
+        return user_dense, user_sparse, user_sequence
+
+    @pytest.fixture
+    def inbatch_item_features(self):
+        item_dense = [DenseFeature(name="item_price", proj_dim=1)]
+        item_sparse = [
+            SparseFeature(name="item_id", vocab_size=256, embedding_dim=8),
+            SparseFeature(name="item_category", vocab_size=64, embedding_dim=8),
+        ]
+        return item_dense, item_sparse, []
+
+    def build_inbatch_data(self, num_samples: int, as_tensors: bool = False) -> dict:
+        if as_tensors:
+            return {
+                "user_age": torch.randn(num_samples, 1),
+                "user_id": torch.randint(1, 128, (num_samples,)),
+                "user_hist_items": torch.randint(0, 256, (num_samples, 10)),
+                "item_price": torch.randn(num_samples, 1),
+                "item_id": torch.randint(1, 256, (num_samples,)),
+                "item_category": torch.randint(1, 64, (num_samples,)),
+            }
+        return {
+            "user_age": np.random.randn(num_samples).astype(np.float32),
+            "user_id": np.random.randint(1, 128, size=num_samples, dtype=np.int64),
+            "user_hist_items": np.random.randint(0, 256, size=(num_samples, 10), dtype=np.int64),
+            "item_price": np.random.randn(num_samples).astype(np.float32),
+            "item_id": np.random.randint(1, 256, size=num_samples, dtype=np.int64),
+            "item_category": np.random.randint(1, 64, size=num_samples, dtype=np.int64),
+        }
+
+    def test_inbatch_fit_supports_missing_labels(
+        self,
+        inbatch_user_features,
+        inbatch_item_features,
+        device,
+        tmp_path,
+        set_random_seed,
+    ):
+        user_dense, user_sparse, user_sequence = inbatch_user_features
+        item_dense, item_sparse, item_sequence = inbatch_item_features
+
+        model = DSSM(
+            user_dense_features=user_dense,
+            user_sparse_features=user_sparse,
+            user_sequence_features=user_sequence,
+            item_dense_features=item_dense,
+            item_sparse_features=item_sparse,
+            item_sequence_features=item_sequence,
+            embedding_dim=16,
+            training_mode="listwise",
+            sampling_mode="inbatch",
+            target=None,
+            device=device,
+            session_id=str(tmp_path / "dssm_inbatch_no_label"),
+        )
+        model.compile(loss="sampled_softmax")
+
+        fitted = model.fit(
+            train_data=self.build_inbatch_data(num_samples=12),
+            epochs=1,
+            batch_size=4,
+            shuffle=False,
+            num_workers=0,
+            use_tensorboard=False,
+        )
+
+        assert fitted is model
+
+    def test_inbatch_cross_entropy_loss_is_supported(
+        self,
+        inbatch_user_features,
+        inbatch_item_features,
+        device,
+        set_random_seed,
+    ):
+        user_dense, user_sparse, user_sequence = inbatch_user_features
+        item_dense, item_sparse, item_sequence = inbatch_item_features
+
+        model = DSSM(
+            user_dense_features=user_dense,
+            user_sparse_features=user_sparse,
+            user_sequence_features=user_sequence,
+            item_dense_features=item_dense,
+            item_sparse_features=item_sparse,
+            item_sequence_features=item_sequence,
+            embedding_dim=16,
+            training_mode="listwise",
+            sampling_mode="inbatch",
+            num_negative_samples=2,
+            target=None,
+            device=device,
+        )
+        model.compile(loss="ce")
+        model.train()
+
+        batch_size = 5
+        data = {
+            key: value.to(device)
+            for key, value in self.build_inbatch_data(num_samples=batch_size, as_tensors=True).items()
+        }
+        y_pred = run_model_forward(model, data)
+        loss = model.compute_loss(y_pred, None)
+
+        assert_no_nan_or_inf(loss, "inbatch cross_entropy loss")
+
+    def test_inbatch_rejects_unsupported_custom_loss(
+        self,
+        inbatch_user_features,
+        inbatch_item_features,
+        device,
+        set_random_seed,
+    ):
+        user_dense, user_sparse, user_sequence = inbatch_user_features
+        item_dense, item_sparse, item_sequence = inbatch_item_features
+
+        model = DSSM(
+            user_dense_features=user_dense,
+            user_sparse_features=user_sparse,
+            user_sequence_features=user_sequence,
+            item_dense_features=item_dense,
+            item_sparse_features=item_sparse,
+            item_sequence_features=item_sequence,
+            embedding_dim=16,
+            training_mode="listwise",
+            sampling_mode="inbatch",
+            num_negative_samples=2,
+            target=None,
+            device=device,
+        )
+        model.compile(loss=UnsupportedInBatchLoss())
+        model.train()
+
+        batch_size = 5
+        data = {
+            key: value.to(device)
+            for key, value in self.build_inbatch_data(num_samples=batch_size, as_tensors=True).items()
+        }
+        y_pred = run_model_forward(model, data)
+        with pytest.raises(ValueError, match="does not support the configured loss"):
+            model.compute_loss(y_pred, None)
+
+
+class TestSamplingModeValidation:
+    def test_explicit_candidate_lists_require_list_axis(self, device):
+        user_sparse = [SparseFeature(name="user_id", vocab_size=100, embedding_dim=8)]
+        item_sparse = [SparseFeature(name="item_id", vocab_size=100, embedding_dim=8)]
+
+        model = DSSM(
+            user_sparse_features=user_sparse,
+            item_sparse_features=item_sparse,
+            embedding_dim=16,
+            training_mode="pairwise",
+            sampling_mode="explicit",
+            device=device,
+        )
+        model.compile(loss="bpr")
+        model.train()
+
+        flat_data = {
+            "user_id": torch.randint(1, 100, (4,), device=device),
+            "item_id": torch.randint(1, 100, (4,), device=device),
+        }
+
+        with pytest.raises(ValueError, match="requires candidate-list features"):
+            run_model_forward(model, flat_data)
+
+    def test_explicit_candidate_lists_accept_list_axis(self, device):
+        user_sparse = [SparseFeature(name="user_id", vocab_size=100, embedding_dim=8)]
+        item_sparse = [SparseFeature(name="item_id", vocab_size=100, embedding_dim=8)]
+
+        model = DSSM(
+            user_sparse_features=user_sparse,
+            item_sparse_features=item_sparse,
+            embedding_dim=16,
+            training_mode="pairwise",
+            sampling_mode="explicit",
+            device=device,
+        )
+        model.compile(loss="bpr")
+        model.eval()
+
+        batch_size = 3
+        list_size = 4
+        explicit_data = {
+            "user_id": torch.randint(1, 100, (batch_size,), device=device),
+            "item_id": torch.randint(1, 100, (batch_size, list_size), device=device),
+        }
+
+        with torch.no_grad():
+            output = run_model_forward(model, explicit_data)
+
+        assert_model_output_shape(output, (batch_size, list_size), "Explicit candidate-list output shape")
+
+    def test_inbatch_rejects_explicit_candidate_axis(self, device):
+        user_sparse = [SparseFeature(name="user_id", vocab_size=100, embedding_dim=8)]
+        item_sparse = [SparseFeature(name="item_id", vocab_size=100, embedding_dim=8)]
+
+        model = DSSM(
+            user_sparse_features=user_sparse,
+            item_sparse_features=item_sparse,
+            embedding_dim=16,
+            training_mode="listwise",
+            sampling_mode="inbatch",
+            target=None,
+            device=device,
+        )
+        model.compile(loss="sampled_softmax")
+        model.train()
+
+        explicit_data = {
+            "user_id": torch.randint(1, 100, (4,), device=device),
+            "item_id": torch.randint(1, 100, (4, 3), device=device),
+        }
+
+        with pytest.raises(ValueError, match="expects flat batch features"):
+            run_model_forward(model, explicit_data)
 
 
 if __name__ == "__main__":

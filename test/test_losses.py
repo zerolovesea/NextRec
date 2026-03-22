@@ -2,6 +2,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from nextrec.basic.heads import GenerativeRetrievalHead
 from nextrec.basic.model import BaseModel
 from nextrec.loss.listwise import ListNetLoss, SampledSoftmaxLoss
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
@@ -11,6 +12,7 @@ from nextrec.loss.pointwise import (
     WeightedBCELoss,
 )
 from nextrec.utils.loss import get_loss_fn
+from nextrec.utils.model import compute_ranking_loss, get_loss_list
 
 
 def test_focal_loss_binary_prefers_confident_logits():
@@ -98,6 +100,12 @@ def test_get_loss_fn_routes_hinge_and_triplet():
     assert triplet.margin == 0.3
 
 
+def test_compile_requires_explicit_loss():
+    model = _DummyBinaryModel()
+    with pytest.raises(ValueError, match="provided explicitly"):
+        model.compile(loss=None)
+
+
 class _DummyBinaryModel(BaseModel):  # type: ignore[misc]
     @property
     def model_name(self) -> str:
@@ -144,6 +152,54 @@ class _DummyMultiTaskModel(BaseModel):  # type: ignore[misc]
         self.dummy = nn.Parameter(torch.zeros(1))
 
 
+class _DummyPairwiseModel(BaseModel):  # type: ignore[misc]
+    @property
+    def model_name(self) -> str:
+        return "DummyPairwise"
+
+    @property
+    def default_task(self) -> str:
+        return "binary"
+
+    def forward(self, X_input):
+        return torch.zeros(1, 2)
+
+    def __init__(self):
+        super().__init__(
+            dense_features=[],
+            sparse_features=[],
+            sequence_features=[],
+            target=["y"],
+            task="binary",
+            training_mode="pairwise",
+        )
+        self.dummy = nn.Parameter(torch.zeros(1))
+
+
+class _DummyGenerativeModel(BaseModel):  # type: ignore[misc]
+    @property
+    def model_name(self) -> str:
+        return "DummyGenerative"
+
+    @property
+    def default_task(self) -> str:
+        return "generative"
+
+    def forward(self, X_input):
+        return torch.zeros(1, 4)
+
+    def __init__(self):
+        self.vocab_size = 4
+        super().__init__(
+            dense_features=[],
+            sparse_features=[],
+            sequence_features=[],
+            target=["y"],
+            task="generative",
+        )
+        self.dummy = nn.Parameter(torch.zeros(1))
+
+
 def test_compile_acceptsloss_params():
     model = _DummyBinaryModel()
     model.compile(loss="focal", loss_params={"gamma": 1.5})
@@ -179,3 +235,100 @@ def test_multitask_loss_skips_fully_missing_task():
 
     task1_loss = model.loss_fn[0](y_pred[:, 0:1], y_true[:, 0:1])
     assert torch.allclose(loss, task1_loss)
+
+
+def test_single_task_pairwise_loss_uses_full_candidate_list():
+    model = _DummyPairwiseModel()
+    model.compile(loss="bpr")
+
+    y_pred = torch.tensor(
+        [
+            [0.1, 0.9, 0.2, 0.3],
+            [0.2, 0.4, 0.8, 0.1],
+        ]
+    )
+    y_true = torch.tensor(
+        [
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ]
+    )
+
+    loss = model.compute_loss(y_pred, y_true)
+    expected = compute_ranking_loss(
+        training_mode="pairwise",
+        loss_fn=model.loss_fn[0],
+        y_pred=y_pred,
+        y_true=y_true,
+    )
+
+    assert torch.allclose(loss, expected)
+
+
+def test_generative_retrieval_head_accepts_vocab_logits_in_format_model_output():
+    model = _DummyGenerativeModel()
+    logits = torch.tensor([[2.0, 0.5, -1.0, 1.2]])
+
+    output = model.format_model_output(logits)
+
+    assert torch.equal(output, logits)
+
+
+def test_single_task_generative_cross_entropy_uses_class_ids():
+    model = _DummyGenerativeModel()
+    model.compile(loss="ce")
+
+    y_pred = torch.tensor(
+        [
+            [2.1, 0.3, -1.2, 4.0],
+            [0.1, 3.2, 1.1, 0.4],
+        ]
+    )
+    y_true = torch.tensor([3, 1])
+
+    loss = model.compute_loss(y_pred, y_true)
+    expected = nn.CrossEntropyLoss()(y_pred, y_true.long())
+
+    assert torch.allclose(loss, expected)
+
+
+def test_get_loss_list_requires_explicit_loss():
+    with pytest.raises(ValueError, match="provided explicitly"):
+        get_loss_list(
+            loss=None,
+            training_modes=["pointwise", "pairwise", "listwise"],
+            nums_task=3,
+        )
+
+
+def test_get_loss_list_rejects_bce_for_ranking_modes():
+    with pytest.raises(ValueError, match="not valid for training_mode='pairwise'"):
+        get_loss_list(
+            loss="bce",
+            training_modes=["pairwise", "listwise"],
+            nums_task=2,
+        )
+
+
+def test_get_loss_list_rejects_short_loss_lists():
+    with pytest.raises(ValueError, match="must match nums_task"):
+        get_loss_list(
+            loss=["bce", "bpr"],
+            training_modes=["pointwise", "pairwise", "listwise"],
+            nums_task=3,
+        )
+
+
+def test_fit_requires_compile_with_explicit_loss():
+    model = _DummyBinaryModel()
+    data = {"y": torch.tensor([1.0, 0.0])}
+
+    with pytest.raises(ValueError, match="compiled before fit"):
+        model.fit(
+            train_data=data,
+            epochs=1,
+            batch_size=2,
+            shuffle=False,
+            num_workers=0,
+            use_tensorboard=False,
+        )

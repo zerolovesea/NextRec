@@ -33,6 +33,7 @@ class _DummyMultiTaskFitModel(BaseModel):  # type: ignore[misc]
 
 def test_fit_without_validation_monitors_loss_for_early_stop(monkeypatch, caplog):
     model = _DummyMultiTaskFitModel()
+    model.compile(loss="bce")
 
     monkeypatch.setattr("nextrec.basic.model.init_process_group", lambda *args, **kwargs: None)
     monkeypatch.setattr(model, "prepare_data_loader", lambda *args, **kwargs: (DataLoader([0], batch_size=1), [0]))
@@ -66,6 +67,7 @@ def test_fit_without_validation_monitors_loss_for_early_stop(monkeypatch, caplog
 
 def test_fit_with_valid_group_by_uses_overall_metrics_for_callbacks(monkeypatch, caplog):
     model = _DummyMultiTaskFitModel()
+    model.compile(loss="bce")
 
     monkeypatch.setattr("nextrec.basic.model.init_process_group", lambda *args, **kwargs: None)
     monkeypatch.setattr(model, "prepare_data_loader", lambda *args, **kwargs: (DataLoader([0], batch_size=1), [0]))

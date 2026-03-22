@@ -1,6 +1,8 @@
 import pandas as pd
 import torch
 import torch.nn as nn
+import math
+import pytest
 
 from nextrec.basic.features import DenseFeature
 from nextrec.basic.model import BaseModel
@@ -63,7 +65,8 @@ def test_predict_expands_rows_and_includes_expand_column():
     assert list(result.columns) == ["uid", "product", "pred_0"]
     assert result["uid"].tolist() == ["u1", "u1", "u1", "u2", "u2", "u2"]
     assert result["product"].tolist() == ["1", "2", "3", "1", "2", "3"]
-    assert result["pred_0"].tolist() == [1.0, 2.0, 3.0, 1.0, 2.0, 3.0]
+    expected = [1.0, 2.0, 3.0, 1.0, 2.0, 3.0]
+    assert result["pred_0"].tolist() == pytest.approx([1 / (1 + math.exp(-x)) for x in expected])
 
 
 def test_predict_streaming_expands_rows_per_chunk(tmp_path):

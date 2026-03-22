@@ -26,6 +26,10 @@ from nextrec.utils.types import TaskTypeName, MetricsName
 TASK_DEFAULT_METRICS = {
     "binary": ["auc", "gauc", "ks", "logloss", "accuracy", "precision", "recall", "f1"],
     "regression": ["mse", "mae", "rmse", "r2", "mape"],
+    "generative": ["hitrate@10"]
+    + [f"recall@{k}" for k in (5, 10, 20)]
+    + [f"ndcg@{k}" for k in (5, 10, 20)]
+    + [f"mrr@{k}" for k in (5, 10, 20)],
     "matching": ["auc", "gauc", "precision@10", "hitrate@10", "map@10", "cosine"]
     + [f"recall@{k}" for k in (5, 10, 20)]
     + [f"ndcg@{k}" for k in (5, 10, 20)]

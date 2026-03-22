@@ -14,6 +14,9 @@ from typing import Any
 from nextrec.utils.types import TaskTypeName
 
 
+SUPPORTED_TASK_TYPES = ["binary", "regression", "generative"]
+
+
 def assert_task(
     task: list[TaskTypeName] | TaskTypeName | None,
     nums_task: int,
@@ -30,6 +33,10 @@ def assert_task(
                 f"{model_name} received task='{task}' but nums_task={nums_task}. "
                 "String task is only allowed for single-task models."
             )
+        if task not in SUPPORTED_TASK_TYPES:
+            raise ValueError(
+                f"{model_name} received unsupported task='{task}'. Supported tasks: {sorted(SUPPORTED_TASK_TYPES)}."
+            )
         return  # single-task, valid
 
     # case 2: task is list
@@ -43,11 +50,20 @@ def assert_task(
                 f"{model_name} received task list of length 1 but nums_task={nums_task}. "
                 "Length-1 task list is only allowed for single-task models."
             )
+        if task[0] not in SUPPORTED_TASK_TYPES:
+            raise ValueError(
+                f"{model_name} received unsupported task='{task[0]}'. Supported tasks: {sorted(SUPPORTED_TASK_TYPES)}."
+            )
         return  # single-task, valid
 
     # multi-task: length must match nums_task
     if len(task) != nums_task:
         raise ValueError(f"{model_name} requires task length {nums_task}, got {len(task)}.")
+    invalid_tasks = [task_name for task_name in task if task_name not in SUPPORTED_TASK_TYPES]
+    if invalid_tasks:
+        raise ValueError(
+            f"{model_name} received unsupported tasks={invalid_tasks}. Supported tasks: {sorted(SUPPORTED_TASK_TYPES)}."
+        )
 
 
 def assert_save_format(save_format: str, *, model_name: str) -> None:

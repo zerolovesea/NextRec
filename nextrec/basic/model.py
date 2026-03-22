@@ -2,7 +2,7 @@
 Base Model & Base Match Model Class
 
 Date: create on 27/10/2025
-Checkpoint: edit on 20/03/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 """
 
@@ -45,6 +45,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from nextrec import __version__
+from nextrec.basic.adapters import CandidateListAdapter, TrainingAdapter, TwoTowerAdapter
 from nextrec.basic.asserts import (
     assert_loss_weights,
     assert_onnx_session_mp_compat,
@@ -52,6 +53,7 @@ from nextrec.basic.asserts import (
     assert_streaming_data_is_filepath,
     assert_task,
 )
+from nextrec.basic.heads import GenerativeRetrievalHead, TaskHead
 from nextrec.basic.callback import (
     CallbackList,
     CheckpointSaver,
@@ -86,8 +88,6 @@ from nextrec.data.dataloader import (
     build_tensors_from_data,
 )
 from nextrec.loss.grad_norm import GradNormLossWeighting
-from nextrec.loss.listwise import InfoNCELoss, SampledSoftmaxLoss
-from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.utils.loss import get_loss_fn
 from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.console import display_metrics_table, progress, render_confusion_block
@@ -130,6 +130,8 @@ from nextrec.utils.types import (
 
 
 class BaseModel(SummarySet, FeatureSet, nn.Module):
+    supported_sampling_modes = ["explicit"]
+
     @property
     def model_name(self) -> str:  # type: ignore[override]
         raise NotImplementedError
@@ -158,6 +160,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         world_size: int | None = None,
         local_rank: int | None = None,
         ddp_find_unused_parameters: bool = False,
+        sampling_mode: Literal["explicit"] = "explicit",
     ):
         """
         Initialize a base model.
@@ -170,6 +173,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             id_columns: Identifier column name, only need to specify if GAUC is required. e.g., 'user_id'.
             task: Task types, e.g., 'binary', 'regression', or ['binary', 'regression']. If None, falls back to self.default_task.
             training_mode: Training mode shared by all tasks. e.g., 'pointwise'.
+            sampling_mode: Candidate organization mode used by pairwise/listwise training.
+                BaseModel supports 'explicit' only, where candidates/negatives are provided explicitly.
 
             embedding_l1_reg: L1 regularization strength for embedding params. e.g., 1e-6.
             dense_l1_reg: L1 regularization strength for dense params. e.g., 1e-5.
@@ -214,11 +219,16 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.features_config_path = os.path.join(self.session_path, "features_config.pkl")
         self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
+        # task/training/sampling setup
         self.task = task or self.default_task
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
 
         training_mode = training_mode or "pointwise"
         self.training_modes = [training_mode] * self.nums_task
+
+        if sampling_mode not in self.supported_sampling_modes:
+            raise ValueError(f"[BaseModel-init Error] Unsupported sampling_mode='{sampling_mode}'. ")
+        self.sampling_mode = sampling_mode
 
         self.embedding_l1_reg = embedding_l1_reg
         self.dense_l1_reg = dense_l1_reg
@@ -236,9 +246,140 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.steps_per_epoch = None
         self.callbacks = CallbackList()
 
+        # set task-aware training adapter and output layer according to the specified task and training mode
+        self.set_task_output()
+
         self.train_data_summary = None
         self.valid_data_summary = None
         self.note = None
+
+    def set_task_output(self):
+        """
+        Set task-aware training adapter and output layer.
+
+        If training mode is:
+            - pointwise: use TaskHead for binary/regression tasks, and GenerativeRetrievalHead for generative retrieval task.
+            - pairwise/listwise: use CandidateListAdapter to organize candidates for ranking loss computation.
+        """
+        if self.training_modes[0] in {"pairwise", "listwise"} and self.sampling_mode == "explicit":
+            self.training_adapter = CandidateListAdapter()
+        else:
+            self.training_adapter = TrainingAdapter()
+
+        self.prediction_layer = None
+        if self.training_modes[0] != "pointwise":
+            return
+        task_type = self.task[0] if isinstance(self.task, list) else self.task
+        if task_type == "generative":
+            if not hasattr(self, "vocab_size"):
+                raise ValueError(
+                    f"[{self.__class__.__name__}-head Error] task='generative' requires the model to define vocab_size before BaseModel initialization."
+                )
+            self.prediction_layer = GenerativeRetrievalHead(vocab_size=int(self.vocab_size), return_logits=True)
+            return
+        self.prediction_layer = TaskHead(task_type=self.task)
+
+    def format_model_output(self, raw_output: Any):
+        """
+        Apply the configured prediction head when pointwise outputs need
+        task-aware post-processing.
+
+        If training mode:
+            - pointwise: apply the prediction layer to raw output for task-aware post-processing, e.g., applying sigmoid for binary classification.
+            - pairwise/listwise: return raw output without extra processing, as the loss function will handle it. 
+                                 e.g., for pairwise BPR loss, the raw output is expected to be the difference between positive and negative scores, 
+                                 and no extra activation is needed.
+        """
+        if self.training_modes[0] != "pointwise":
+            return raw_output
+        if isinstance(raw_output, torch.Tensor) and self.prediction_layer is not None:
+            return self.prediction_layer(raw_output)
+        return raw_output
+
+    def call_model(self, X_input: dict[str, torch.Tensor]) -> Any:
+        module = self.ddp_model if self.ddp_model is not None else self
+        return module(X_input)  # type: ignore[operator]
+
+    def get_task_slices(self, y_pred: torch.Tensor) -> list[tuple[int, int]]:
+        if self.prediction_layer is not None and hasattr(self.prediction_layer, "task_slices"):
+            return list(self.prediction_layer.task_slices)  # type: ignore[attr-defined]
+
+        if hasattr(self, "task_dims"):
+            task_dims = list(self.task_dims)  # type: ignore[attr-defined]
+        else:
+            total_dim = y_pred.shape[-1] if y_pred.dim() > 2 else y_pred.shape[1]
+            inferred_dim = total_dim // self.nums_task if total_dim % self.nums_task == 0 else 1
+            task_dims = [inferred_dim] * self.nums_task
+
+        if len(task_dims) == 1 and self.nums_task > 1:
+            task_dims = task_dims * self.nums_task
+
+        task_slices = []
+        start = 0
+        for dim in task_dims[: self.nums_task]:
+            task_slices.append((start, start + dim))
+            start += dim
+        return task_slices
+
+    def compute_single_task_loss(self, y_pred: torch.Tensor, y_true: torch.Tensor) -> torch.Tensor:
+        """
+        Compute loss for a single-task model according to output semantics.
+
+        - pairwise/listwise: interpret the last dimension as candidate lists
+        - generative: interpret the last dimension as vocabulary logits
+        - pointwise binary/regression: interpret the last dimension as output dims
+        """
+        mode = self.training_modes[0]
+        loss_fn = self.loss_fn[0]
+        ignore_label = self.ignore_label
+        task_type = self.task[0] if isinstance(self.task, list) else self.task
+
+        if mode in {"pairwise", "listwise"}:
+            if y_true.dim() == 1:
+                y_true = y_true.view(-1, 1)
+            if ignore_label is not None:
+                valid_mask = y_true != ignore_label
+                if valid_mask.dim() > 1:
+                    valid_mask = valid_mask.all(dim=tuple(range(1, valid_mask.dim())))
+                if not torch.any(valid_mask):
+                    return y_pred.sum() * 0.0
+                y_pred = y_pred[valid_mask]
+                y_true = y_true[valid_mask]
+            loss = compute_ranking_loss(
+                training_mode=mode,
+                loss_fn=loss_fn,
+                y_pred=y_pred,
+                y_true=y_true,
+            )
+        elif task_type == "generative":
+            labels = y_true.view(-1).long()
+            if ignore_label is not None:
+                valid_mask = labels != int(ignore_label)
+                if not torch.any(valid_mask):
+                    return y_pred.sum() * 0.0
+                y_pred = y_pred[valid_mask]
+                labels = labels[valid_mask]
+            loss = loss_fn(y_pred, labels)
+        else:
+            if y_pred.dim() == 1:
+                y_pred = y_pred.view(-1, 1)
+            if y_true.dim() == 1:
+                y_true = y_true.view(-1, 1)
+            if ignore_label is not None:
+                valid_mask = y_true != ignore_label
+                if valid_mask.dim() > 1:
+                    valid_mask = valid_mask.all(dim=tuple(range(1, valid_mask.dim())))
+                if not torch.any(valid_mask):
+                    return y_pred.sum() * 0.0
+                y_pred = y_pred[valid_mask]
+                y_true = y_true[valid_mask]
+
+            task_dim = y_pred.shape[1] if y_pred.dim() > 1 else 1
+            loss = loss_fn(y_pred.view(-1), y_true.view(-1)) if task_dim == 1 else loss_fn(y_pred, y_true)
+
+        if isinstance(self.loss_weights, (list, tuple)):
+            loss = loss * self.loss_weights[0]
+        return loss
 
     def register_regularization_weights(
         self,
@@ -263,7 +404,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         # get embedding parameters from embed_dict if exists, or get weight from embedding_layer directly
         if embed_dict is not None:
             embedding_params = [embed.weight for embed in embed_dict.values() if hasattr(embed, "weight")]
-        else: # from nn.Embedding or nn.EmbeddingBag layer
+        else:  # from nn.Embedding or nn.EmbeddingBag layer
             weight = getattr(embedding_layer, "weight", None)
             embedding_params = [weight] if isinstance(weight, torch.Tensor) else []
 
@@ -297,9 +438,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             self.regularization_weights.append(module.weight)
             existing_reg_ids.add(id(module.weight))
 
-
     def add_reg_loss(self) -> torch.Tensor:
-        
+
         reg_loss = torch.tensor(0.0, device=self.device)
 
         if self.embedding_l1_reg > 0:
@@ -318,11 +458,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         Prepare unified input features and labels from the given input data.
 
         Args:
-            input_data: Input data dictionary containing 'features' and optionally 'labels', e.g., {'features': {'feat1': [...], 'feat2': [...]}, 'labels': {'label': [...]}}.
+            input_data: Input data dict containing 'features' and optionally 'labels', e.g., {'features': {'feat1': [...], 'feat2': [...]}, 'labels': {'label': [...]}}.
             require_labels: Whether labels are required in the input data. Default is True: for training and evaluation with labels.
-
-        Note:
-            target tensor shape will always be (batch_size, num_targets)
         """
         feature_source = input_data.get("features", {})
         label_source = input_data.get("labels")
@@ -360,10 +497,22 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     target_tensor.size(0), -1
                 )  # always reshape to (batch_size, num_targets)
                 target_tensors.append(target_tensor)
+
             if target_tensors:
-                y = torch.cat(target_tensors, dim=1)
-                if y.shape[1] == 1:  # no need to do that again
-                    y = y.reshape(-1)
+                if any(mode in {"pairwise", "listwise"} for mode in self.training_modes) and all(
+                    tensor.dim() == 2 and tensor.shape[1] > 1 for tensor in target_tensors
+                ):
+                    label_width = target_tensors[0].shape[1]
+                    for tensor in target_tensors[1:]:
+                        if tensor.shape[1] != label_width:
+                            raise ValueError(
+                                "[BaseModel-input Error] pairwise/listwise multi-task labels must share the same list width."
+                            )
+                    y = target_tensors[0] if len(target_tensors) == 1 else torch.stack(target_tensors, dim=-1)
+                else:
+                    y = torch.cat(target_tensors, dim=1)
+                    if y.shape[1] == 1:  # no need to do that again
+                        y = y.reshape(-1)
             elif require_labels:
                 raise ValueError("[BaseModel-input Error] Labels are required but none were found in the input batch.")
         return X_input, y
@@ -548,7 +697,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         ) = None,
         scheduler_params: dict | None = None,
         warmup: bool | dict | None = None,
-        loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
+        loss: LossName | nn.Module | list[LossName | nn.Module] | None = None,
         loss_params: dict | list[dict] | None = None,
         loss_weights: int | float | list[int | float] | dict | None = None,
         ignore_label: int | float | None = -1,
@@ -564,7 +713,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 - False/None (default): disable warmup.
                 - True: enable with defaults {'epochs': 1, 'start_factor': 0.1, 'end_factor': 1.0}.
                 - dict: configure {'enabled': bool, 'epochs': int, 'start_factor': float, 'end_factor': float}.
-            loss: Loss function name, instance, or list for multi-task. e.g., 'bce', 'mse', or torch.nn.BCELoss(), you can also use custom loss functions.
+            loss: Loss function name, instance, or list for multi-task. Must be provided explicitly.
+                e.g., 'bce', 'mse', or torch.nn.BCELoss().
             loss_params: Loss function parameters, or list for multi-task. e.g., {'weight': tensor([0.25, 0.75])}.
             loss_weights: Weights for each task loss, int/float for single-task or list for multi-task. e.g., 1.0, or [1.0, 0.5].
                 Use {"method": "grad_norm", ...} to enable GradNorm for multi-task loss balancing.
@@ -648,86 +798,61 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.compiled = True
 
     def compute_loss(self, y_pred, y_true):
-        """
-        Compute the loss between predictions and ground truth labels, with loss weighting and ignore_label handling
-        """
+        adapter_loss = self.training_adapter.compute_loss(self, y_pred, y_true)
+        if adapter_loss is not None:
+            return adapter_loss
         if y_true is None:
             raise ValueError("[BaseModel-compute_loss Error] Ground truth labels (y_true) are required.")
+        if not isinstance(y_pred, torch.Tensor):
+            raise TypeError(f"[BaseModel-compute_loss Error] Expected y_pred to be a torch.Tensor, got {type(y_pred)}.")
 
-        # single-task
         if self.nums_task == 1:
-            if y_pred.dim() == 1:
-                y_pred = y_pred.view(-1, 1)
-            if y_true.dim() == 1:
-                y_true = y_true.view(-1, 1)
+            return self.compute_single_task_loss(y_pred, y_true)
 
-            loss_fn = self.loss_fn[0]
+        if y_pred.dim() == 1:
+            y_pred = y_pred.view(-1, 1)
+        if y_true.dim() == 1:
+            y_true = y_true.view(-1, 1)
 
-            # mask ignored labels
-            # we don't suggest using ignore_label for single task training
-            if self.ignore_label is not None:
-                valid_mask = y_true != self.ignore_label
-                if valid_mask.dim() > 1:
-                    valid_mask = valid_mask.all(dim=1)
-                if not torch.any(valid_mask):  # if no valid labels, return zero loss
-                    return y_pred.sum() * 0.0
+        task_slices = self.get_task_slices(y_pred)
 
-                y_pred = y_pred[valid_mask]
-                y_true = y_true[valid_mask]
-
-            mode = self.training_modes[0]
-
-            task_dim = self.task_dims[0] if hasattr(self, "task_dims") else y_pred.shape[1]  # type: ignore
-            if mode in {"pairwise", "listwise"}:
-                loss = compute_ranking_loss(
-                    training_mode=mode,
-                    loss_fn=loss_fn,
-                    y_pred=y_pred,
-                    y_true=y_true,
-                )
-            elif task_dim == 1:
-                loss = loss_fn(y_pred.view(-1), y_true.view(-1))
-            else:
-                loss = loss_fn(y_pred, y_true)
-            if self.loss_weights is not None:
-                loss *= self.loss_weights[0]
-            return loss
-
-        # multi-task: slice predictions and labels per task
-        slices = (
-            self.prediction_layer.task_slices  # type: ignore
-            if hasattr(self, "prediction_layer")
-            else [(i, i + 1) for i in range(self.nums_task)]
-        )
         task_losses = []
-        for i, (start, end) in enumerate(slices):  # type: ignore
-            y_pred_i = y_pred[:, start:end]
-            y_true_i = y_true[:, start:end]
-            # mask ignored labels
+        for task_index, (start, end) in enumerate(task_slices[: self.nums_task]):
+            y_pred_i = y_pred[..., start:end] if y_pred.dim() > 2 else y_pred[:, start:end]
+            y_true_i = y_true[..., start:end] if y_true.dim() > 2 else y_true[:, start:end]
+
+            if y_pred_i.dim() == 3 and y_pred_i.shape[-1] == 1:
+                y_pred_i = y_pred_i.squeeze(-1)
+            if y_true_i.dim() == 3 and y_true_i.shape[-1] == 1:
+                y_true_i = y_true_i.squeeze(-1)
+
             if self.ignore_label is not None:
                 valid_mask = y_true_i != self.ignore_label
                 if valid_mask.dim() > 1:
-                    valid_mask = valid_mask.all(dim=1)
-                if not torch.any(valid_mask):
+                    valid_mask = valid_mask.all(dim=tuple(range(1, valid_mask.dim())))
+                if torch.any(valid_mask):
+                    y_pred_i = y_pred_i[valid_mask]
+                    y_true_i = y_true_i[valid_mask]
+                else:
                     task_losses.append(y_pred_i.sum() * 0.0)
                     continue
-                y_pred_i = y_pred_i[valid_mask]
-                y_true_i = y_true_i[valid_mask]
 
-            mode = self.training_modes[i]
-
+            mode = self.training_modes[task_index]
+            loss_fn = self.loss_fn[task_index]
             if mode in {"pairwise", "listwise"}:
                 task_loss = compute_ranking_loss(
                     training_mode=mode,
-                    loss_fn=self.loss_fn[i],
+                    loss_fn=loss_fn,
                     y_pred=y_pred_i,
                     y_true=y_true_i,
                 )
             else:
-                task_loss = self.loss_fn[i](y_pred_i, y_true_i)
-                # task_loss = normalize_task_loss(
-                #     task_loss, valid_count, total_count
-                # )  # normalize by valid samples to avoid loss scale issues
+                task_dim = y_pred_i.shape[1] if y_pred_i.dim() > 1 else 1
+                task_loss = (
+                    loss_fn(y_pred_i.view(-1), y_true_i.view(-1))
+                    if task_dim == 1
+                    else loss_fn(y_pred_i, y_true_i)
+                )
             task_losses.append(task_loss)
 
         if self.grad_norm is not None:
@@ -736,6 +861,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     self, getattr(self, "grad_norm_shared_modules", None)
                 )
             return self.grad_norm.compute_weighted_loss(task_losses, self.grad_norm_shared_params)
+
         if isinstance(self.loss_weights, (list, tuple)):
             task_losses = [task_loss * self.loss_weights[i] for i, task_loss in enumerate(task_losses)]
         return torch.stack(task_losses).sum()
@@ -889,16 +1015,13 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         init_process_group(self.distributed, self.rank, self.world_size, device_id=device_id)
         self.to(self.device)
 
-        assert_task(self.task, len(self.target_columns), model_name=self.model_name)
+        if len(self.target_columns) > 0 or self.training_adapter.needs_labels(self):
+            assert_task(self.task, len(self.target_columns), model_name=self.model_name)
 
         if not self.compiled:
-            self.compile(
-                optimizer="adam",
-                optimizer_params={},
-                scheduler=None,
-                scheduler_params={},
-                loss=None,
-                loss_params={},
+            raise ValueError(
+                "[BaseModel-fit Error] Model must be compiled before fit(). "
+                "Call compile(loss=...) explicitly."
             )
 
         if self.distributed and dist.is_available() and dist.is_initialized() and self.ddp_model is None:
@@ -1384,9 +1507,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             )
         for batch_index, batch_data in batch_iter:
             batch_dict = batch_to_dict(batch_data)
-            X_input, y_true = self.get_input(batch_dict, require_labels=True)
-            # call via __call__ so DDP hooks run
-            y_pred = model(X_input)  # type: ignore
+            require_labels = self.training_adapter.needs_labels(self)
+            X_input, y_true = self.get_input(batch_dict, require_labels=require_labels)
+            y_pred = self.training_adapter.forward(self, X_input)
 
             loss = self.compute_loss(y_pred, y_true)
             reg_loss = self.add_reg_loss()
@@ -1405,7 +1528,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 self.grad_norm.step()
             accumulated_loss += loss.item()
 
-            if collect_metrics and y_true is not None and isinstance(y_pred, torch.Tensor):
+            if collect_metrics and self.training_adapter.supports_metrics(y_pred, y_true):
                 y_true_list.append(y_true.detach().cpu().numpy())
                 y_pred_list.append(y_pred.detach().cpu().numpy())
                 if self.needs_user_ids and user_ids_list is not None:
@@ -1596,10 +1719,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 batch_count += 1
                 batch_dict = batch_to_dict(batch_data)
                 X_input, y_true = self.get_input(batch_dict, require_labels=True)
-                y_pred = model(X_input)
-                if y_true is not None:
+                y_pred = self.training_adapter.forward(self, X_input)
+                if self.training_adapter.supports_metrics(y_pred, y_true):
                     y_true_list.append(y_true.cpu().numpy())
-                if y_pred is not None and isinstance(y_pred, torch.Tensor):
                     y_pred_list.append(y_pred.cpu().numpy())
                 if needs_user_ids and user_ids is None:
                     batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
@@ -2055,7 +2177,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 start = time.perf_counter()
-                y_pred = self(X_input)
+                y_pred = self.training_adapter.forward(self, X_input)
                 if profiler is not None:
                     profiler.add("inference", time.perf_counter() - start)
                 if y_pred is not None and isinstance(y_pred, torch.Tensor):
@@ -3335,12 +3457,19 @@ class BaseMatchModel(BaseModel):
     Base class for match (retrieval/recall) models
 
     - Pointwise: predicts a user-item match score/probability using labels (default target: 'label')
-    - Pairwise/Listwise: trains with in-batch negatives; labels can be omitted by setting target=None
+    - Pairwise/Listwise with explicit candidate lists: uses labels to separate positives and negatives
+    - Pairwise/Listwise with in-batch negatives: labels are optional; diagonal pairs are treated as positives
+
+    Sampling mode support:
+    - 'explicit': supported by BaseModel and BaseMatchModel
+    - 'inbatch': supported only by BaseMatchModel
     """
 
     @property
     def model_name(self) -> str:  # type: ignore[override]
         raise NotImplementedError
+
+    supported_sampling_modes = ["explicit", "inbatch"]
 
     @property
     def default_task(self) -> TaskTypeName:
@@ -3357,6 +3486,11 @@ class BaseMatchModel(BaseModel):
         """
         return ["pointwise", "pairwise", "listwise"]
 
+    def set_task_output(self):
+        super().set_task_output()
+        if self.training_modes[0] in {"pairwise", "listwise"} and self.sampling_mode == "inbatch":
+            self.training_adapter = TwoTowerAdapter()
+
     def __init__(
         self,
         user_dense_features: list[DenseFeature] | None = None,
@@ -3365,7 +3499,7 @@ class BaseMatchModel(BaseModel):
         item_dense_features: list[DenseFeature] | None = None,
         item_sparse_features: list[SparseFeature] | None = None,
         item_sequence_features: list[SequenceFeature] | None = None,
-        training_mode: Literal["pointwise", "pairwise", "listwise"] = "pointwise",
+        training_mode: TrainingModeName = "pointwise",
         num_negative_samples: int = 4,
         temperature: float = 1.0,
         similarity_metric: Literal["dot", "cosine", "euclidean"] = "dot",
@@ -3383,8 +3517,18 @@ class BaseMatchModel(BaseModel):
         world_size: int | None = None,
         local_rank: int | None = None,
         ddp_find_unused_parameters: bool = False,
+        sampling_mode: Literal["explicit", "inbatch"] = "explicit",
         **kwargs,
     ):
+        """
+        Initialize a retrieval model.
+
+        Args:
+            sampling_mode: Candidate organization mode for pairwise/listwise training.
+                Use 'explicit' when positives/negatives are provided explicitly.
+                Use 'inbatch' to treat other samples in the same batch as negatives.
+                Unlike BaseModel, BaseMatchModel supports both modes.
+        """
         user_dense_features = list(user_dense_features or [])
         user_sparse_features = list(user_sparse_features or [])
         user_sequence_features = list(user_sequence_features or [])
@@ -3404,6 +3548,7 @@ class BaseMatchModel(BaseModel):
             id_columns=id_columns,
             task=task,
             training_mode=training_mode,
+            sampling_mode=sampling_mode,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,
@@ -3415,7 +3560,6 @@ class BaseMatchModel(BaseModel):
             world_size=world_size,
             local_rank=local_rank,
             ddp_find_unused_parameters=ddp_find_unused_parameters,
-            **kwargs,
         )
 
         self.user_dense_features = user_dense_features
@@ -3441,6 +3585,7 @@ class BaseMatchModel(BaseModel):
             similarity_metric=self.similarity_metric,
             temperature=self.temperature,
             training_mode=self.primary_mode,
+            sampling_mode=self.sampling_mode,
             apply_sigmoid=True,
         )
 
@@ -3458,61 +3603,18 @@ class BaseMatchModel(BaseModel):
         ) = None,
         scheduler_params: dict | None = None,
         warmup: bool | dict | None = None,
-        loss: LossName | nn.Module | list[LossName | nn.Module] | None = "bce",
+        loss: LossName | nn.Module | list[LossName | nn.Module] | None = None,
         loss_params: dict | list[dict] | None = None,
-        loss_weights: int | float | list[int | float] | dict | str | None = None,
+        loss_weights: int | float | list[int | float] | dict | None = None,
         ignore_label: int | float | None = -1,
     ):
-        """
-        Configure the match model for training.
-
-        Args:
-            optimizer: Optimizer to use (name or instance). e.g., 'adam', 'sgd'.
-            optimizer_params: Parameters for the optimizer. e.g., {'lr': 0.001}.
-            scheduler: Learning rate scheduler (name, instance, or class). e.g., 'step_lr'.
-            scheduler_params: Parameters for the scheduler. e.g., {'step_size': 10, 'gamma': 0.1}.
-            warmup: Optional warmup config for scheduler.
-            loss: Loss function(s) to use (name, instance, or list). e.g., 'bce'.
-            loss_params: Parameters for the loss function(s). e.g., {'reduction': 'mean'}.
-            loss_weights: Weights for the loss function(s). e.g., 1.0 or [0.7, 0.3].
-        """
-        default_loss_by_mode: dict[str, LossName] = {
-            "pointwise": "bce",
-            "pairwise": "bpr",
-            "listwise": "sampled_softmax",
-        }
-
-        effective_loss: LossName | nn.Module | list[LossName | nn.Module] | None = loss
-        primary_mode = self.primary_mode
-        if effective_loss is None:
-            effective_loss = default_loss_by_mode[primary_mode]
-        elif isinstance(effective_loss, str):
-            if primary_mode in {"pairwise", "listwise"} and effective_loss in {
-                "bce",
-                "binary_crossentropy",
-            }:
-                effective_loss = default_loss_by_mode[primary_mode]
-        elif isinstance(effective_loss, list):
-            if not effective_loss:
-                effective_loss = [default_loss_by_mode[primary_mode]]
-            else:
-                first = effective_loss[0]
-                if (
-                    primary_mode in {"pairwise", "listwise"}
-                    and isinstance(first, str)
-                    and first in {"bce", "binary_crossentropy"}
-                ):
-                    effective_loss = [
-                        default_loss_by_mode[primary_mode],
-                        *effective_loss[1:],
-                    ]
         return super().compile(
             optimizer=optimizer,
             optimizer_params=optimizer_params,
             scheduler=scheduler,
             scheduler_params=scheduler_params,
             warmup=warmup,
-            loss=effective_loss,
+            loss=loss,
             loss_params=loss_params,
             loss_weights=loss_weights,
             ignore_label=ignore_label,
@@ -3559,57 +3661,20 @@ class BaseMatchModel(BaseModel):
         raise NotImplementedError
 
     def forward(self, X_input: dict) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """Rewrite forward to handle user and item features separately."""
+        """Return raw user/item embeddings; formatting is handled by adapter/base class."""
         user_input = {name: tensor for name, tensor in X_input.items() if name in self.user_feature_names}
         item_input = {name: tensor for name, tensor in X_input.items() if name in self.item_feature_names}
 
         user_emb = self.user_tower(user_input)  # [B, D]
         item_emb = self.item_tower(item_input)  # [B, D]
 
+        return user_emb, item_emb
+
+    def format_model_output(self, raw_output: Any):
+        if not isinstance(raw_output, (tuple, list)) or len(raw_output) != 2:
+            return super().format_model_output(raw_output)
+        user_emb, item_emb = raw_output
         return self.head(user_emb, item_emb, similarity_fn=self.compute_similarity)
-
-    def compute_loss(self, y_pred, y_true):
-        primary_mode = self.primary_mode
-        if primary_mode == "pointwise":
-            return super().compute_loss(y_pred, y_true)
-
-        # pairwise / listwise using inbatch neg
-        elif primary_mode in ["pairwise", "listwise"]:
-            if not isinstance(y_pred, (tuple, list)) or len(y_pred) != 2:
-                raise ValueError(
-                    "For pairwise/listwise training, forward should return (user_emb, item_emb). Please check BaseMatchModel.forward implementation."
-                )
-            user_emb, item_emb = y_pred  # [B, D], [B, D]
-            batch_size = user_emb.size(0)
-            if batch_size < 2:
-                return torch.tensor(0.0, device=user_emb.device)
-
-            logits = self.inbatch_logits(user_emb, item_emb)  # [B, B]
-
-            eye = torch.eye(batch_size, device=logits.device, dtype=torch.bool)
-            pos_logits = logits.diag()  # [B]
-            neg_logits = logits.masked_select(~eye).view(batch_size, batch_size - 1)  # [B, B-1]
-
-            loss_fn = self.loss_fn[0] if hasattr(self, "loss_fn") and self.loss_fn else None
-            if isinstance(loss_fn, SampledSoftmaxLoss):
-                loss = loss_fn(pos_logits, neg_logits)
-            elif isinstance(loss_fn, (BPRLoss, HingeLoss)):
-                loss = loss_fn(pos_logits, neg_logits)
-            elif isinstance(loss_fn, TripletLoss):
-                neg_emb = item_emb.masked_select(~eye.unsqueeze(-1)).view(batch_size, batch_size - 1, item_emb.size(-1))
-                loss = loss_fn(user_emb, item_emb, neg_emb)
-            elif isinstance(loss_fn, InfoNCELoss) and self.similarity_metric == "dot":
-                neg_emb = item_emb.masked_select(~eye.unsqueeze(-1)).view(batch_size, batch_size - 1, item_emb.size(-1))
-                loss = loss_fn(user_emb, item_emb, neg_emb)
-            else:
-                targets = torch.arange(batch_size, device=logits.device)
-                loss = F.cross_entropy(logits, targets)
-
-            if self.loss_weights is not None:
-                loss *= float(self.loss_weights[0])
-            return loss
-        else:
-            raise ValueError(f"Unknown training mode: {primary_mode}")
 
     def prepare_feature_data(
         self,

@@ -60,7 +60,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MLP
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput, TaskTypeName
 
@@ -236,7 +235,6 @@ class SNRTrans(BaseModel):
         self.towers = nn.ModuleList(
             [MLP(input_dim=expert_hidden_dims[-1], output_dim=1, **params) for params in tower_params]
         )
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         self.grad_norm_shared_modules = ["embedding", "expert_layers", "gates"]
         self.register_regularization_weights(
             embedding_attr="embedding",
@@ -279,5 +277,5 @@ class SNRTrans(BaseModel):
             task_outputs.append(tower_output)
 
         # Concatenate logits: [Batch, Task_num] -> prediction head -> [Batch, Task_num]
-        y = torch.cat(task_outputs, dim=1)
-        return self.prediction_layer(y)
+        logits = torch.cat(task_outputs, dim=1)
+        return logits

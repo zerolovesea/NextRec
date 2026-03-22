@@ -61,7 +61,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FieldAwareEmbeddingLayer, InputMask
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -121,7 +120,6 @@ class FFM(BaseModel):
         dense_input_dim = sum([f.input_dim for f in self.dense_features])
         self.linear_dense = nn.Linear(dense_input_dim, 1, bias=True) if dense_input_dim > 0 else None
 
-        self.prediction_layer = TaskHead(task_type=self.task)
         self.input_mask = InputMask()
 
         self.embedding_params.extend(emb.weight for emb in self.field_aware_embedding.embed_dict.values())
@@ -171,5 +169,5 @@ class FFM(BaseModel):
                 v_j_fi = field_aware_outputs[:, j, i, :]  # [Batch, Dim_embedding]
                 y_interaction = y_interaction + torch.sum(v_i_fj * v_j_fi, dim=-1, keepdim=True)  # [Batch, 1]
 
-        y = y_linear + y_interaction  # [Batch, 1]
-        return self.prediction_layer(y)  # [Batch, 1]
+        logits = y_linear + y_interaction  # [Batch, 1]
+        return logits

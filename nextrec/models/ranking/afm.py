@@ -51,7 +51,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, InputMask
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -146,7 +145,6 @@ class AFM(BaseModel):
 
         self.output_projection = nn.Linear(self.embedding_dim, 1, bias=False)
 
-        self.prediction_layer = TaskHead(task_type=self.task)
         self.input_mask = InputMask()
 
         # Register regularization weights
@@ -219,5 +217,5 @@ class AFM(BaseModel):
         weighted_sum = self.attention_dropout(weighted_sum)
         y_afm = self.output_projection(weighted_sum)
 
-        y = y_linear + y_afm
-        return self.prediction_layer(y)
+        logits = y_linear + y_afm
+        return logits

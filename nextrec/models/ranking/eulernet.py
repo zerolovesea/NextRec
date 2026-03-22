@@ -65,7 +65,6 @@ import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -313,8 +312,6 @@ class EulerNet(BaseModel):
         else:
             self.linear = None
 
-        self.prediction_layer = TaskHead(task_type=self.task)
-
         modules = ["mapping", "layers", "w", "w_im"]
         if self.use_linear:
             modules.append("linear")
@@ -332,7 +329,8 @@ class EulerNet(BaseModel):
             y_euler = y_euler + self.linear(linear_input)
 
         # Final output: [Batch, 1] -> task prediction layer
-        return self.prediction_layer(y_euler)
+        logits = y_euler
+        return logits
 
     def euler_forward(self, field_emb: torch.Tensor) -> torch.Tensor:
         # Complex mapping: [Batch, Field_num, Dim_embedding] -> two tensors with same shape

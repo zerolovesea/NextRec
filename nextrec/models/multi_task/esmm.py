@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 15/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Ma X, Zhao L, Huang G, Wang Z, Hu Z, Zhu X, Gai K. Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate. In: Proceedings of the 41st International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR ’18), 2018, pp. 1137–1140.
@@ -53,7 +53,6 @@ import torch
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -121,7 +120,6 @@ class ESMM(BaseModel):
         # CVR tower
         self.cvr_tower = MLP(input_dim=input_dim, output_dim=1, **cvr_mlp_params)
         self.grad_norm_shared_modules = ["embedding"]
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1, 1])
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["ctr_tower", "cvr_tower"])
 
@@ -139,15 +137,12 @@ class ESMM(BaseModel):
         # logits: cat([ctr_logit, cvr_logit], dim=1) -> [Batch, 2]
         # preds: [Batch, 2], split to ctr/cvr each [Batch, 1]
         logits = torch.cat([ctr_logit, cvr_logit], dim=1)
-        preds = self.prediction_layer(logits)
+        return logits
+
+    def format_model_output(self, raw_output):
+        if self.training_modes[0] != "pointwise":
+            return raw_output
+        preds = self.prediction_layer(raw_output)
         ctr, cvr = preds.chunk(2, dim=1)
-
-        # CTCVR composition:
-        # ctcvr = ctr * cvr -> [Batch, 1]
         ctcvr = ctr * cvr
-
-        # Final output for training/inference:
-        # y = [ctr, ctcvr] -> [Batch, 2]
-        # y[:, 0] = CTR, y[:, 1] = CTCVR
-        y = torch.cat([ctr, ctcvr], dim=1)
-        return y
+        return torch.cat([ctr, ctcvr], dim=1)

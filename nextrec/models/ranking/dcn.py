@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Wang R, Fu B, Fu G, et al. Deep & cross network for ad click predictions[C] //Proceedings of the ADKDD'17. 2017: 1-7.
@@ -57,7 +57,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -149,8 +148,6 @@ class DCN(BaseModel):
             # Final layer only uses cross network output
             self.final_layer = nn.Linear(input_dim, 1)
 
-        self.prediction_layer = TaskHead(task_type=self.task)
-
         # Register regularization weights
         self.register_regularization_weights(
             embedding_attr="embedding",
@@ -172,6 +169,5 @@ class DCN(BaseModel):
         else:
             combined = cross_output  # [Batch, Dim_embedding]
 
-        # Final prediction: logit[Batch, 1] -> [Batch, 1]
-        y = self.final_layer(combined)  # [Batch, 1]
-        return self.prediction_layer(y)  # [Batch, 1]
+        logits = self.final_layer(combined)  # [Batch, 1]
+        return logits

@@ -506,7 +506,8 @@ def build_user_histories(
     seq_len: int = 6,
 ) -> tuple[torch.Tensor, torch.Tensor, int]:
     """
-    Build (history, next_item) pairs per user using log_time ordering.
+    Build autoregressive generative-retrieval training pairs per user using
+    log_time ordering.
     """
     df_with_ids = df.copy().reset_index(drop=True)
     df_with_ids["log_time"] = pd.to_datetime(df_with_ids[log_time_column])

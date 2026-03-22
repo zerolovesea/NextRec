@@ -226,6 +226,7 @@ model = DSSM(
     user_mlp_params={"hidden_dims": [256, 128]},  # 用户塔 MLP 参数
     item_mlp_params={"hidden_dims": [256, 128]},  # 物品塔 MLP 参数
     training_mode="pairwise",  # 使用 pairwise 训练模式
+    sampling_mode="inbatch",  # 使用 batch 内负采样
     device="cpu",
     session_id="movielens_dssm_tutorial",
 )

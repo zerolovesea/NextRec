@@ -2,7 +2,7 @@
 Task head implementations for NextRec models.
 
 Date: create on 23/12/2025
-Checkpoint: edit on 22/01/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -20,13 +20,13 @@ from nextrec.utils.types import TaskTypeName
 
 class TaskHead(nn.Module):
     """
-    Unified task head for ranking/regression/multi-task outputs.
-
-    This wraps PredictionLayer so models can depend on a "Head" abstraction
-    without changing their existing forward signatures.
+    Task head for pointwise binary/regression and multi-task outputs.
 
     Args:
         task_type: The type of task(s) this head is responsible for.
+            Supported task types are "binary" and "regression".
+            Vocabulary-sized generative retrieval does not use TaskHead;
+            use GenerativeRetrievalHead instead.
         task_dims: The dimensionality of each task's output.
         use_bias: Whether to include a bias term in the prediction layer.
         return_logits: Whether to return raw logits or apply activation.
@@ -56,6 +56,50 @@ class TaskHead(nn.Module):
         return self.prediction(x)
 
 
+class GenerativeRetrievalHead(nn.Module):
+    """
+    Head for generative retrieval over a full item vocabulary.
+
+    Unlike TaskHead, this head treats the last dimension as a vocabulary/class
+    axis rather than a per-task output slice, so it is suitable for
+    generative retrieval trained with autoregressive classification loss such
+    as CrossEntropyLoss over the item vocabulary.
+
+    Args:
+        vocab_size: Number of candidate items/classes.
+        use_bias: Whether to include an additive bias per item.
+        return_logits: Whether to return raw logits or normalized probabilities.
+    """
+
+    def __init__(
+        self,
+        vocab_size: int,
+        use_bias: bool = True,
+        return_logits: bool = True,
+    ) -> None:
+        super().__init__()
+        if vocab_size < 2:
+            raise ValueError(f"[GenerativeRetrievalHead Error] vocab_size must be >= 2, got {vocab_size}.")
+        self.vocab_size = int(vocab_size)
+        self.return_logits = return_logits
+        if use_bias:
+            self.bias = nn.Parameter(torch.zeros(self.vocab_size))
+        else:
+            self.register_parameter("bias", None)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+        if not torch.onnx.is_in_onnx_export() and x.shape[-1] != self.vocab_size:
+            raise ValueError(
+                f"[GenerativeRetrievalHead Error] Input last dimension ({x.shape[-1]}) does not match vocab_size ({self.vocab_size})."
+            )
+        logits = x if self.bias is None else x + self.bias
+        if self.return_logits:
+            return logits
+        return F.softmax(logits, dim=-1)
+
+
 class RetrievalHead(nn.Module):
     """
     Retrieval head for two-tower models.
@@ -67,6 +111,7 @@ class RetrievalHead(nn.Module):
         similarity_metric: The metric used to compute similarity between embeddings.
         temperature: Scaling factor for similarity scores.
         training_mode: The training mode, which can be pointwise, pairwise, or listwise.
+        sampling_mode: The sampling mode for pairwise/listwise retrieval, either explicit or inbatch.
         apply_sigmoid: Whether to apply sigmoid activation to the similarity scores in pointwise mode.
     """
 
@@ -75,12 +120,14 @@ class RetrievalHead(nn.Module):
         similarity_metric: Literal["dot", "cosine", "euclidean"] = "dot",
         temperature: float = 1.0,
         training_mode: Literal["pointwise", "pairwise", "listwise"] = "pointwise",
+        sampling_mode: Literal["explicit", "inbatch"] = "explicit",
         apply_sigmoid: bool = True,
     ) -> None:
         super().__init__()
         self.similarity_metric = similarity_metric
         self.temperature = temperature
         self.training_mode = training_mode
+        self.sampling_mode = sampling_mode
         self.apply_sigmoid = apply_sigmoid
 
     def forward(
@@ -89,7 +136,18 @@ class RetrievalHead(nn.Module):
         item_emb: torch.Tensor,
         similarity_fn=None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        if self.training and self.training_mode in {"pairwise", "listwise"}:
+        # 2D user/item embeddings imply one positive pair per row, so retrieval
+        # models can use in-batch negatives by returning raw embeddings.
+        # When explicit positive/negative candidates are already packed in the
+        # batch (for example item_emb is [B, L, D]), return similarity scores
+        # instead so BaseRankingModel can compute pairwise/listwise loss.
+        if (
+            self.training
+            and self.training_mode in {"pairwise", "listwise"}
+            and self.sampling_mode == "inbatch"
+            and user_emb.dim() == 2
+            and item_emb.dim() == 2
+        ):
             return user_emb, item_emb
 
         if similarity_fn is not None:

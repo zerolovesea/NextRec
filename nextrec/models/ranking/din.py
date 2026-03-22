@@ -61,7 +61,6 @@ from nextrec.basic.layers import (
     AttentionPoolingLayer,
     EmbeddingLayer,
 )
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -226,7 +225,6 @@ class DIN(BaseModel):
 
         # MLP for final prediction
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
-        self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(
@@ -276,6 +274,5 @@ class DIN(BaseModel):
         # Concatenate all features -> concat_input: [Batch, Dim_total]
         concat_input = torch.cat(other_embeddings, dim=-1)
 
-        # MLP prediction -> y: [Batch, 1]
-        y = self.mlp(concat_input)
-        return self.prediction_layer(y)
+        logits = self.mlp(concat_input)  # [Batch, 1]
+        return logits

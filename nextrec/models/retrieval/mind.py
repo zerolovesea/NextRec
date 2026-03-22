@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Li C, Liu Z, Wu M, et al. Multi-interest network with dynamic routing for recommendation at Tmall[C] //Proceedings of the 28th ACM international conference on information and knowledge management. 2019: 2615-2623.

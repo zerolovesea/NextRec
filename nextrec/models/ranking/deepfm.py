@@ -1,6 +1,6 @@
 """
 Date: create on 27/10/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Guo H, Tang R, Ye Y, et al. DeepFM: A factorization-machine based neural network for CTR prediction[J]. arXiv preprint arXiv:1703.04247, 2017.
@@ -31,7 +31,6 @@ embedding，无需手工构造交叉特征即可端到端训练，常用于 CTR/
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FM, LR, MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -97,8 +96,6 @@ class DeepFM(BaseModel):
         self.fm = FM(reduce_sum=True)
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
 
-        self.prediction_layer = TaskHead(task_type=self.task)
-
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear", "mlp"])
 
@@ -110,5 +107,5 @@ class DeepFM(BaseModel):
         y_fm = self.fm(input_fm)
         y_deep = self.mlp(input_deep)  # [Batch, 1]
 
-        y = y_linear + y_fm + y_deep
-        return self.prediction_layer(y)
+        logits = y_linear + y_fm + y_deep
+        return logits

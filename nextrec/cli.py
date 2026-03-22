@@ -1,7 +1,6 @@
 """
 Command-line interface for NextRec training and prediction.
 
-
 NextRec supports a flexible training and prediction pipeline driven by configuration files.
 After preparing the configuration YAML files for training and prediction, users can run the
 following script to execute the desired operations.
@@ -17,7 +16,7 @@ Examples:
     nextrec --mode=evaluate --evaluate_config=nextrec_cli_preset/evaluate_config.yaml
 
 Date: create on 06/12/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 22/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -439,7 +438,7 @@ def train_model(train_config_path: str) -> None:
         scheduler=train_cfg.get("scheduler"),
         scheduler_params=train_cfg.get("scheduler_params", {}),
         warmup=train_cfg.get("warmup", train_cfg.get("warmup")),
-        loss=train_cfg.get("loss", "focal"),
+        loss=train_cfg.get("loss"),
         loss_params=train_cfg.get("loss_params", {}),
         loss_weights=train_cfg.get("loss_weights"),
         ignore_label=train_cfg.get("ignore_label", -1),

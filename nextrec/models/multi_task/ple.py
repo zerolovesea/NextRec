@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 15/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Tang H, Liu J, Zhao M, Gong X. Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations. In: Proceedings of the 14th ACM Conference on Recommender Systems (RecSys ’20), 2020, pp. 269–278.
@@ -51,7 +51,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import get_mlp_output_dim
 from nextrec.utils.types import TaskTypeInput
@@ -286,7 +285,6 @@ class PLE(BaseModel):
         for tower_mlp_params in tower_mlp_params_list:
             tower = MLP(input_dim=expert_output_dim, output_dim=1, **tower_mlp_params)
             self.towers.append(tower)
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["cgc_layers", "towers"])
 
@@ -312,8 +310,5 @@ class PLE(BaseModel):
             tower_output = self.towers[task_idx](task_fea[task_idx])  # [B, 1]
             task_outputs.append(tower_output)
 
-        # Concatenate task logits: [Batch, Task_num]
-        y = torch.cat(task_outputs, dim=1)
-
-        # Task head activation: [Batch, Task_num] -> [Batch, Task_num]
-        return self.prediction_layer(y)
+        logits = torch.cat(task_outputs, dim=1)  # [Batch, Task_num]
+        return logits

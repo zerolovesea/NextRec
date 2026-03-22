@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Huang P S, He X, Gao J, et al. Learning deep structured semantic models for web search using clickthrough data[C] //Proceedings of the 22nd ACM international conference on Information & Knowledge Management. 2013: 2333-2338.

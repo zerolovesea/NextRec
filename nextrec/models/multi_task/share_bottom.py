@@ -46,7 +46,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -130,7 +129,6 @@ class ShareBottom(BaseModel):
         for tower_mlp_params in tower_mlp_params_list:
             tower = MLP(input_dim=bottom_output_dim, output_dim=1, **tower_mlp_params)
             self.towers.append(tower)
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["bottom", "towers"])
 
@@ -147,7 +145,5 @@ class ShareBottom(BaseModel):
             tower_output = tower(bottom_output)  # [Batch, 1]
             task_outputs.append(tower_output)
 
-        # Concatenate task logits: [Batch, Task_num]
-        y = torch.cat(task_outputs, dim=1)  # [Batch, Task_num]
-        # Apply task head activation/slicing: [Batch, Task_num]
-        return self.prediction_layer(y)  # [Batch, Task_num]
+        logits = torch.cat(task_outputs, dim=1)  # [Batch, Task_num]
+        return logits
