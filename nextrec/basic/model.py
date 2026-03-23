@@ -271,10 +271,6 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             return
         task_type = self.task[0] if isinstance(self.task, list) else self.task
         if task_type == "generative":
-            if not hasattr(self, "vocab_size"):
-                raise ValueError(
-                    f"[{self.__class__.__name__}-head Error] task='generative' requires the model to define vocab_size before BaseModel initialization."
-                )
             self.prediction_layer = GenerativeRetrievalHead(vocab_size=int(self.vocab_size), return_logits=True)
             return
         self.prediction_layer = TaskHead(task_type=self.task)
@@ -296,11 +292,11 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             return self.prediction_layer(raw_output)
         return raw_output
 
-    def call_model(self, X_input: dict[str, torch.Tensor]) -> Any:
+    def call_model(self, X_input: dict[str, torch.Tensor]):
         module = self.ddp_model if self.ddp_model is not None else self
         return module(X_input)  # type: ignore[operator]
 
-    def get_task_slices(self, y_pred: torch.Tensor) -> list[tuple[int, int]]:
+    def get_task_slices(self, y_pred: torch.Tensor):
         if self.prediction_layer is not None and hasattr(self.prediction_layer, "task_slices"):
             return list(self.prediction_layer.task_slices)  # type: ignore[attr-defined]
 
@@ -553,7 +549,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     )
         else:
             raise TypeError(
-                f"[BaseModel-validation Error] If you want to use valid_split, train_data must be DataFrame or a dict, now got {type(train_data)}"
+                f"[BaseModel-validation Error] If you want to use valid_split, train_data must be DataFrame or a dict."
             )
         rng = np.random.default_rng(random_state)
 
@@ -570,10 +566,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         f"[BaseModel-validation Error] Field '{split_group_by}' not found for split control."
                     )
                 group_values = np.asarray(train_data[split_group_by])
-            if len(group_values) != total_length:
-                raise ValueError(
-                    f"[BaseModel-validation Error] split_group_by column '{split_group_by}' length does not match data length."
-                )
+            
+            # unique id and inverse index for each id
             unique_groups, inverse_group_idx = np.unique(group_values, return_inverse=True)
             group_indices = np.arange(len(unique_groups))
 
@@ -595,10 +589,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                             f"[BaseModel-validation Error] Field '{split_stratify_by}' not found for split control."
                         )
                     stratify_values = np.asarray(train_data[split_stratify_by])
-                if len(stratify_values) != total_length:
-                    raise ValueError(
-                        f"[BaseModel-validation Error] split_stratify_by column '{split_stratify_by}' length does not match data length."
-                    )
+
                 group_labels = []
                 for group_idx in group_indices:
                     group_mask = inverse_group_idx == group_idx
@@ -607,6 +598,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         group_labels.append(str(group_unique_labels[0]))
                     else:
                         group_labels.append("|".join(sorted(map(str, group_unique_labels))))
+
                 group_labels = np.asarray(group_labels, dtype=str)
                 train_group_parts = []
                 valid_group_parts = []
@@ -624,6 +616,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 )
             train_indices = np.flatnonzero(np.isin(inverse_group_idx, train_group_idx))
             valid_indices = np.flatnonzero(np.isin(inverse_group_idx, valid_group_idx))
+
         elif split_stratify_by is not None:
             if isinstance(train_data, pd.DataFrame):
                 if split_stratify_by not in train_data.columns:
@@ -637,10 +630,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         f"[BaseModel-validation Error] Field '{split_stratify_by}' not found for split control."
                     )
                 stratify_values = np.asarray(train_data[split_stratify_by])
-            if len(stratify_values) != total_length:
-                raise ValueError(
-                    f"[BaseModel-validation Error] split_stratify_by column '{split_stratify_by}' length does not match data length."
-                )
+
             all_indices = np.arange(total_length)
             train_parts = []
             valid_parts = []
@@ -673,7 +663,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             train_split_data = {k: np.asarray(v)[train_indices] for k, v in train_data.items()}
             valid_split_data = {k: np.asarray(v)[valid_indices] for k, v in train_data.items()}
         train_loader = self.prepare_data_loader(
-            train_split_data,
+            data=train_split_data,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
@@ -704,6 +694,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
     ):
         """
         Configure the model for training.
+
         Args:
             optimizer: Optimizer name or instance. e.g., 'adam', 'sgd', or torch.optim.Adam().
             optimizer_params: Optimizer parameters. e.g., {'lr': 1e-3, 'weight_decay': 1e-5}.
@@ -799,6 +790,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
     def compute_loss(self, y_pred, y_true):
         adapter_loss = self.training_adapter.compute_loss(self, y_pred, y_true)
+        # if adapter_loss is not None, it means the training adapter has taken care of the loss computation, 
+        # e.g., for pairwise/listwise losses with explicit sampling, return it without further processing.
         if adapter_loss is not None:
             return adapter_loss
         if y_true is None:
@@ -806,6 +799,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if not isinstance(y_pred, torch.Tensor):
             raise TypeError(f"[BaseModel-compute_loss Error] Expected y_pred to be a torch.Tensor, got {type(y_pred)}.")
 
+        # for single-task, compute loss directly
         if self.nums_task == 1:
             return self.compute_single_task_loss(y_pred, y_true)
 
@@ -814,6 +808,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if y_true.dim() == 1:
             y_true = y_true.view(-1, 1)
 
+        # for multi-task, compute loss for each task slice
         task_slices = self.get_task_slices(y_pred)
 
         task_losses = []
@@ -2096,7 +2091,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             processor: Optional DataProcessor for transforming input data.
             profiler: Optional StageTimer for profiling pipeline stages.
             expand: Optional mapping of column -> candidate values used to expand
-                each input row into multiple inference rows before prediction.
+                each input row into multiple inference rows before prediction. e.g. {"country": ["US", "CA"]} would expand each input row into two rows with country=US and country=CA for prediction.
 
         Note:
             predict does not support distributed mode currently; streaming file inference can use

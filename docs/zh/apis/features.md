@@ -59,6 +59,8 @@ dense_features = [
 
 ### 多维 Dense 映射到 1 维示例
 
+在一些场景下，会需要将多维稠密特征concat后映射到低维，这样通过一个MLP来学习这些稠密特征之间的关联。此时需要将特征合并在一起后，在 `DenseFeature` 中进行如下定义：
+
 ```python
 DenseFeature(
     name="dense_vec",
@@ -74,7 +76,7 @@ DenseFeature(
 
 ## 稀疏特征
 
-适用于离散 ID 或类别型数据，通过 Embedding 查表转换为稠密向量，简单的示例如下：
+适用于离散 ID 或类别型数据，通过 Embedding 查表转换为稠密向量，简单的示例如下，该示例将 `user_id ` 和 `item_id` 分别嵌入到32维的稠密向量。
 
 ```python
 from nextrec.basic.features import SparseFeature

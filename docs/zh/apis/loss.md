@@ -25,14 +25,14 @@ NextRec支持10余种不同任务类型的损失函数。包括pointwise，pairw
 |:------------|:-----|:---------|
 | `bpr` | 贝叶斯个性化排序 (Bayesian Personalized Ranking) 损失 | 排序 |
 | `hinge` | Hinge 损失 (SVM 风格) | 排序 |
-| `triplet` | 三元组损失，用于学习 item 嵌入 | 表示学习 |
+| `triplet` | 三元组损失，用于学习 item 嵌入 | 表征学习 |
 
 ## Listwise 损失函数
 
 | 损失函数名称 | 描述 | 适用任务 |
 |:------------|:-----|:---------|
 | `sampled_softmax` / `softmax` | 采样 Softmax 损失，用于大规模排序 | 排序 |
-| `infonce` | InfoNCE 损失，对比学习常用 | 表示学习 |
+| `infonce` | InfoNCE 损失，对比学习常用 | 表征学习 |
 | `listnet` | ListNet 损失，基于列表的排序 | 排序 |
 | `listmle` | ListMLE 损失，最大似然估计方法 | 排序 |
 | `approx_ndcg` | 近似 NDCG 损失，直接优化 NDCG 指标 | 排序 |

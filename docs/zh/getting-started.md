@@ -10,7 +10,7 @@ description: NextRec 快速入门指南
 
 ## 快速训练一个精排模型
 
-下面用 DeepFM 在 MovieLens 数据集上完成从特征定义到训练、评估的全流程。开发者可以直接执行python文件，或在jupyter notebook环境下执行。
+下面是用 DeepFM 在 MovieLens 数据集上完成从特征定义到训练、评估的简单全流程示例，开发者可以直接执行python文件，或在jupyter notebook环境下执行。对于更进阶的模型参数，或训练设置将会在API文档内进行讲解。
 
 ```python
 import pandas as pd
@@ -61,69 +61,6 @@ model.fit(
     shuffle=True,
 )
 ```
-
-多任务训练时，如需指定早停监控的任务，可额外传入 `early_stop_monitor_task="task_name"`。当前早停监控的指标固定取 `metrics` 中的第一个指标。
-
-## 训练模式与采样方式
-
-从版本0.6.1开始，排序 / 召回模型的训练配置拆成两个参数：
-
-- `training_mode`：定义优化目标，支持 `pointwise`、`pairwise`、`listwise`
-- `sampling_mode`：定义样本组织方式，支持 `explicit`、`inbatch`
-
-默认情况下 `sampling_mode="explicit"`。
-
-### 1. 排序模型：显式正负样本 / 候选列表
-
-`DeepFM`、`DCN`、`AutoInt`、`MMOE` 这类 scorer 模型通常使用默认配置 `sampling_mode="explicit"`，这时输入数据的时候需要显式携带目标标签。
-
-```python
-model = DeepFM(
-    dense_features=dense_features,
-    sparse_features=sparse_features,
-    target="label",
-    training_mode="listwise",
-    sampling_mode="explicit",
-    device="cpu",
-)
-```
-
-如果使用 `pairwise`，通常配合 `bpr` / `hinge` 一类损失；如果使用 `listwise`，通常配合 `listnet` / `listmle` / `sampled_softmax`。
-
-### 2. 召回模型：batch 内负采样
-
-`DSSM`、`YoutubeDNN`、`MIND`、`SDM` 这类双塔召回模型支持 `sampling_mode="inbatch"`。
-这时训练集通常只保留正样本，负样本由 batch 内其它样本自动构造，不需要显式携带目标标签。
-
-```python
-model = DSSM(
-    user_sparse_features=user_sparse_features,
-    item_sparse_features=item_sparse_features,
-    training_mode="pairwise",
-    sampling_mode="inbatch",
-    device="cpu",
-)
-```
-
-### 3. 两个参数如何组合
-
-- `pointwise`：只使用 `sampling_mode="explicit"`
-- `pairwise/listwise + explicit`：适用于显式候选列表训练
-- `pairwise/listwise + inbatch`：适用于支持 batch 内负采样的召回模型
-
-### 4. 自定义模型开发约定
-
-当前推荐的开发方式是：
-
-- 模型类只实现网络结构，返回 raw logits 或 raw embeddings
-- `prediction_layer` 由基类自动创建
-- 输出格式化、candidate list 展平/还原、in-batch negative 由 adapter 统一处理
-
-可以直接参考以下 tutorial：
-
-- `tutorials/movielen_ranking_deepfm.py`：pointwise 精排
-- `tutorials/example_ranking_pairwise_listwise.py`：显式 `pairwise/listwise` 精排
-- `tutorials/movielen_match_dssm.py`：`inbatch` 双塔召回
 
 ## 训练日志与指标展示
 

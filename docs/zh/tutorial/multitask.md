@@ -279,7 +279,7 @@ metrics = model.evaluate(
     user_id_column="user_id",
 )
 
-print("\n=== 验证集评估结果 ===")
+print("=== 验证集评估结果 ===")
 for metric_name, value in metrics.items():
     print(f"{metric_name}: {value:.4f}")
 ```

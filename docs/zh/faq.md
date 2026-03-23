@@ -9,7 +9,7 @@ description: NextRec 常见问题解答（GAUC、streaming、DataProcessor、ONN
 
 - `target`：标签列名（单任务字符串，多任务列表）。
 - `task`：任务类型（例如二分类 `binary`、回归 `regression`、召回 `matching`）。
-- `training_mode`：训练范式（常见为 `pointwise`；部分模型/损失支持 pairwise/listwise）。
+- `training_mode`：训练范式（常见为 `pointwise`；部分模型/损失支持 `pairwise`/`listwise`）。
 
 ## 2. 为什么 GAUC / ranking@K 指标算不出来？
 
