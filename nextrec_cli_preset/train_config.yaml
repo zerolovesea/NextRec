@@ -11,6 +11,8 @@ data:
   target: [click, conversion]          # Target column(s)
   id_column: user_id                   # Optional ID column (for GAUC)
   valid_ratio: 0.2                     # Validation split ratio
+  # split_stratify_by: click           # Optional auto-split stratify column; only for non-streaming and no valid_path
+  # split_group_by: user_id            # Optional auto-split group column; keeps whole groups in one side
   # valid_path
 
 dataloader:

@@ -66,7 +66,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import get_mlp_output_dim
 from nextrec.utils.types import TaskTypeInput, TaskTypeName
@@ -202,8 +201,6 @@ class HMOE(BaseModel):
             [MLP(input_dim=input_dim, output_dim=self.nums_task, **params) for params in task_weight_mlp_params_list]
         )
 
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
-
         self.register_regularization_weights(
             embedding_attr="embedding",
             include_modules=[
@@ -256,4 +253,4 @@ class HMOE(BaseModel):
 
         # logits: [Batch, Task_num] -> prediction_layer -> [Batch, Task_num]
         logits = torch.cat(task_logits, dim=1)
-        return self.prediction_layer(logits)
+        return logits

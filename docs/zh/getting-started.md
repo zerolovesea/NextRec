@@ -10,7 +10,7 @@ description: NextRec 快速入门指南
 
 ## 快速训练一个精排模型
 
-下面用 DeepFM 在 MovieLens 数据集上完成从特征定义到训练、评估的全流程。开发者可以直接执行python文件，或在jupyter notebook环境下执行。
+下面是用 DeepFM 在 MovieLens 数据集上完成从特征定义到训练、评估的简单全流程示例，开发者可以直接执行python文件，或在jupyter notebook环境下执行。对于更进阶的模型参数，或训练设置将会在API文档内进行讲解。
 
 ```python
 import pandas as pd
@@ -61,8 +61,6 @@ model.fit(
     shuffle=True,
 )
 ```
-
-多任务训练时，如需指定早停监控的任务，可额外传入 `early_stop_monitor_task="task_name"`。当前早停监控的指标固定取 `metrics` 中的第一个指标。
 
 ## 训练日志与指标展示
 

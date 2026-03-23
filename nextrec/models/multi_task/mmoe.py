@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 15/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Ma J, Zhao Z, Yi X, Chen J, Hong L, Chi E H. Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts. In: Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD ’18), 2018, pp. 1930–1939.
@@ -47,7 +47,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -165,7 +164,6 @@ class MMOE(BaseModel):
             tower_params.pop("output_dim", None)
             tower = MLP(input_dim=expert_output_dim, output_dim=1, **tower_params)
             self.towers.append(tower)
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["experts", "gates", "towers"])
 
@@ -192,6 +190,5 @@ class MMOE(BaseModel):
             tower_output = self.towers[task_idx](gated_output)
             task_outputs.append(tower_output)
 
-        # Concatenate logits: [Batch, Task_num]
-        y = torch.cat(task_outputs, dim=1)  # [Batch, Task_num]
-        return self.prediction_layer(y)  # [Batch, Task_num]
+        logits = torch.cat(task_outputs, dim=1)  # [Batch, Task_num]
+        return logits

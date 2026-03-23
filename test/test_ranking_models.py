@@ -1433,7 +1433,7 @@ class TestDIEN:
         }
 
         model.train()
-        output = model(data)
+        output = model.training_adapter.forward(model, data)
         assert_model_output_shape(output, (batch_size,), "DIEN neg-sampling output")
 
         aux_loss = model.compute_auxiliary_loss()

@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 15/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Cheng H T, Koc L, Harmsen J, et al. Wide & Deep learning for recommender systems[C] //Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. 2016: 7-10.
@@ -28,7 +28,6 @@ Wide & Deep 同时使用宽线性部分（记忆共现/手工交叉）与深网�
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -81,7 +80,6 @@ class WideDeep(BaseModel):
         # deep_emb_dim_total = sum([f.embedding_dim for f in self.deep_features if not isinstance(f, DenseFeature)])
         # dense_input_dim = sum([(f.embedding_dim or 1) for f in dense_features])
         self.mlp = MLP(input_dim=input_dim, **mlp_params)
-        self.prediction_layer = TaskHead(task_type=self.task)
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear", "mlp"])
 
@@ -95,5 +93,5 @@ class WideDeep(BaseModel):
         y_wide = self.linear(input_wide)
 
         # Combine wide and deep
-        y = y_wide + y_deep
-        return self.prediction_layer(y)
+        logits = y_wide + y_deep
+        return logits

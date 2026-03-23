@@ -30,7 +30,6 @@ FM 是一种通过分解二阶特征交互矩阵、以线性复杂度建模特�
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FM as FMInteraction
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.layers import LR, EmbeddingLayer
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
@@ -77,7 +76,6 @@ class FM(BaseModel):
         fm_input_dim = sum([f.embedding_dim for f in self.fm_features])
         self.linear = LR(fm_input_dim)
         self.fm = FMInteraction(reduce_sum=True)
-        self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear"])
@@ -86,5 +84,5 @@ class FM(BaseModel):
         input_fm = self.embedding(x=x, features=self.fm_features, squeeze_dim=False)
         y_linear = self.linear(input_fm.flatten(start_dim=1))
         y_fm = self.fm(input_fm)
-        y = y_linear + y_fm
-        return self.prediction_layer(y)
+        logits = y_linear + y_fm
+        return logits

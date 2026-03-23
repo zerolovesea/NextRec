@@ -2,7 +2,7 @@
 Residual Quantized Variational AutoEncoder (RQ-VAE) for Generative Recommendation.
 
 Date: created on 11/12/2025
-Checkpoint: edit on 13/12/2025
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Source Code Reference:
 - [1] Tencent-Advertising-Algorithm-Competition-2025-Baseline
@@ -56,6 +56,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 from torch.utils.data import DataLoader
 
+from nextrec.basic.adapters import RepresentationAdapter, TrainingAdapter
 from nextrec.basic.features import DenseFeature
 from nextrec.basic.loggers import colorize, setup_logger
 from nextrec.basic.model import BaseModel
@@ -463,6 +464,10 @@ class RQVAE(BaseModel):
     def default_task(self) -> str:
         # task is unused for unsupervised training, keep a valid default for BaseModel
         return "regression"
+
+    def set_task_output(self):
+        super().set_task_output()
+        self.training_adapter = RepresentationAdapter()
 
     def __init__(
         self,

@@ -12,6 +12,34 @@ import torch
 logger = logging.getLogger(__name__)
 
 
+def run_model_forward(model: torch.nn.Module, data: Dict[str, torch.Tensor]):
+    if hasattr(model, "training_adapter"):
+        return model.training_adapter.forward(model, data)
+    return model(data)
+
+
+def normalize_test_output(output: Any) -> torch.Tensor:
+    """
+    Normalize raw model outputs into a tensor for assertions.
+    """
+    if isinstance(output, (list, tuple)):
+        pieces = []
+        for item in output:
+            if not isinstance(item, torch.Tensor):
+                continue
+            if item.dim() == 0:
+                item = item.view(1, 1)
+            elif item.dim() == 1:
+                item = item.view(-1, 1)
+            pieces.append(item)
+        if not pieces:
+            raise AssertionError("Empty output list/tuple.")
+        return torch.cat(pieces, dim=1)
+    if not isinstance(output, torch.Tensor):
+        raise AssertionError(f"Expected tensor/list/tuple output, got {type(output)}")
+    return output
+
+
 def assert_model_output_shape(output: torch.Tensor, expected_shape: tuple, message: str = ""):
     """
     Assert that model output has the expected shape.
@@ -50,6 +78,7 @@ def assert_no_nan_or_inf(tensor: torch.Tensor, name: str = "tensor"):
     """
     Assert that tensor contains no NaN or Inf values.
     """
+    tensor = normalize_test_output(tensor)
     assert not torch.isnan(tensor).any(), f"{name} contains NaN values"
     assert not torch.isinf(tensor).any(), f"{name} contains Inf values"
     logger.info("No NaN/Inf assertion passed for %s", name)
@@ -76,7 +105,8 @@ def run_model_forward_backward(
     logger.info("Testing forward pass...")
     model.train()
 
-    output = model(data)
+    output = run_model_forward(model, data)
+    output = normalize_test_output(output)
     assert_no_nan_or_inf(output, "model_output")
     if isinstance(targets, torch.Tensor):
         if output.dim() == 2 and output.shape[-1] == 1 and targets.dim() == 1:
@@ -111,7 +141,8 @@ def run_model_inference(model: torch.nn.Module, data: Dict[str, torch.Tensor]) -
     model.eval()
 
     with torch.no_grad():
-        output = model(data)
+        output = run_model_forward(model, data)
+        output = normalize_test_output(output)
         assert_no_nan_or_inf(output, "inference_output")
 
     logger.info("Inference test passed")
@@ -122,6 +153,8 @@ def compare_outputs(output1: torch.Tensor, output2: torch.Tensor, tolerance: flo
     """
     Compare two model outputs.
     """
+    output1 = normalize_test_output(output1)
+    output2 = normalize_test_output(output2)
     assert output1.shape == output2.shape, f"Output shapes don't match: {output1.shape} vs {output2.shape}"
 
     max_diff = torch.max(torch.abs(output1 - output2)).item()

@@ -32,6 +32,10 @@ data:
   # ----- Validation Strategy -----
   # Choose ONE of the following methods:
   valid_ratio: 0.2                                     # Auto-split: fraction for validation (0.0-1.0)
+  # split_stratify_by: label                           # Optional: stratify auto-split by a column/field
+                                                       # Only works when using valid_ratio without valid_path
+  # split_group_by: user_id                            # Optional: keep the same group in train or validation only
+                                                       # Useful for user-level splits to avoid leakage
   # val_path: /path/to/validation/data                 # Manual: separate validation dataset path
   # valid_path: /path/to/validation/data               # Alias for val_path
   
@@ -41,6 +45,7 @@ data:
   streaming: false                                     # Streaming mode for datasets too large for memory
                                                        # false: load full dataset into memory
                                                        # true: stream data in chunks
+                                                       # Note: split_stratify_by/split_group_by are not supported in streaming mode
 
 # ===== Configuration Files =====
 # Paths to feature and model configuration files (relative or absolute paths)

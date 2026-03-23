@@ -125,10 +125,10 @@ class EmbeddingLayer(nn.Module):
                             )
                         embedding = nn.Embedding.from_pretrained(
                             embeddings=weight,
-                            freeze=feature.freeze_pretrained,
+                            freeze=not feature.trainable,
                             padding_idx=feature.padding_idx,
                         )
-                        embedding.weight.requires_grad = feature.trainable and not feature.freeze_pretrained
+                        embedding.weight.requires_grad = feature.trainable
                     else:
                         embedding = nn.Embedding(
                             num_embeddings=feature.vocab_size,
@@ -369,10 +369,10 @@ class FieldAwareEmbeddingLayer(nn.Module):
                 )
             embedding = nn.Embedding.from_pretrained(
                 embeddings=weight,
-                freeze=feature.freeze_pretrained,
+                freeze=not feature.trainable,
                 padding_idx=feature.padding_idx,
             )
-            embedding.weight.requires_grad = feature.trainable and not feature.freeze_pretrained
+            embedding.weight.requires_grad = feature.trainable
             return embedding
 
         embedding = nn.Embedding(

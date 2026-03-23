@@ -202,7 +202,7 @@ model.compile(
 
 ```python
 # 训练模型
-history = model.fit(
+model.fit(
     train_data=train_df,
     valid_data=valid_df,
     epochs=10,

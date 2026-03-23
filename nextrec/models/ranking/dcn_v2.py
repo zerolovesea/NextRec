@@ -64,7 +64,6 @@ import torch.nn as nn
 from typing import Literal
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -291,7 +290,6 @@ class DCNv2(BaseModel):
             final_input_dim = self.stacked_mlp.output_dim + self.parallel_mlp.output_dim
 
         self.final_layer = nn.Linear(final_input_dim, 1)
-        self.prediction_layer = TaskHead(task_type=self.task)
 
         self.register_regularization_weights(
             embedding_attr="embedding",
@@ -325,4 +323,4 @@ class DCNv2(BaseModel):
             raise RuntimeError(f"Unsupported architecture at forward: {self.architecture}")
 
         logit = self.final_layer(combined)
-        return self.prediction_layer(logit)
+        return logit

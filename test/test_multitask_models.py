@@ -18,6 +18,7 @@ from test.helpers import (
     assert_model_output_shape,
     assert_no_nan_or_inf,
     count_parameters,
+    run_model_forward,
     run_model_inference,
 )
 
@@ -798,7 +799,7 @@ class TestESMM:
             expected_ctcvr = ctr * cvr
 
             # Get actual output
-            output = model(data)
+            output = run_model_forward(model, data)
             actual_ctcvr = output[:, 1:2]
 
         # Check constraint

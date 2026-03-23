@@ -1,6 +1,6 @@
 """
 Date: create on 28/11/2025
-Checkpoint: edit on 15/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou,zyaztec@gmail.com
 Reference:
 - [1] Dai S, Lin H, Zhao Z, Lin J, Wu H, Wang Z, Yang S, Liu J. POSO: Personalized Cold Start Modules for Large-scale Recommender Systems. arXiv preprint arXiv:2108.04690, 2021.
@@ -26,7 +26,6 @@ from typing import Literal
 from nextrec.basic.activation import activation_layer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
 from nextrec.utils.types import TaskTypeInput
@@ -418,10 +417,6 @@ class POSO(BaseModel):
             self.grad_norm_shared_modules = ["embedding"]
         else:
             self.grad_norm_shared_modules = ["embedding", "mmoe"]
-        self.prediction_layer = TaskHead(
-            task_type=self.task,
-            task_dims=[1] * self.nums_task,
-        )
         include_modules = ["towers", "tower_heads"] if self.architecture == "mlp" else ["mmoe", "towers"]
         self.register_regularization_weights(embedding_attr="embedding", include_modules=include_modules)
 
@@ -442,5 +437,5 @@ class POSO(BaseModel):
                 logit = tower(expert_outputs[idx])
                 task_outputs.append(logit)
 
-        y = torch.cat(task_outputs, dim=1)
-        return self.prediction_layer(y)
+        logits = torch.cat(task_outputs, dim=1)
+        return logits

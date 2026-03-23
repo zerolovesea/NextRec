@@ -73,17 +73,30 @@ def get_loss_list(
     training_modes: list[TrainingModeName],
     nums_task: int,
 ):
-    default_losses = {
-        "pointwise": "bce",
-        "pairwise": "bpr",
-        "listwise": "listnet",
-    }
     if loss is None:
-        loss_list = [default_losses[mode] for mode in training_modes]
-    elif isinstance(loss, list):
-        loss_list = loss
+        raise ValueError("[Loss Error] loss must be provided explicitly.")
+
+    if isinstance(loss, list):
+        loss_list = list(loss)
+        if len(loss_list) == 1 and nums_task > 1:
+            loss_list = loss_list * nums_task
+        elif len(loss_list) != nums_task:
+            raise ValueError(
+                f"[Loss Error] loss list length ({len(loss_list)}) must match nums_task ({nums_task})."
+            )
     else:
         loss_list = [loss] * nums_task
+
+    for idx, mode in enumerate(training_modes[: len(loss_list)]):
+        if (
+            mode in {"pairwise", "listwise"}
+            and isinstance(loss_list[idx], str)
+            and loss_list[idx] in {"bce", "binary_crossentropy"}
+        ):
+            raise ValueError(
+                f"[Loss Error] loss='{loss_list[idx]}' is not valid for training_mode='{mode}'. "
+                "Use a ranking loss compatible with the configured training_mode."
+            )
 
     return loss_list
 

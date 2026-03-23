@@ -53,6 +53,7 @@ model = DeepFM(
 | `id_columns` | 用于计算 GAUC 或推理时透传的 ID 列 |
 | `task` | 任务类型：`"binary"`、`"regression"`|
 | `training_mode` | 训练模式：`"pointwise"`、`"pairwise"`、`"listwise"` |
+| `sampling_mode` | 采样方式：`"explicit"`、`"inbatch"` |
 | `embedding_l1_reg` | 嵌入向量参数 L1 正则化强度 |
 | `dense_l1_reg` | 密集向量参数 L1 正则化强度 |
 | `embedding_l2_reg` | 嵌入向量参数 L2 正则化强度，如 `1e-5` |
@@ -64,6 +65,54 @@ model = DeepFM(
 | `world_size` | **[无需主动设置]** 进程数，默认从环境变量 `WORLD_SIZE` 获取 |
 | `local_rank` | **[无需主动设置]** 本地设备的RANK |
 | `ddp_find_unused_parameters` | **[无需主动设置]** DDP 模型中是否存在未使用参数 |
+
+## 训练模式与采样方式
+
+Basemodel支持多种训练模式和采样方式，分别通过`training_mode`和`sampling_mode`进行设置。
+
+- `training_mode`：定义优化目标，支持 `pointwise`、`pairwise`、`listwise`
+- `sampling_mode`：定义样本组织方式，支持 `explicit`、`inbatch`
+
+默认情况下 `sampling_mode="explicit"`。
+
+### 排序模型：显式正负样本 / 候选列表
+
+`DeepFM`、`DCN`、`AutoInt`、`MMOE` 这类 scorer 模型通常使用默认配置 `sampling_mode="explicit"`，这时输入数据的时候需要显式携带目标标签。
+
+```python
+model = DeepFM(
+    dense_features=dense_features,
+    sparse_features=sparse_features,
+    target="label",
+    training_mode="listwise",
+    sampling_mode="explicit",
+    device="cpu",
+)
+```
+
+如果使用 `pairwise`，通常配合 `bpr` / `hinge` 一类损失函数；如果使用 `listwise`，通常配合 `listnet` / `listmle` / `sampled_softmax`。
+
+### 召回模型：batch 内负采样
+
+`DSSM`、`YoutubeDNN`、`MIND`、`SDM` 这类双塔召回模型除了支持显式标签，还支持 `sampling_mode="inbatch"`。
+这时训练集通常只保留正样本，负样本由 batch 内其它样本自动构造，不需要显式携带目标标签。
+
+```python
+model = DSSM(
+    user_sparse_features=user_sparse_features,
+    item_sparse_features=item_sparse_features,
+    training_mode="pairwise",
+    sampling_mode="inbatch",
+    device="cpu",
+)
+```
+
+### 两个参数如何组合
+
+- `pointwise`：只使用 `sampling_mode="explicit"`
+- `pairwise/listwise + explicit`：适用于显式候选列表训练
+- `pairwise/listwise + inbatch`：适用于支持 batch 内负采样的召回模型
+
 
 ## 配置训练参数
 
@@ -115,15 +164,15 @@ model.compile(
 
 | 参数 | 说明 |
 |-----|------|
-| `optimizer` | 优化器：`"adam"`,`"sgd"`,`"adamw"`,`"adagrad"`,`"rmsprop"` 或pytorch优化器实例 |
+| `optimizer` | 优化器：`"adam"`,`"sgd"`,`"adamw"`,`"adagrad"`,`"rmsprop"` 或自定义的pytorch优化器实例 |
 | `optimizer_params` | 优化器参数，如 `{"lr": 0.001, "weight_decay": 1e-5}` |
 | `scheduler` | 学习率调度器：`"step"`,`"cosine"`|
 | `scheduler_params` | 调度器参数，如 `{"step_size": 10, "gamma": 0.1}` |
 | `warmup` | 可选 warmup 配置，支持 `False/None/True/dict`。`True` 使用默认值：`{"epochs":1,"start_factor":0.1,"end_factor":1.0}`；`dict` 可显式配置 `enabled/epochs/start_factor/end_factor`。即使不配置 `scheduler` 也可单独使用 warmup（结束后保持 `base_lr`）。 |
 | `loss` | 损失函数：`"bce"`,`"weighted_bce"`,`"mse"`,`"focal"`,`"bpr"`等 |
 | `loss_params` | 损失函数参数，多任务时可为列表，其中为每个损失函数的参数 |
-| `loss_weights` | 多任务损失权重，如 `{"click": 1.0, "buy": 0.5}`时代表click任务的样本权重为1，buy任务的样本权重为0.5；使用时 `{"method": "grad_norm", "alpha": 1.5, "lr": 0.025}` 启用 GradNorm 进行动态权重计算|
-| `ignore_label` | 计算损失时忽略的标签值，默认 -1 意味着当模型看到标签为-1的样本时不会计算损失 |
+| `loss_weights` | 多任务损失权重，如 `{"click": 1.0, "buy": 0.5}`时代表click任务的样本权重为1，buy任务的样本权重为0.5；使用 `{"method": "grad_norm", "alpha": 1.5, "lr": 0.025}` ，代表启用 GradNorm 进行动态权重计算|
+| `ignore_label` | 计算损失时忽略的标签值，默认 -1 意味着当模型看到标签为-1的样本时不会计算损失，用于多任务场景 |
 
 ## 模型训练
 
@@ -172,6 +221,8 @@ model.fit(
 | `batch_size` | 批次大小 |
 | `user_id_column` | GAUC 计算所需的用户 ID 列 |
 | `valid_split` | 当未输入valid_data时，从train_data进行划分出验证集的比例，如 `0.1` |
+| `split_stratify_by` | 根据某个类别/标签的分布切分，保证训练验证集里该类别/标签分布一致 |
+| `split_group_by` | 按比例分配训练验证集的样本，保证一个同一个group的样本统一落在同一侧 |
 | `early_stop_patience` | 早停轮数 |
 | `early_stop_monitor_task` | 早停参考的任务，会根据指定任务和 `metrics` 中第一个指标进行早停，例如 `metrics=['auc', ...]` 时监控 `val_auc_{task}` |
 | `num_workers` | Pytorch DataLoader 进程数，提高以加速数据加载 |
@@ -294,6 +345,7 @@ predictions = model.predict(test_df, return_dataframe=False)
 | `prefetch_factor` | Pytorch Dataloader预取数据的批次数，提高以加速数据加载 |
 | `num_processes` | 流式文件推理的进程数，用于多进程推理 |
 | `processor` | 可选的 DataProcessor 用于转换输入数据 |
+| `expand` | **[多场景任务]** 推理时，对多场景列赋值的特征，推理样本时，将会根据所有选项依次推理。例如设置`{"country": ["US", "CA"]}`，将会对一个样本里，依次读 `country` 列赋值 `"US"`,` "CA"` 推理两次|
 | `profiler` | **[Bool]** 可选的管道阶段性能分析器，设置为True时会输出推理流程中各环节计算时间 |
 
 
@@ -322,6 +374,8 @@ predictions = onnx.predict_onnx(
 ---
 
 ## 完整示例
+
+以下是一个完整的训练推理流程示例：
 
 ```python
 import pandas as pd

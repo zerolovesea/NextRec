@@ -1,7 +1,6 @@
 """
 Command-line interface for NextRec training and prediction.
 
-
 NextRec supports a flexible training and prediction pipeline driven by configuration files.
 After preparing the configuration YAML files for training and prediction, users can run the
 following script to execute the desired operations.
@@ -17,12 +16,13 @@ Examples:
     nextrec --mode=evaluate --evaluate_config=nextrec_cli_preset/evaluate_config.yaml
 
 Date: create on 06/12/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 22/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import os
 import argparse
+import json
 import logging
 import math
 import pickle
@@ -38,7 +38,6 @@ import pandas as pd
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.loggers import colorize, format_kv, setup_logger
 from nextrec.basic.metrics import configure_metrics
-from nextrec.data.data_utils import split_dict_random
 from nextrec.data.dataloader import RecDataLoader
 from nextrec.data.preprocessor import DataProcessor
 from nextrec.utils.config import (
@@ -91,7 +90,8 @@ def train_model(train_config_path: str) -> None:
 
     configuration file must specify the below sections:
         - session: Session settings including id and artifact root
-        - data: Data settings including path, format, target, validation split
+        - data: Data settings including path, format, target, validation split,
+          optional split_stratify_by and split_group_by controls
         - dataloader: DataLoader settings including batch sizes and shuffling
         - model_config: Path to the model configuration YAML file
         - feature_config: Path to the feature configuration YAML file
@@ -143,19 +143,25 @@ def train_model(train_config_path: str) -> None:
     # dataloader settings
     streaming = bool(data_cfg.get("streaming", False))
     dataloader_chunk_size = dataloader_cfg.get("chunk_size", 20000)
-    batch_size = dataloader_cfg.get("batch_size")
-    if batch_size is None:
-        batch_size = dataloader_cfg.get("train_batch_size", 512)
-    batch_size = int(batch_size)
-    shuffle = dataloader_cfg.get("shuffle")
-    if shuffle is None:
-        shuffle = dataloader_cfg.get("train_shuffle", True)
-    shuffle = bool(shuffle)
+    batch_size = int(
+        dataloader_cfg.get(
+            "batch_size",
+            dataloader_cfg.get("train_batch_size", 512),
+        )
+    )
+    shuffle = bool(
+        dataloader_cfg.get(
+            "shuffle",
+            dataloader_cfg.get("train_shuffle", True),
+        )
+    )
 
     # train data basics
     data_path = resolve_path(data_cfg["path"], config_dir)
     target = to_list(data_cfg["target"])
     val_data_path = data_cfg.get("valid_path")
+    split_stratify_by = data_cfg.get("split_stratify_by")
+    split_group_by = data_cfg.get("split_group_by")
     valid_group_by = to_list(train_cfg.get("valid_group_by"))
 
     feature_cfg = read_yaml(feature_cfg_path)
@@ -175,6 +181,8 @@ def train_model(train_config_path: str) -> None:
             ("Target", target),
             ("ID column", id_column or "(not set)"),
             ("Valid group by", ", ".join(valid_group_by) if valid_group_by else "disabled"),
+            ("Split stratify by", split_stratify_by or "(disabled)"),
+            ("Split group by", split_group_by or "(disabled)"),
         ]
     )
     if data_cfg.get("valid_ratio") is not None:
@@ -243,17 +251,20 @@ def train_model(train_config_path: str) -> None:
         logger.info(format_kv("Columns", len(df.columns)))
         df_columns = list(df.columns)
 
+    if streaming and (split_stratify_by or split_group_by):
+        raise ValueError(
+            "[NextRec CLI Error] split_stratify_by and split_group_by are not supported in streaming mode. "
+            "Streaming validation currently splits by files only."
+        )
+
     dense_names, sparse_names, sequence_names = select_features(feature_cfg, df_columns)
 
-    used_columns = dense_names + sparse_names + sequence_names + target + loader_id_columns
+    split_columns = [col for col in [split_stratify_by, split_group_by] if col]
+    active_split_columns = split_columns if (not streaming and not val_data_path) else []
+    used_columns = dense_names + sparse_names + sequence_names + target + loader_id_columns + active_split_columns
 
     # keep order but drop duplicates
-    seen = set()
-    unique_used_columns = []
-    for col in used_columns:
-        if col not in seen:
-            unique_used_columns.append(col)
-            seen.add(col)
+    unique_used_columns = list(dict.fromkeys(used_columns))
 
     processor = DataProcessor()
     register_processor_features(processor, feature_cfg, dense_names, sparse_names, sequence_names)
@@ -295,6 +306,9 @@ def train_model(train_config_path: str) -> None:
 
     train_data: Dict[str, Any]
     valid_data: Dict[str, Any] | None
+    fit_train_data: Dict[str, Any] | Any
+    fit_valid_data: Dict[str, Any] | Any
+    fit_valid_split = None
 
     if val_data_path and not streaming:
         # Use specified validation dataset path
@@ -312,6 +326,8 @@ def train_model(train_config_path: str) -> None:
         train_size = len(list(train_data.values())[0])
         valid_size = len(list(valid_data.values())[0])
         logger.info(f"Sample count - Training set: {train_size}, Validation set: {valid_size}")
+        fit_train_data = train_data
+        fit_valid_data = valid_data
     elif streaming:
         train_data = None  # type: ignore[assignment]
         valid_data = None
@@ -319,15 +335,27 @@ def train_model(train_config_path: str) -> None:
             logger.info(
                 "Streaming training mode: No validation dataset path specified and valid_ratio not configured, skipping validation dataset creation"
             )
+        fit_train_data = None
+        fit_valid_data = None
     else:
-        # Split data using valid_ratio
-        logger.info(f"Splitting data using valid_ratio: {data_cfg.get('valid_ratio', 0.2)}")
         if not isinstance(processed, dict):
             raise TypeError("Processed data must be a dictionary for splitting")
-        train_data, valid_data = split_dict_random(
-            processed,
-            test_size=data_cfg.get("valid_ratio", 0.2),
-            random_state=data_cfg.get("random_state", 2024),
+        passthrough_split_columns = [col for col in active_split_columns if col not in processed]
+        if passthrough_split_columns:
+            if df is None:
+                raise ValueError("[NextRec CLI Error] Raw dataframe is required to attach split control columns.")
+            for col in passthrough_split_columns:
+                if col not in df.columns:
+                    raise KeyError(f"[NextRec CLI Error] Split control column '{col}' not found in input data.")
+                processed[col] = np.asarray(df[col])
+        train_data = processed
+        valid_data = None
+        fit_train_data = train_data
+        fit_valid_data = None
+        fit_valid_split = data_cfg.get("valid_ratio", 0.2)
+        logger.info(
+            f"Validation will be split inside model.fit using valid_ratio={fit_valid_split}, "
+            f"split_stratify_by={split_stratify_by}, split_group_by={split_group_by}"
         )
 
     dataloader = RecDataLoader(
@@ -353,36 +381,36 @@ def train_model(train_config_path: str) -> None:
             **loader_base_kwargs,
         )
         valid_loader = None
-        if val_data_path:
-            val_data_resolved = resolve_path(val_data_path, config_dir)
+        valid_stream_source = str(resolve_path(val_data_path, config_dir)) if val_data_path else streaming_valid_files
+        if valid_stream_source:
             valid_loader = dataloader.create_dataloader(
-                data=str(val_data_resolved),
+                data=valid_stream_source,
                 shuffle=False,
                 streaming=True,
                 chunk_size=dataloader_chunk_size,
                 **loader_base_kwargs,
             )
-        elif streaming_valid_files:
-            valid_loader = dataloader.create_dataloader(
-                data=streaming_valid_files,
-                shuffle=False,
-                streaming=True,
-                chunk_size=dataloader_chunk_size,
-                **loader_base_kwargs,
-            )
+        fit_train_data = train_loader
+        fit_valid_data = valid_loader
     else:
-        train_loader = dataloader.create_dataloader(
-            data=train_data,
-            shuffle=shuffle,
-            **loader_base_kwargs,
-        )
-        valid_loader = dataloader.create_dataloader(
-            data=valid_data,
-            shuffle=False,
-            **loader_base_kwargs,
-        )
+        if fit_valid_data is not None:
+            train_loader = dataloader.create_dataloader(
+                data=train_data,
+                shuffle=shuffle,
+                **loader_base_kwargs,
+            )
+            valid_loader = dataloader.create_dataloader(
+                data=valid_data,
+                shuffle=False,
+                **loader_base_kwargs,
+            )
+            fit_train_data = train_loader
+            fit_valid_data = valid_loader
+        else:
+            train_loader = None
+            valid_loader = None
 
-    model_cfg.setdefault("session_id", session_id)
+    model_cfg.setdefault("session_id", str(session_dir.resolve()))
     device = train_cfg.get("device", model_cfg.get("device", "cpu"))
     model = build_model_instance(
         model_cfg,
@@ -410,21 +438,24 @@ def train_model(train_config_path: str) -> None:
         scheduler=train_cfg.get("scheduler"),
         scheduler_params=train_cfg.get("scheduler_params", {}),
         warmup=train_cfg.get("warmup", train_cfg.get("warmup")),
-        loss=train_cfg.get("loss", "focal"),
+        loss=train_cfg.get("loss"),
         loss_params=train_cfg.get("loss_params", {}),
         loss_weights=train_cfg.get("loss_weights"),
         ignore_label=train_cfg.get("ignore_label", -1),
     )
 
     model.fit(
-        train_data=train_loader,
-        valid_data=valid_loader,
+        train_data=fit_train_data,
+        valid_data=fit_valid_data,
         metrics=train_cfg.get("metrics"),
         epochs=train_cfg.get("epochs", 1),
         batch_size=batch_size,
         shuffle=train_cfg.get("shuffle", True),
         num_workers=dataloader_cfg.get("num_workers", 0),
         user_id_column=id_column,
+        valid_split=fit_valid_split,
+        split_stratify_by=split_stratify_by,
+        split_group_by=split_group_by,
         early_stop_patience=train_cfg.get("early_stop_patience", 20),
         early_stop_monitor_task=train_cfg.get("early_stop_monitor_task"),
         valid_group_by=valid_group_by or None,
@@ -506,7 +537,7 @@ def predict_model(predict_config_path: str) -> None:
     model_cfg_path = resolve_path(cfg["model_config"], config_dir)
 
     model_cfg = read_yaml(model_cfg_path)
-    model_cfg.setdefault("session_id", session_id)
+    model_cfg.setdefault("session_id", str(session_dir.resolve()))
     model_cfg.setdefault("params", {})
 
     log_cli_section("Config")
@@ -525,11 +556,8 @@ def predict_model(predict_config_path: str) -> None:
     if checkpoint_base.is_dir():
         best_candidates = sorted(checkpoint_base.glob("*_best.pt"))
         candidates = sorted(checkpoint_base.glob("*.pt"))
-        if best_candidates:
-            model_file = best_candidates[-1]
-        elif candidates:
-            model_file = candidates[-1]
-        else:
+        model_file = (best_candidates or candidates)[-1] if (best_candidates or candidates) else None
+        if model_file is None:
             raise FileNotFoundError(f"[NextRec CLI Error]: Unable to find model checkpoint: {checkpoint_base}")
         config_dir_for_features = checkpoint_base
     else:
@@ -570,9 +598,7 @@ def predict_model(predict_config_path: str) -> None:
     effective_id_columns = to_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
     expand = get_expand_columns(predict_cfg.get("expand"))
     output_id_columns = list(dict.fromkeys([*effective_id_columns, *expand.keys()]))
-    if input_id_columns is not None:
-        model.id_columns = output_id_columns
-    elif expand:
+    if input_id_columns is not None or expand:
         model.id_columns = output_id_columns
 
     log_cli_section("Features")
@@ -621,9 +647,7 @@ def predict_model(predict_config_path: str) -> None:
     num_workers_cfg = int(predict_cfg.get("num_workers", 0))
     prefetch_factor = predict_cfg.get("prefetch_factor")
     data_format = predict_cfg.get("source_data_format", predict_cfg.get("data_format", "auto"))
-    data_format_effective = data_format
-    if data_format == "auto":
-        _, data_format_effective = resolve_file_paths(str(data_path))
+    data_format_effective = resolve_file_paths(str(data_path))[1] if data_format == "auto" else data_format
     num_processes_cfg = predict_cfg.get("num_processes")
     num_processes_auto = None
     if num_processes_cfg is None:
@@ -633,15 +657,9 @@ def predict_model(predict_config_path: str) -> None:
         except (AttributeError, OSError):
             load_1m = 0.0
         free_cores = max(0.0, float(cpu_count) - float(load_1m))
-        suggested = int(math.floor(free_cores))
-        if suggested < 1:
-            suggested = 1
-        if suggested > 5:
-            suggested = 5
+        suggested = min(5, max(1, int(math.floor(free_cores))))
         num_processes_auto = suggested
-        num_processes = suggested
-        if not streaming:
-            num_processes = 1
+        num_processes = suggested if streaming else 1
     else:
         num_processes = int(num_processes_cfg)
     profile_enabled = bool(predict_cfg.get("profile", False))
@@ -749,9 +767,7 @@ def predict_model(predict_config_path: str) -> None:
     pred_name = predict_cfg.get("name", "pred")
     pred_name_path = Path(pred_name)
     if pred_name_path.is_absolute():
-        save_path = pred_name_path
-        if save_path.suffix == "":
-            save_path = save_path.with_suffix(f".{save_format}")
+        save_path = pred_name_path.with_suffix(f".{save_format}") if pred_name_path.suffix == "" else pred_name_path
     else:
         save_path = checkpoint_base / "predictions" / f"{pred_name}.{save_format}"
 
@@ -883,7 +899,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
             model_cfg_path = resolve_path("model_config.yaml", config_dir)
 
     model_cfg = read_yaml(model_cfg_path)
-    model_cfg.setdefault("session_id", session_id)
+    model_cfg.setdefault("session_id", str(session_dir.resolve()))
     model_cfg.setdefault("params", {})
 
     log_cli_section("Config")
@@ -902,11 +918,8 @@ def evaluate_model(evaluate_config_path: str) -> None:
     if checkpoint_base.is_dir():
         best_candidates = sorted(checkpoint_base.glob("*_best.pt"))
         candidates = sorted(checkpoint_base.glob("*.pt"))
-        if best_candidates:
-            model_file = best_candidates[-1]
-        elif candidates:
-            model_file = candidates[-1]
-        else:
+        model_file = (best_candidates or candidates)[-1] if (best_candidates or candidates) else None
+        if model_file is None:
             raise FileNotFoundError(f"[NextRec CLI Error]: Unable to find model checkpoint: {checkpoint_base}")
         config_dir_for_features = checkpoint_base
     else:
@@ -985,9 +998,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
     num_workers = int(evaluate_cfg.get("num_workers", 0))
     prefetch_factor = evaluate_cfg.get("prefetch_factor")
     data_format = evaluate_cfg.get("source_data_format", evaluate_cfg.get("data_format", "auto"))
-    data_format_effective = data_format
-    if data_format == "auto":
-        _, data_format_effective = resolve_file_paths(str(data_path))
+    data_format_effective = resolve_file_paths(str(data_path))[1] if data_format == "auto" else data_format
     effective_batch_size = chunk_size if streaming else batch_size
 
     log_cli_section("Data")
@@ -1033,11 +1044,9 @@ def evaluate_model(evaluate_config_path: str) -> None:
     model.metrics = metrics_list
     model.task_specific_metrics = task_specific_metrics
 
-    thresholds_cfg = None
     confusion_cfg = evaluate_cfg.get("confusion_matrix", {}) or {}
     confusion_enabled = bool(confusion_cfg.get("enable", False))
-    if "thresholds" in confusion_cfg:
-        thresholds_cfg = confusion_cfg.get("thresholds")
+    thresholds_cfg = confusion_cfg.get("thresholds")
 
     metrics_result = model.evaluate(
         data_loader,
@@ -1124,20 +1133,18 @@ Examples:
         parser.error("[NextRec CLI Error] --mode is required (train|predict)")
 
     try:
+        config_path = (
+            args.train_config
+            if args.mode == "train"
+            else args.predict_config if args.mode == "predict" else args.evaluate_config
+        )
+        if not config_path:
+            parser.error(f"[NextRec CLI Error] {args.mode} mode requires --{args.mode}_config")
         if args.mode == "train":
-            config_path = args.train_config
-            if not config_path:
-                parser.error("[NextRec CLI Error] train mode requires --train_config")
             train_model(config_path)
         elif args.mode == "predict":
-            config_path = args.predict_config
-            if not config_path:
-                parser.error("[NextRec CLI Error] predict mode requires --predict_config")
             predict_model(config_path)
         else:
-            config_path = args.evaluate_config
-            if not config_path:
-                parser.error("[NextRec CLI Error] evaluate mode requires --evaluate_config")
             evaluate_model(config_path)
     except Exception:
         logging.getLogger(__name__).exception("[NextRec CLI Error] Unhandled exception")

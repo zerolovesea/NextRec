@@ -1,6 +1,6 @@
 """
 Date: create on 01/01/2026
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Yan B, Wang P, Zhang K, Li F, Deng H, Xu J, Zheng B. APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction. Advances in Neural Information Processing Systems 35 (NeurIPS 2022), 2022.
@@ -17,7 +17,6 @@ import torch.nn as nn
 from nextrec.basic.activation import activation_layer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MLP
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
 from nextrec.utils.types import ActivationName, TaskTypeInput, TaskTypeName
@@ -269,8 +268,6 @@ class APG(BaseModel):
         )
 
         self.towers = nn.ModuleList([nn.Linear(mlp_params["hidden_dims"][-1], 1) for _ in range(self.nums_task)])
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
-
         self.grad_norm_shared_modules = ["embedding", "apg_layers"]
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["apg_layers", "towers"])
 
@@ -286,4 +283,4 @@ class APG(BaseModel):
 
         task_outputs = [tower(apg_output) for tower in self.towers]
         logits = torch.cat(task_outputs, dim=1)
-        return self.prediction_layer(logits)
+        return logits

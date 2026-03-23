@@ -56,9 +56,10 @@ dense_features = [
 | `mlp_dropout` | 当 `projection_type="mlp"` 时使用的 Dropout |
 | `trainable` | 投影层是否可训练 |
 | `pretrained_weight` | 可选的预训练投影权重 |
-| `freeze_pretrained` | 如果为 True，保持预训练权重冻结 |
 
 ### 多维 Dense 映射到 1 维示例
+
+在一些场景下，会需要将多维稠密特征concat后映射到低维，这样通过一个MLP来学习这些稠密特征之间的关联。此时需要将特征合并在一起后，在 `DenseFeature` 中进行如下定义：
 
 ```python
 DenseFeature(
@@ -75,7 +76,7 @@ DenseFeature(
 
 ## 稀疏特征
 
-适用于离散 ID 或类别型数据，通过 Embedding 查表转换为稠密向量，简单的示例如下：
+适用于离散 ID 或类别型数据，通过 Embedding 查表转换为稠密向量，简单的示例如下，该示例将 `user_id ` 和 `item_id` 分别嵌入到32维的稠密向量。
 
 ```python
 from nextrec.basic.features import SparseFeature
@@ -112,7 +113,6 @@ sparse_features = [
 | `l2_reg` | 嵌入向量的 L2 正则化权重 |
 | `trainable` | 嵌入向量是否可训练 |
 | `pretrained_weight` | 可选的预训练嵌入权重 |
-| `freeze_pretrained` | 如果为 True，保持预训练权重冻结 |
 
 ## 序列特征
 
@@ -158,7 +158,6 @@ sequence_features = [
 | `l2_reg` | 嵌入向量的 L2 正则化权重 |
 | `trainable` | 嵌入向量是否可训练 |
 | `pretrained_weight` | 可选的预训练嵌入权重 |
-| `freeze_pretrained` | 如果为 True，保持预训练权重冻结 |
 
 ---
 

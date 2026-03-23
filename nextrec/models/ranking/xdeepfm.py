@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 15/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Lian J, Zhou X, Zhang F, et al. xdeepfm: Combining explicit and implicit feature interactions for recommender systems[C]//Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining. 2018: 1754-1763.
@@ -61,7 +61,6 @@ import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -219,7 +218,6 @@ class xDeepFM(BaseModel):
 
         # Deep part: DNN
         self.mlp = MLP(input_dim=self.embedding.compute_output_dim(self.deep_features), **mlp_params)
-        self.prediction_layer = TaskHead(task_type=self.task)
 
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear", "cin", "mlp"])
@@ -239,7 +237,5 @@ class xDeepFM(BaseModel):
         # Deep branch: [Batch, Dim_deep] -> y_deep: [Batch, 1]
         y_deep = self.mlp(input_deep)  # [B, 1]
 
-        # Fusion: [Batch, 1] + [Batch, 1] + [Batch, 1] -> [Batch, 1]
-        y = y_linear + y_cin + y_deep
-        # Output: [Batch, 1] -> task-specific prediction
-        return self.prediction_layer(y)
+        logits = y_linear + y_cin + y_deep
+        return logits

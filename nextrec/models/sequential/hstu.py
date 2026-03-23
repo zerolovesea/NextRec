@@ -16,8 +16,8 @@ In each HSTU layer:
   (2) Softmax-free interactions combine QK^T with Relative Attention Bias (RAB) to encode distance
   (3) Aggregated context is modulated by U-gating and mapped back through an output projection
 
-Stacking layers yields an efficient causal encoder for next-item
-generation. With a tied-embedding LM head, HSTU forms
+Stacking layers yields an efficient causal encoder for generative
+retrieval. With a tied-embedding LM head, HSTU forms
 a full generative recommendation model.
 
 Key Advantages:
@@ -35,7 +35,7 @@ HSTU（层次化序列转导单元）是 Meta 生成式推荐的核心编码器�
   (2) 利用不含 softmax 的 QK^T 结合相对位置偏置（RAB）建模距离信息
   (3) 用 U 对聚合上下文进行门控，再映射回输出空间
 
-多层堆叠后，可得到高效的因果编码器；与绑权 LM 头配合即可完成 next-item 预测。
+多层堆叠后，可得到高效的因果编码器；与绑权 LM 头配合即可完成生成式召回目标建模。
 
 主要优势：
 - 摆脱 softmax，在长序列、深层模型上更易扩展
@@ -55,6 +55,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.heads import GenerativeRetrievalHead
 from nextrec.basic.layers import EmbeddingLayer, RMSNorm
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import select_features
@@ -282,11 +283,11 @@ class HSTULayer(nn.Module):
 
 class HSTU(BaseModel):
     """
-    HSTU encoder for next-item prediction in a causal, generative setup.
+    HSTU encoder for generative retrieval in a causal autoregressive setup.
     Pipeline:
       1) Embed tokens + positions from the behavior history
       2) Apply stacked HSTU layers with causal mask and optional RAB
-      3) Use the last valid position to produce next-item logits via tied LM head
+      3) Use the last valid position to produce vocabulary logits via tied LM head
     """
 
     @property
@@ -295,7 +296,15 @@ class HSTU(BaseModel):
 
     @property
     def default_task(self) -> str:
-        return "binary"
+        return "generative"
+
+    def set_task_output(self):
+        super().set_task_output()
+        self.prediction_layer = GenerativeRetrievalHead(
+            vocab_size=self.vocab_size,
+            use_bias=False,
+            return_logits=True,
+        )
 
     def __init__(
         self,

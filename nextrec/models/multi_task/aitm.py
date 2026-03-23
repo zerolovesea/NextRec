@@ -1,6 +1,6 @@
 """
 Date: create on 15/02/2026
-Checkpoint: edit on 15/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Xi D, Chen Z, Yan P, Zhang Y, Zhu Y, Zhuang F, Chen Y. Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising. Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining (KDD ’21), 2021, pp. 3745–3755.
@@ -57,7 +57,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.model import get_mlp_output_dim
 from nextrec.utils.types import TaskTypeInput
@@ -210,7 +209,6 @@ class AITM(BaseModel):
         self.towers = nn.ModuleList(
             [MLP(input_dim=bottom_output_dim, output_dim=1, **params) for params in tower_mlp_params_list]
         )
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
 
         self.register_regularization_weights(
             embedding_attr="embedding",
@@ -242,7 +240,7 @@ class AITM(BaseModel):
 
         # Apply task head activations (binary -> sigmoid):
         # y_pred: [Batch, Task_num]
-        return self.prediction_layer(logits)
+        return logits
 
     def compute_calibrator_loss(
         self,

@@ -5,7 +5,7 @@ description: 统一数据预处理与特征编码的完整参数说明
 
 # 数据预处理
 
-真实世界的数据脏乱无序，因此我们需要对这些数据做一系列处理，才能让数据真正能被模型学习。NextRec提供了统一高效的数据预处理工具进行操作：`DataProcessor` 定义在 `nextrec.data.preprocessor`，用于把原始表数据转换成模型可直接使用的数值化特征。
+真实世界的数据脏乱无序，因此我们需要对这些数据做一系列处理后，才能让数据真正能被模型学习。NextRec提供了统一高效的数据预处理工具进行操作：`DataProcessor` 定义在 `nextrec.data.preprocessor`，用于把原始表数据转换成模型可直接使用的数值化特征。
 
 简单的示例代码如下：
 
@@ -66,15 +66,15 @@ test_processed = processor.transform(test_df)
 | `log` | 对数变换 | 偏斜分布 |
 | `none` | 不做缩放 | 已有归一化数据 |
 
-### 顺序多次变换（Pipeline）
+### 顺序多次变换
 
-`scaler` 支持传入有序 `list`，系统会按顺序依次执行变换：
+`scaler` 支持传入有序的列表，来让指定特征进行多次转换：
 
 ```python
 processor.add_numeric_feature("price", scaler=["log", "minmax"])
 ```
 
-上面的配置表示先 `log1p`，再做 `minmax`，输出列名为 `price_log_minmax`。  
+上面的配置表示将对 `price` 特征进行两次变换；先 `log1p`，再做 `minmax`，输出列名为 `price_log_minmax`。  
 同一列也可以同时注册多个处理分支（并行产出）：
 
 ```python
@@ -116,7 +116,7 @@ processor.add_numeric_feature("price", scaler=["log", "minmax"])  # price_log_mi
 | `separator` | 字符串序列的分隔符 |
 | `filter_value` | 可选；过滤token列表，序列中包含任一token时该样本会被过滤掉 |
 | `keep_value` | 可选；保留token列表，序列中至少包含一个token时该样本才会保留 |
-| `match_mode` | 匹配模式：`"exact"`（精确匹配，默认）/ `"contains"`（子串匹配）/ `"regex"`（正则匹配） |
+| `match_mode` | 匹配模式：`"exact"`（精确匹配，默认）/ `"contains"`（子串匹配）/ `"regex"`（正则匹配），详细解释见下文 |
 
 ## sparse/sequence 样本过滤
 
@@ -127,7 +127,7 @@ processor.add_numeric_feature("price", scaler=["log", "minmax"])  # price_log_mi
 
 `DataProcessor` 支持在 `sparse` 和 `sequence` 特征上配置 `filter_value` 与 `keep_value`。
 
-### 规则语义
+### 规则匹配
 
 - sparse 特征：按“列值是否命中列表”判断。
 - sequence 特征：按“序列token是否包含列表元素”判断。
@@ -145,7 +145,7 @@ processor = DataProcessor()
 processor.add_sparse_feature(
     "user_id",
     encode_method="label",
-    keep_value=["u1", "u2"],         # 只保留 u1/u2
+    keep_value=["u1", "u2"],         # 只保留 user_id 特征中包含 u1/u2 的样本参与训练
     filter_value=["u_bad"],          # 额外过滤黑名单
     match_mode="exact",              # exact / contains / regex
 )
@@ -154,7 +154,7 @@ processor.add_sequence_feature(
     encode_method="hash",
     hash_size=5000,
     separator=",",
-    keep_value=["item_a", "item_b"], # 序列至少包含其一
+    keep_value=["item_a", "item_b"], # 只保留 hist_item_seq 特征中包含 item_a/item_b 的样本
     filter_value=["item_x"],         # 序列包含 item_x 则过滤
     match_mode="contains",
 )
@@ -197,7 +197,7 @@ sequence:
 
 ## fit
 
-对输入的数据进行拟合。fit方法支持多种输入，包括pandas和polars类型的DataFrame，字典，或包含多个parquet/csv文件的路径。fit会将数据的scaler，max_len等关键参数注册在`DataProcessor`中。示例代码：
+当我们对预处理器定义好后，需要对输入的数据进行拟合。fit方法支持多种输入，包括pandas和polars类型的DataFrame，字典，或包含多个parquet/csv文件的路径。fit会将数据的scaler，max_len等关键参数注册在`DataProcessor`中。示例代码：
 
 `processor.fit(df)`
 
@@ -259,8 +259,6 @@ sequence:
 - 如果选择落盘到本地，对硬盘空间也有压力
 
 这时你可以在数据加载器`RecDataLoader`里直接加载已经拟合过的`DataProcessor`，它会在模型前向训练/推理的准备数据阶段，流式预处理文件，这将大大减轻内存和硬盘压力。在下一章：[数据加载](./dataloader.md)可以看到相关的使用说明。
-
----
 
 ## 下一步
 

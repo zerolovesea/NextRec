@@ -60,7 +60,7 @@ ActivationName = Literal[
 
 TrainingModeName = Literal["pointwise", "pairwise", "listwise"]
 
-TaskTypeName = Literal["binary", "regression"]
+TaskTypeName = Literal["binary", "regression", "generative"]
 
 TaskTypeInput = TaskTypeName | str
 

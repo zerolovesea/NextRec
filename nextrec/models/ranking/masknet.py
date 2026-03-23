@@ -70,7 +70,6 @@ import torch.nn.functional as F
 from typing import Literal
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -319,7 +318,6 @@ class MaskNet(BaseModel):
             mlp_params["output_dim"] = 1
             self.final_mlp = MLP(input_dim=self.num_blocks * block_hidden_dim, **mlp_params)
             self.output_layer = None
-        self.prediction_layer = TaskHead(task_type=self.task)
 
         if self.architecture == "serial":
             self.register_regularization_weights(
@@ -354,5 +352,4 @@ class MaskNet(BaseModel):
                 hidden = block(hidden, v_emb_flat)  # [Batch, Dim_block]
                 hidden = self.block_dropout(hidden)
             logit = self.output_layer(hidden)  # [Batch, 1]
-        y = self.prediction_layer(logit)  # [Batch, Task_total_dim]
-        return y
+        return logit  # [Batch, Task_total_dim]

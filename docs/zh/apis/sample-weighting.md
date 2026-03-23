@@ -48,7 +48,7 @@ model.compile(
 
 GradNorm的主要思想是，通过每个任务对共享参数的梯度强度，来更细致的了解哪个任务对参数的影响更大，进而调整弱势任务的权重。这比loss更近了一步，上升到了参数层面。
 
-在NextRec 0.4.13版本中，加入了对grad norm的支持，只需要将之前comile里的loss_weights方法改为{"method": "grad_norm", "alpha": 1.5, "lr": 0.025}或"grad_norm"即可。
+在NextRec 0.4.13版本中，加入了对grad norm的支持，只需要将之前`compile`里的`loss_weights`方法改为`{"method": "grad_norm", "alpha": 1.5, "lr": 0.025}`或`"grad_norm"`即可。
 
 示例代码如下：
 

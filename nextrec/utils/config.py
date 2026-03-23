@@ -378,7 +378,12 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
         from nextrec.basic.model import BaseModel
 
         for attr in module.__dict__.values():
-            if isinstance(attr, type) and issubclass(attr, BaseModel) and attr is not BaseModel:
+            if (
+                isinstance(attr, type)
+                and issubclass(attr, BaseModel)
+                and attr is not BaseModel
+                and attr.__module__ == module.__name__
+            ):
                 return attr
 
         raise AttributeError(f"No BaseModel subclass found in {resolved}, please provide class_name")
@@ -407,7 +412,12 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
 
                 # Fallback: first BaseModel subclass
                 for attr in module.__dict__.values():
-                    if isinstance(attr, type) and issubclass(attr, BaseModel) and attr is not BaseModel:
+                    if (
+                        isinstance(attr, type)
+                        and issubclass(attr, BaseModel)
+                        and attr is not BaseModel
+                        and attr.__module__ == module.__name__
+                    ):
                         return attr
 
                 errors.append(f"{mod} missing class {cls_name}")
@@ -496,7 +506,8 @@ def build_user_histories(
     seq_len: int = 6,
 ) -> tuple[torch.Tensor, torch.Tensor, int]:
     """
-    Build (history, next_item) pairs per user using log_time ordering.
+    Build autoregressive generative-retrieval training pairs per user using
+    log_time ordering.
     """
     df_with_ids = df.copy().reset_index(drop=True)
     df_with_ids["log_time"] = pd.to_datetime(df_with_ids[log_time_column])

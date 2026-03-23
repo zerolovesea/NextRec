@@ -71,15 +71,30 @@ df = pd.read_csv("dataset/movielens_100k.csv")
 # 创建数据预处理器
 processor = DataProcessor()
 
+# 对字符串类别特征进行标签编码
+processor.add_sparse_feature("gender", encode_method="label")
+processor.add_sparse_feature("occupation", encode_method="label")
+
 # 对 movie_title 进行哈希编码
 # 哈希编码可以将高基数类别特征映射到固定大小的空间
 processor.add_sparse_feature("movie_title", encode_method="hash", hash_size=1000)
 
 # 在数据上拟合处理器,学习编码映射关系
 processor.fit(df)
+vocab_sizes = processor.get_vocab_sizes()
 
-# 对数据进行转换
-df = processor.transform(df, return_dict=False)
+# 对数据进行转换,并将处理后的列映射回原列名
+df_transformed = processor.transform(df, return_dict=False).to_pandas()
+selected_cols = [
+    "label",
+    "user_id",
+    "item_id",
+    "age",
+    "gender_label",
+    "occupation_label",
+    "movie_title_hash",
+]
+df = df_transformed[selected_cols]
 
 # 保存处理器,以便后续使用
 processor.save(save_path="./")
@@ -104,14 +119,14 @@ dense_features = [DenseFeature("age")]  # 年龄是数值型特征
 # 定义稀疏特征
 # 所有稀疏特征使用相同的 embedding 维度(4)
 sparse_features = [
-    SparseFeature("user_id", vocab_size=df["user_id"].max() + 1, embedding_dim=4),
-    SparseFeature("item_id", vocab_size=df["item_id"].max() + 1, embedding_dim=4),
+    SparseFeature("user_id", vocab_size=int(df["user_id"].max()) + 1, embedding_dim=4),
+    SparseFeature("item_id", vocab_size=int(df["item_id"].max()) + 1, embedding_dim=4),
 ]
 
 # 添加其他类别特征
-sparse_features.append(SparseFeature("gender", vocab_size=df["gender"].max() + 1, embedding_dim=4))
-sparse_features.append(SparseFeature("occupation", vocab_size=df["occupation"].max() + 1, embedding_dim=4))
-sparse_features.append(SparseFeature("movie_title", vocab_size=df["movie_title"].max() + 1, embedding_dim=4))
+sparse_features.append(SparseFeature("gender_label", vocab_size=vocab_sizes["gender_label"], embedding_dim=4))
+sparse_features.append(SparseFeature("occupation_label", vocab_size=vocab_sizes["occupation_label"], embedding_dim=4))
+sparse_features.append(SparseFeature("movie_title_hash", vocab_size=vocab_sizes["movie_title_hash"], embedding_dim=4))
 
 # ==============================================================================
 # 5. 模型构建

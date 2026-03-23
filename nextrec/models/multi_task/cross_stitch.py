@@ -19,7 +19,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MLP
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput, TaskTypeName
 
@@ -196,7 +195,6 @@ class CrossStitch(BaseModel):
                 )
             self.towers.append(tower)
 
-        self.prediction_layer = TaskHead(task_type=self.task, task_dims=[1] * self.nums_task)
         self.register_regularization_weights(
             embedding_attr="embedding",
             include_modules=["shared_layer", "task_layers", "towers"],
@@ -215,5 +213,5 @@ class CrossStitch(BaseModel):
         for task_idx, tower in enumerate(self.towers):
             task_outputs.append(tower(task_reps[task_idx]))
 
-        y = torch.cat(task_outputs, dim=1)
-        return self.prediction_layer(y)
+        logits = torch.cat(task_outputs, dim=1)
+        return logits

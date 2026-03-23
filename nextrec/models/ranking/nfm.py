@@ -60,7 +60,6 @@ import torch
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.layers import EmbeddingLayer, LR, MLP
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
@@ -141,8 +140,6 @@ class NFM(BaseModel):
         self.bi_dropout = nn.Dropout(bi_dropout) if bi_dropout > 0 else nn.Identity()
         self.mlp = MLP(input_dim=self.deep_input_dim, **mlp_params)
 
-        self.prediction_layer = TaskHead(task_type=self.task)
-
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["linear", "mlp"])
 
     def forward(self, x):
@@ -170,7 +167,5 @@ class NFM(BaseModel):
         # Deep branch: deep_input -> y_deep: [Batch, 1]
         y_deep = self.mlp(deep_input)
 
-        # Fusion: y_linear + y_deep -> y: [Batch, 1]
-        y = y_linear + y_deep
-        # Output head: [Batch, 1] -> task-specific prediction
-        return self.prediction_layer(y)
+        logits = y_linear + y_deep
+        return logits

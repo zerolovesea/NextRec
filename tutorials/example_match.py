@@ -109,15 +109,17 @@ vocab_sizes = processor.get_vocab_sizes()
 user_dense_features = [DenseFeature(col) for col in user_dense_cols]
 # 用户稀疏特征,除 user_id 外使用较小的 embedding 维度(4)
 user_sparse_features = [
-    SparseFeature(col, vocab_size=vocab_sizes[col], embedding_dim=4) for col in user_sparse_cols if col != "user_id"
+    SparseFeature(col, vocab_size=vocab_sizes[f"{col}_label"], embedding_dim=4)
+    for col in user_sparse_cols
+    if col != "user_id"
 ]
 # user_id 使用较大的 embedding 维度(32)
-user_sparse_features.append(SparseFeature("user_id", vocab_size=vocab_sizes["user_id"], embedding_dim=32))
+user_sparse_features.append(SparseFeature("user_id", vocab_size=vocab_sizes["user_id_label"], embedding_dim=32))
 # 用户序列特征,设置最大长度和 padding 索引
 user_sequence_features = [
     SequenceFeature(
         "user_sequence_0",
-        vocab_size=vocab_sizes["user_sequence_0"],
+        vocab_size=vocab_sizes["user_sequence_0_label"],
         max_len=20,
         embedding_dim=8,
         padding_idx=0,
@@ -128,10 +130,12 @@ user_sequence_features = [
 item_dense_features = [DenseFeature(col) for col in item_dense_cols]
 # 物品稀疏特征,除 item_id 外使用较小的 embedding 维度(4)
 item_sparse_features = [
-    SparseFeature(col, vocab_size=vocab_sizes[col], embedding_dim=4) for col in item_sparse_cols if col != "item_id"
+    SparseFeature(col, vocab_size=vocab_sizes[f"{col}_label"], embedding_dim=4)
+    for col in item_sparse_cols
+    if col != "item_id"
 ]
 # item_id 使用较大的 embedding 维度(32)
-item_sparse_features.append(SparseFeature("item_id", vocab_size=vocab_sizes["item_id"], embedding_dim=32))
+item_sparse_features.append(SparseFeature("item_id", vocab_size=vocab_sizes["item_id_label"], embedding_dim=32))
 
 # 创建DataLoader
 rec_loader = RecDataLoader(
@@ -185,6 +189,7 @@ model = DSSM(
     user_mlp_params={"hidden_dims": [256, 128]},
     item_mlp_params={"hidden_dims": [256, 128]},
     training_mode="pairwise",
+    sampling_mode="inbatch",
     device="cpu",
     session_id="match_task_pairwise_tutorial",
 )

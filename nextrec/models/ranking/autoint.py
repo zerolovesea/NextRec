@@ -1,6 +1,6 @@
 """
 Date: create on 09/11/2025
-Checkpoint: edit on 14/02/2026
+Checkpoint: edit on 21/03/2026
 Author: Yang Zhou, zyaztec@gmail.com
 Reference:
 - [1] Song W, Shi C, Xiao Z, et al. AutoInt: Automatic feature interaction learning via self-attentive neural networks. In: Proceedings of the 28th ACM International Conference on Information and Knowledge Management (CIKM ’19), 2019, pp. 1161–1170.
@@ -53,7 +53,6 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, LR, MLP, MultiHeadSelfAttention
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -169,8 +168,6 @@ class AutoInt(BaseModel):
 
         self.linear = LR(self.embedding.get_input_dim(self.interaction_features))
 
-        self.prediction_layer = TaskHead(task_type=self.task)
-
         include_modules = ["projection_layers", "attention_layers", "attn_fc"]
         if self.use_dnn:
             include_modules.append("mlp")
@@ -198,15 +195,14 @@ class AutoInt(BaseModel):
 
         # Attention branch
         attention_output_flat = attention_output.flatten(start_dim=1)  # [Batch, num_fields * Dim_attention]
-        y = self.attn_fc(attention_output_flat)  # [Batch, 1]
+        logits = self.attn_fc(attention_output_flat)  # [Batch, 1]
 
         flat_input = self.embedding(x=x, features=self.interaction_features, squeeze_dim=True)
 
         # Optional DNN branch
         if self.use_dnn and self.mlp is not None:
-            y = y + self.mlp(flat_input)
+            logits = logits + self.mlp(flat_input)
 
         # Wide branch
-        y = y + self.linear(flat_input)
-
-        return self.prediction_layer(y)
+        logits = logits + self.linear(flat_input)
+        return logits

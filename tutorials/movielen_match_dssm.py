@@ -87,6 +87,11 @@ item_sparse_cols = [  # 物品稀疏特征(电影类型标签)
     "War",
     "Western",
 ]
+user_sparse_feature_cols = [f"{col}_label" for col in user_sparse_cols]
+user_dense_feature_cols = [f"{col}_minmax" for col in user_dense_cols]
+item_sparse_feature_cols = [f"{col}_label" for col in item_sparse_cols]
+user_id_col = "user_id_label"
+item_id_col = "item_id_label"
 
 # 只保留需要的列
 df = df[base_cols + user_sparse_cols + user_dense_cols + item_sparse_cols]
@@ -108,8 +113,14 @@ for col in user_dense_cols:
     processor.add_numeric_feature(col, scaler="minmax")
 
 print("fit transform will cost some time...")
-# 在数据上拟合并转换(编码和归一化)
-df = processor.fit_transform(df, return_dict=False).to_pandas()
+# 在数据上拟合处理器,并获取各特征词表大小
+processor.fit(df)
+vocab_sizes = processor.get_vocab_sizes()
+
+# 转换数据后,直接使用新增的编码/归一化列进行训练
+df_transformed = processor.transform(df, return_dict=False).to_pandas()
+selected_cols = base_cols + user_sparse_feature_cols + user_dense_feature_cols + item_sparse_feature_cols
+df = df_transformed[selected_cols]
 
 print("\nTransformed head:")
 print(df.head())
@@ -120,7 +131,7 @@ print(df.head())
 
 # 使用随机数生成器
 rng = np.random.default_rng(2025)
-all_users = df["user_id"].unique()
+all_users = df[user_id_col].unique()
 rng.shuffle(all_users)  # 打乱用户顺序
 
 # 计算训练集和验证集的用户数量
@@ -133,8 +144,8 @@ train_users = set(all_users[:n_train])
 valid_users = set(all_users[n_train : n_train + n_valid])
 
 # 根据用户划分数据集
-df_train_all = df[df["user_id"].isin(train_users)].reset_index(drop=True)
-df_valid_all = df[df["user_id"].isin(valid_users)].reset_index(drop=True)
+df_train_all = df[df[user_id_col].isin(train_users)].reset_index(drop=True)
+df_valid_all = df[df[user_id_col].isin(valid_users)].reset_index(drop=True)
 
 print(f"\nTrain users: {len(train_users)}, Valid users: {len(valid_users)}")
 print(f"Train interactions: {len(df_train_all)}, Valid interactions: {len(df_valid_all)}")
@@ -148,12 +159,12 @@ print(f"Train positives for contrastive learning: {len(train_df)}")
 # ==============================================================================
 
 # 定义用户特征列和物品特征列
-user_feature_cols = ["user_id"] + [c for c in user_sparse_cols if c != "user_id"] + user_dense_cols
-item_feature_cols = ["item_id"] + [c for c in item_sparse_cols if c != "item_id"]
+user_feature_cols = [user_id_col] + [c for c in user_sparse_feature_cols if c != user_id_col] + user_dense_feature_cols
+item_feature_cols = [item_id_col] + [c for c in item_sparse_feature_cols if c != item_id_col]
 
 # 提取唯一的用户特征和物品特征
-user_features = df[user_feature_cols].drop_duplicates("user_id")
-item_features = df[item_feature_cols].drop_duplicates("item_id")
+user_features = df[user_feature_cols].drop_duplicates(user_id_col)
+item_features = df[item_feature_cols].drop_duplicates(item_id_col)
 
 # ==============================================================================
 # 5. 构建评估候选集
@@ -162,8 +173,8 @@ item_features = df[item_feature_cols].drop_duplicates("item_id")
 # 为每个验证用户生成评估候选集(包含正负样本)
 valid_df = build_eval_candidates(
     df_all=df_valid_all,  # 验证集数据
-    user_col="user_id",
-    item_col="item_id",
+    user_col=user_id_col,
+    item_col=item_id_col,
     label_col="label",
     user_features=user_features,  # 用户特征表
     item_features=item_features,  # 物品特征表
@@ -176,27 +187,27 @@ valid_df = build_eval_candidates(
 # ==============================================================================
 
 # 定义用户稠密特征
-user_dense_features = [DenseFeature(col) for col in user_dense_cols]
+user_dense_features = [DenseFeature(col) for col in user_dense_feature_cols]
 
 # 定义用户稀疏特征
 # 除 user_id 外使用较小的 embedding 维度(4)
 user_sparse_features = [
-    SparseFeature(col, vocab_size=int(df[col].max()) + 1, embedding_dim=4)
-    for col in user_sparse_cols
-    if col != "user_id"
+    SparseFeature(col, vocab_size=vocab_sizes[col], embedding_dim=4)
+    for col in user_sparse_feature_cols
+    if col != user_id_col
 ]
 # user_id 使用较大的 embedding 维度(32)
-user_sparse_features.append(SparseFeature("user_id", vocab_size=int(df["user_id"].max()) + 1, embedding_dim=32))
+user_sparse_features.append(SparseFeature(user_id_col, vocab_size=vocab_sizes[user_id_col], embedding_dim=32))
 
 # 定义物品稀疏特征
 # 除 item_id 外使用较小的 embedding 维度(4)
 item_sparse_features = [
-    SparseFeature(col, vocab_size=int(df[col].max()) + 1, embedding_dim=4)
-    for col in item_sparse_cols
-    if col != "item_id"
+    SparseFeature(col, vocab_size=vocab_sizes[col], embedding_dim=4)
+    for col in item_sparse_feature_cols
+    if col != item_id_col
 ]
 # item_id 使用较大的 embedding 维度(32)
-item_sparse_features.append(SparseFeature("item_id", vocab_size=int(df["item_id"].max()) + 1, embedding_dim=32))
+item_sparse_features.append(SparseFeature(item_id_col, vocab_size=vocab_sizes[item_id_col], embedding_dim=32))
 
 # ==============================================================================
 # 7. 模型构建
@@ -215,6 +226,7 @@ model = DSSM(
     user_mlp_params={"hidden_dims": [256, 128]},  # 用户塔 MLP 参数
     item_mlp_params={"hidden_dims": [256, 128]},  # 物品塔 MLP 参数
     training_mode="pairwise",  # 使用 pairwise 训练模式
+    sampling_mode="inbatch",  # 使用 batch 内负采样
     device="cpu",
     session_id="movielens_dssm_tutorial",
 )
@@ -244,7 +256,7 @@ model.fit(
     epochs=1,  # 训练轮数
     batch_size=256,
     shuffle=True,
-    user_id_column="user_id",  # 用于分组评估
+    user_id_column=user_id_col,  # 用于分组评估
 )
 
 # ==============================================================================

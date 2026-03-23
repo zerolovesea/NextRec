@@ -35,19 +35,18 @@ rec_loader = RecDataLoader(
 
 # 从 DataFrame 创建
 loader = rec_loader.create_dataloader(
-    data=df,
+    data=df, # 已经加载到内存的dataframe
     batch_size=256,
     shuffle=True,
-    streaming=False,
+    streaming=False, # 通过设置 streaming=False 来让数据加载到内存
     num_workers=4
-
 )
 
 ```
 
 ### 流式加载模式
 
-适合大规模数据，按块流式读取：
+适合大规模数据的流式读取：
 
 ```python
 from nextrec.data.dataloader import RecDataLoader
@@ -98,7 +97,7 @@ loader = rec_loader.create_dataloader(
 | `streaming` | 是否开启流式模式 |
 | `chunk_size` | 流式模式时每个 chunk 的行数 |
 | `num_workers` | 数据加载线程数 |
-| `prefetch_factor` | 预取因子 |
+| `prefetch_factor` | Pytorch预取因子，用于加速数据加载 |
 | `shuffle` | 是否 shuffle |
 | `shard_rank` | **[通常无需主动设置]** 分布式训练分片 rank |
 | `shard_count` | **[通常无需主动设置]** 分布式训练分片数 |
@@ -110,8 +109,8 @@ loader = rec_loader.create_dataloader(
 
 ```yaml
 data:
-  train_path: ./data/train
-  streaming: true        # 对应 streaming=True
+  train_path: ./data/train # 原始数据路径
+  streaming: true          # 对应 streaming=True
 
 dataloader:
   batch_size: 1024
@@ -155,11 +154,9 @@ train_loader = rec_loader.create_dataloader(
     shuffle=True,
     num_workers=4
 )
-
-
 ```
 
----
+创建完数据加载器后，我们就可以开始训练模型了。
 
 ## 下一步
 

@@ -105,7 +105,7 @@ def extract_python_module_header(py_path: Path, max_lines: int = 200) -> list[st
         if quote in after_open:
             content = after_open.split(quote, 1)[0]
             doc_lines.append(content)
-            return trim_blank_ends([l.rstrip("\r") for l in split_preserve_newlines(doc_lines)])
+            return trim_blank_ends([line.rstrip("\r") for line in split_preserve_newlines(doc_lines)])
 
         # Multi-line docstring
         idx += 1
@@ -118,7 +118,7 @@ def extract_python_module_header(py_path: Path, max_lines: int = 200) -> list[st
             doc_lines.append(cur)
             idx += 1
 
-        return trim_blank_ends([l.rstrip("\r") for l in doc_lines])
+        return trim_blank_ends([line.rstrip("\r") for line in doc_lines])
 
     # Leading # comments
     comment_lines: list[str] = []

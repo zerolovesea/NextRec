@@ -35,7 +35,6 @@ class EmbeddingFeature(BaseFeature):
         l2_reg: float = 0.0,
         trainable: bool = True,
         pretrained_weight: torch.Tensor | None = None,
-        freeze_pretrained: bool = False,
     ):
         self.name = name
         self.vocab_size = vocab_size
@@ -49,7 +48,6 @@ class EmbeddingFeature(BaseFeature):
         self.l2_reg = l2_reg
         self.trainable = trainable
         self.pretrained_weight = pretrained_weight
-        self.freeze_pretrained = freeze_pretrained
 
 
 class SequenceFeature(EmbeddingFeature):
@@ -69,7 +67,6 @@ class SequenceFeature(EmbeddingFeature):
         l2_reg: float = 0.0,
         trainable: bool = True,
         pretrained_weight: torch.Tensor | None = None,
-        freeze_pretrained: bool = False,
     ):
         """
         Sequence feature for variable-length categorical id sequences.
@@ -88,7 +85,6 @@ class SequenceFeature(EmbeddingFeature):
             l2_reg: L2 regularization weight on embedding.
             trainable: Whether the embedding is trainable. [TODO] This is for representation learning.
             pretrained_weight: Optional pretrained embedding weights. [TODO] This is for representation learning.
-            freeze_pretrained: If True, keep pretrained weights frozen. [TODO] This is for representation learning.
         """
         super().__init__(
             name=name,
@@ -102,7 +98,6 @@ class SequenceFeature(EmbeddingFeature):
             l2_reg=l2_reg,
             trainable=trainable,
             pretrained_weight=pretrained_weight,
-            freeze_pretrained=freeze_pretrained,
         )
         self.max_len = max_len
         self.combiner = combiner
@@ -123,7 +118,6 @@ class SparseFeature(EmbeddingFeature):
         l2_reg: float = 0.0,
         trainable: bool = True,
         pretrained_weight: torch.Tensor | None = None,
-        freeze_pretrained: bool = False,
     ):
         """
         Sparse feature for categorical ids.
@@ -140,7 +134,6 @@ class SparseFeature(EmbeddingFeature):
             l2_reg: L2 regularization weight on embedding.
             trainable: Whether the embedding is trainable.
             pretrained_weight: Optional pretrained embedding weights.
-            freeze_pretrained: If True, keep pretrained weights frozen.
         """
         super().__init__(
             name=name,
@@ -154,7 +147,6 @@ class SparseFeature(EmbeddingFeature):
             l2_reg=l2_reg,
             trainable=trainable,
             pretrained_weight=pretrained_weight,
-            freeze_pretrained=freeze_pretrained,
         )
 
 
@@ -172,7 +164,6 @@ class DenseFeature(BaseFeature):
         mlp_dropout: float = 0.0,
         trainable: bool = True,
         pretrained_weight: torch.Tensor | None = None,
-        freeze_pretrained: bool = False,
     ):
         """
         Dense feature for continuous values.
@@ -188,7 +179,6 @@ class DenseFeature(BaseFeature):
             mlp_dropout: Dropout used by mlp projection.
             trainable: Whether the projection is trainable.
             pretrained_weight: Optional pretrained projection weights.
-            freeze_pretrained: If True, keep pretrained weights frozen.
         """
         self.name = name
         self.input_dim = max(int(input_dim), 1)
@@ -219,7 +209,6 @@ class DenseFeature(BaseFeature):
 
         self.trainable = trainable
         self.pretrained_weight = pretrained_weight
-        self.freeze_pretrained = freeze_pretrained
 
 
 class FeatureSet:

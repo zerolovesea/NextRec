@@ -66,7 +66,6 @@ from nextrec.basic.layers import (
     AttentionPoolingLayer,
     EmbeddingLayer,
 )
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -410,7 +409,6 @@ class DIEN(BaseModel):
         mlp_input_dim += self.embedding.compute_output_dim(self.dense_features)
 
         self.mlp = MLP(input_dim=mlp_input_dim, **mlp_params)
-        self.prediction_layer = TaskHead(task_type=self.task)
 
         self.register_regularization_weights(
             embedding_attr="embedding",
@@ -513,8 +511,8 @@ class DIEN(BaseModel):
 
         concat_input = torch.cat(other_embeddings, dim=-1)  # [Batch, total_dim]
 
-        y = self.mlp(concat_input)  # [Batch, 1] (logit before task head)
-        return self.prediction_layer(y)  # [Batch, 1]
+        logits = self.mlp(concat_input)  # [Batch, 1]
+        return logits
 
     def compute_auxiliary_loss(self):
         if not (self.training and self.use_negsampling and self.auxiliary_nets is not None):

@@ -69,7 +69,6 @@ import torch.nn as nn
 from typing import Literal
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.heads import TaskHead
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
 
@@ -201,8 +200,6 @@ class PNN(BaseModel):
             product_dim = 2 * self.num_pairs
 
         self.mlp = MLP(input_dim=linear_dim + product_dim, **mlp_params)
-        self.prediction_layer = TaskHead(task_type=self.task)
-
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["mlp", "product_projections"])
         if self.kernel is not None and all(id(self.kernel) != id(param) for param in self.regularization_weights):
             self.regularization_weights.append(self.kernel)
@@ -255,5 +252,5 @@ class PNN(BaseModel):
         # deep_input = concat(linear_signal, product_signal): [Batch, Linear_dim + Product_dim]
         deep_input = torch.cat([linear_signal, product_signal], dim=1)
         # logits: [Batch, 1]
-        y = self.mlp(deep_input)
-        return self.prediction_layer(y)
+        logits = self.mlp(deep_input)
+        return logits

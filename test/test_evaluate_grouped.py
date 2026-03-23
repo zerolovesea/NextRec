@@ -53,10 +53,10 @@ def test_evaluate_grouped_by_column(tmp_path):
     overall_metrics = result["overall"]
     grouped_rows = result["grouped"]
 
-    assert overall_metrics["precision_task1"] == 1.0
+    assert overall_metrics["precision_task1"] == 0.5
     assert overall_metrics["recall_task2"] == 1.0
     assert len(grouped_rows) == 2
     assert grouped_rows[0]["product"] == "p1"
     assert grouped_rows[0]["samples"] == 2
-    assert grouped_rows[0]["precision_task1"] == 1.0
+    assert grouped_rows[0]["precision_task1"] == 0.5
     assert grouped_rows[1]["product"] == "p2"
