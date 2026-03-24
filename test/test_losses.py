@@ -2,7 +2,6 @@ import pytest
 import torch
 import torch.nn as nn
 
-from nextrec.basic.heads import GenerativeRetrievalHead
 from nextrec.basic.model import BaseModel
 from nextrec.loss.listwise import ListNetLoss, SampledSoftmaxLoss
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss

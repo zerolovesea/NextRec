@@ -225,7 +225,9 @@ class RecDataLoader(FeatureSet):
 
     def create_dataloader(
         self,
-        data: dict | pd.DataFrame | str | list[str] | os.PathLike | list[os.PathLike] | DataLoader | None,
+        data: (
+            dict | pd.DataFrame | pl.DataFrame | str | list[str] | os.PathLike | list[os.PathLike] | DataLoader | None
+        ),
         batch_size: int = 32,
         shuffle: bool = True,
         streaming: bool = False,
@@ -271,7 +273,7 @@ class RecDataLoader(FeatureSet):
                 profiler=profiler,
             )
 
-        if isinstance(data, (dict, pd.DataFrame)):
+        if isinstance(data, (dict, pd.DataFrame, pl.DataFrame)):
             return self.create_from_memory(
                 data=data,
                 batch_size=batch_size,
@@ -285,7 +287,7 @@ class RecDataLoader(FeatureSet):
 
     def create_from_memory(
         self,
-        data: dict | pd.DataFrame,
+        data: dict | pd.DataFrame | pl.DataFrame,
         batch_size: int,
         shuffle: bool,
         num_workers: int = 0,
@@ -380,7 +382,6 @@ class RecDataLoader(FeatureSet):
             file_type = file_formats.pop()
 
         if streaming:
-            # streaming mode with IterableDataset
             return self.load_files_streaming(
                 file_paths,
                 file_type,
@@ -394,12 +395,16 @@ class RecDataLoader(FeatureSet):
                 profiler=profiler,
             )
         else:
-            # read all files into memory
             dfs = []
             for file_path in file_paths:
-                df = read_table(file_path, data_format=file_type)
+                df = read_table(file_path, data_format=file_type, engine="polars")
                 dfs.append(df)
-            combined_df = pd.concat(dfs, ignore_index=True)
+
+            if not dfs:
+                raise ValueError("[RecDataLoader Error] No files loaded.")
+
+            combined_df = dfs[0] if len(dfs) == 1 else pl.concat(dfs, how="vertical_relaxed")
+
             return self.create_from_memory(
                 combined_df,
                 batch_size,

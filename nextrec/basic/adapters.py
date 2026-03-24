@@ -1,8 +1,8 @@
 """
 Training adapters for NextRec models.
 
-These adapters provide flexible interfaces between NextRec's training loop 
-and various model architectures and loss functions, enabling support for 
+These adapters provide flexible interfaces between NextRec's training loop
+and various model architectures and loss functions, enabling support for
 pointwise, pairwise, listwise, representation, and two-tower models with in-batch negatives.
 
 Date: create on 22/03/2026
@@ -42,7 +42,7 @@ class TrainingAdapter:
         return None
 
     # whether the adapter's output format is compatible with generic metric computation
-    # true for scorers with pointwise outputs, 
+    # true for scorers with pointwise outputs,
     # false for models with structured outputs or custom losses
     # (e.g. two-tower with in-batch negatives or representation models)
     def supports_metrics(self, y_pred: Any, y_true: torch.Tensor | None) -> bool:
@@ -69,13 +69,14 @@ class RepresentationAdapter(TrainingAdapter):
 
 class CandidateListAdapter(TrainingAdapter):
     """
-    Adapter for pairwise and listwise ranking models with explicit candidate lists. 
+    Adapter for pairwise and listwise ranking models with explicit candidate lists.
 
-    These models expect input features to include a shared candidate-list axis, 
-    and the adapter handles reshaping between flat batch features and candidate-list inputs. 
-    It also supports in-batch negative sampling for two-tower models when sampling_mode='inbatch', 
+    These models expect input features to include a shared candidate-list axis,
+    and the adapter handles reshaping between flat batch features and candidate-list inputs.
+    It also supports in-batch negative sampling for two-tower models when sampling_mode='inbatch',
     and can compute appropriate losses based on the model's configured loss function and similarity metric.
     """
+
     def feature_has_candidate_axis(
         self,
         feature: DenseFeature | SparseFeature | SequenceFeature,
@@ -165,12 +166,13 @@ class CandidateListAdapter(TrainingAdapter):
 class TwoTowerAdapter(CandidateListAdapter):
     """
     Adapter for two-tower models with in-batch negative sampling.
-    
+
     This adapter extends CandidateListAdapter to support in-batch negatives for pairwise and listwise objectives.
     When sampling_mode='inbatch', it treats the batch as implicitly containing one positive and multiple
-    negatives for each instance, and computes losses accordingly 
+    negatives for each instance, and computes losses accordingly
     based on the model's configured loss function and similarity metric.
     """
+
     def needs_labels(self, model: "BaseModel") -> bool:
         return False
 

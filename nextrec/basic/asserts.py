@@ -13,7 +13,6 @@ from typing import Any
 
 from nextrec.utils.types import TaskTypeName
 
-
 SUPPORTED_TASK_TYPES = ["binary", "regression", "generative"]
 
 

@@ -56,7 +56,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 from torch.utils.data import DataLoader
 
-from nextrec.basic.adapters import RepresentationAdapter, TrainingAdapter
+from nextrec.basic.adapters import RepresentationAdapter
 from nextrec.basic.features import DenseFeature
 from nextrec.basic.loggers import colorize, setup_logger
 from nextrec.basic.model import BaseModel
