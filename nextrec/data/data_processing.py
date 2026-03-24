@@ -23,14 +23,45 @@ def take_split_values(values: Any, indices: np.ndarray) -> np.ndarray:
 
 
 def get_column_data(data: dict | pd.DataFrame | pl.DataFrame, name: str):
+    """
+    Get a column from dict/pandas/polars input.
+    """
     if isinstance(data, dict):
         return data[name] if name in data else None
     if isinstance(data, pd.DataFrame):
         return data[name].values
     if isinstance(data, pl.DataFrame):
-        series = data.get_column(name)
-        return series.to_numpy()
+        return data.get_column(name).to_numpy()
     raise KeyError(f"Only dict or DataFrame supported, got {type(data)}")
+
+
+def get_col_numpy(data: dict | pd.DataFrame | pl.DataFrame, name: str) -> np.ndarray:
+    """
+    Get a column as numpy array, raising error if not found.
+    """
+    values = get_column_data(data, name)
+    if values is None:
+        raise KeyError(f"Column '{name}' not found")
+    return np.asarray(values)
+
+
+def slice_data_by_indices(
+    data: dict | pd.DataFrame | pl.DataFrame, indices: np.ndarray
+) -> dict | pd.DataFrame | pl.DataFrame:
+    """Slice dict/pandas/polars data by row indices."""
+
+    indices = np.asarray(indices)
+
+    if isinstance(data, pd.DataFrame):
+        return data.iloc[indices].reset_index(drop=True)
+
+    if isinstance(data, pl.DataFrame):
+        return data[indices]
+
+    if isinstance(data, dict):
+        return {k: take_split_values(v, indices) for k, v in data.items()}
+
+    raise TypeError(f"Unsupported data type: {type(data)}")
 
 
 def get_data_length(data: Any) -> int | None:
@@ -139,8 +170,13 @@ def get_user_ids(data: Any, id_columns: list[str] | str | None = None) -> np.nda
         return None
 
     main_id = id_columns[0]
+
     if isinstance(data, pd.DataFrame) and main_id in data.columns:
         arr = np.asarray(data[main_id].values)
+        return arr.reshape(arr.shape[0])
+
+    if isinstance(data, pl.DataFrame) and main_id in data.columns:
+        arr = data.get_column(main_id).to_numpy()
         return arr.reshape(arr.shape[0])
 
     if isinstance(data, dict):

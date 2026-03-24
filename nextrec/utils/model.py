@@ -81,9 +81,7 @@ def get_loss_list(
         if len(loss_list) == 1 and nums_task > 1:
             loss_list = loss_list * nums_task
         elif len(loss_list) != nums_task:
-            raise ValueError(
-                f"[Loss Error] loss list length ({len(loss_list)}) must match nums_task ({nums_task})."
-            )
+            raise ValueError(f"[Loss Error] loss list length ({len(loss_list)}) must match nums_task ({nums_task}).")
     else:
         loss_list = [loss] * nums_task
 

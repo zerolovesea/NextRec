@@ -80,6 +80,8 @@ from nextrec.basic.session import create_session, get_save_path
 from nextrec.data.batch_utils import batch_to_dict, collate_fn
 from nextrec.data.data_processing import (
     get_column_data,
+    get_col_numpy,
+    slice_data_by_indices,
     get_user_ids,
 )
 from nextrec.data.dataloader import (
@@ -93,7 +95,6 @@ from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.console import display_metrics_table, progress, render_confusion_block
 from nextrec.utils.timing import StageTimer
 from nextrec.utils.torch_utils import (
-    add_distributed_sampler,
     get_device,
     gather_numpy,
     get_optimizer,
@@ -282,8 +283,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         If training mode:
             - pointwise: apply the prediction layer to raw output for task-aware post-processing, e.g., applying sigmoid for binary classification.
-            - pairwise/listwise: return raw output without extra processing, as the loss function will handle it. 
-                                 e.g., for pairwise BPR loss, the raw output is expected to be the difference between positive and negative scores, 
+            - pairwise/listwise: return raw output without extra processing, as the loss function will handle it.
+                                 e.g., for pairwise BPR loss, the raw output is expected to be the difference between positive and negative scores,
                                  and no extra activation is needed.
         """
         if self.training_modes[0] != "pointwise":
@@ -515,28 +516,25 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
     def handle_valid_split(
         self,
-        train_data: dict | pd.DataFrame,
+        train_data: dict | pd.DataFrame | pl.DataFrame,
         valid_split: float,
-        batch_size: int,
-        shuffle: bool,
-        num_workers: int = 0,
         split_stratify_by: str | None = None,
         split_group_by: str | None = None,
         random_state: int = 42,
-    ):
+    ) -> tuple[dict | pd.DataFrame | pl.DataFrame, dict | pd.DataFrame | pl.DataFrame]:
         """
-        This function will split training data into training and validation sets when:
-        valid_data is None and valid_split is provided.
+        Split training data into train/valid subsets.
+        """
 
-        Returns:
-            train_loader: DataLoader for training data.
-            valid_split_data: Validation data dict/dataframe split from training data.
-        """
         if not (0 < valid_split < 1):
             raise ValueError(f"[BaseModel-validation Error] valid_split must be between 0 and 1, got {valid_split}")
 
+        rng = np.random.default_rng(random_state)
+
         if isinstance(train_data, pd.DataFrame):
             total_length = len(train_data)
+        elif isinstance(train_data, pl.DataFrame):
+            total_length = train_data.height
         elif isinstance(train_data, dict):
             if not train_data:
                 raise ValueError("[BaseModel-validation Error] train_data dict is empty.")
@@ -544,104 +542,65 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             total_length = len(train_data[sample_key])
             for k, v in train_data.items():
                 if len(v) != total_length:
-                    raise ValueError(
-                        f"[BaseModel-validation Error] Length of field '{k}' ({len(v)}) != length of field '{sample_key}' ({total_length})"
-                    )
+                    raise ValueError(f"[BaseModel-validation Error] Length mismatch: {k} != {sample_key}")
         else:
-            raise TypeError(
-                f"[BaseModel-validation Error] If you want to use valid_split, train_data must be DataFrame or a dict."
-            )
-        rng = np.random.default_rng(random_state)
+            raise TypeError(f"[BaseModel-validation Error] Unsupported data type: {type(train_data)}")
 
         if split_group_by is not None:
-            if isinstance(train_data, pd.DataFrame):
-                if split_group_by not in train_data.columns:
-                    raise KeyError(
-                        f"[BaseModel-validation Error] Column '{split_group_by}' not found for split control."
-                    )
-                group_values = np.asarray(train_data[split_group_by])
-            else:
-                if split_group_by not in train_data:
-                    raise KeyError(
-                        f"[BaseModel-validation Error] Field '{split_group_by}' not found for split control."
-                    )
-                group_values = np.asarray(train_data[split_group_by])
-            
-            # unique id and inverse index for each id
+            group_values = get_col_numpy(train_data, split_group_by)
+
             unique_groups, inverse_group_idx = np.unique(group_values, return_inverse=True)
             group_indices = np.arange(len(unique_groups))
 
             if split_stratify_by is None:
-                shuffled_groups = rng.permutation(group_indices)
-                split_idx = int(len(shuffled_groups) * (1 - valid_split))
-                train_group_idx = shuffled_groups[:split_idx]
-                valid_group_idx = shuffled_groups[split_idx:]
+                shuffled = rng.permutation(group_indices)
+                split_idx = int(len(shuffled) * (1 - valid_split))
+                train_group_idx = shuffled[:split_idx]
+                valid_group_idx = shuffled[split_idx:]
+
             else:
-                if isinstance(train_data, pd.DataFrame):
-                    if split_stratify_by not in train_data.columns:
-                        raise KeyError(
-                            f"[BaseModel-validation Error] Column '{split_stratify_by}' not found for split control."
-                        )
-                    stratify_values = np.asarray(train_data[split_stratify_by])
-                else:
-                    if split_stratify_by not in train_data:
-                        raise KeyError(
-                            f"[BaseModel-validation Error] Field '{split_stratify_by}' not found for split control."
-                        )
-                    stratify_values = np.asarray(train_data[split_stratify_by])
+                stratify_values = get_col_numpy(train_data, split_stratify_by)
 
                 group_labels = []
                 for group_idx in group_indices:
-                    group_mask = inverse_group_idx == group_idx
-                    group_unique_labels = pd.unique(np.asarray(stratify_values)[group_mask])
-                    if len(group_unique_labels) == 1:
-                        group_labels.append(str(group_unique_labels[0]))
+                    mask = inverse_group_idx == group_idx
+                    labels = np.unique(stratify_values[mask])
+                    if len(labels) == 1:
+                        group_labels.append(str(labels[0]))
                     else:
-                        group_labels.append("|".join(sorted(map(str, group_unique_labels))))
+                        group_labels.append("|".join(sorted(map(str, labels))))
+                group_labels = np.asarray(group_labels)
 
-                group_labels = np.asarray(group_labels, dtype=str)
-                train_group_parts = []
-                valid_group_parts = []
+                train_parts, valid_parts = [], []
                 for label in np.unique(group_labels):
-                    label_group_idx = group_indices[group_labels == label]
-                    shuffled_groups = rng.permutation(label_group_idx)
-                    split_idx = int(len(shuffled_groups) * (1 - valid_split))
-                    train_group_parts.append(shuffled_groups[:split_idx])
-                    valid_group_parts.append(shuffled_groups[split_idx:])
-                train_group_idx = (
-                    np.concatenate(train_group_parts) if train_group_parts else np.asarray([], dtype=np.int64)
-                )
-                valid_group_idx = (
-                    np.concatenate(valid_group_parts) if valid_group_parts else np.asarray([], dtype=np.int64)
-                )
+                    idxs = group_indices[group_labels == label]
+                    shuffled = rng.permutation(idxs)
+                    split_idx = int(len(shuffled) * (1 - valid_split))
+                    train_parts.append(shuffled[:split_idx])
+                    valid_parts.append(shuffled[split_idx:])
+
+                train_group_idx = np.concatenate(train_parts) if train_parts else np.array([], dtype=int)
+                valid_group_idx = np.concatenate(valid_parts) if valid_parts else np.array([], dtype=int)
+
             train_indices = np.flatnonzero(np.isin(inverse_group_idx, train_group_idx))
             valid_indices = np.flatnonzero(np.isin(inverse_group_idx, valid_group_idx))
 
         elif split_stratify_by is not None:
-            if isinstance(train_data, pd.DataFrame):
-                if split_stratify_by not in train_data.columns:
-                    raise KeyError(
-                        f"[BaseModel-validation Error] Column '{split_stratify_by}' not found for split control."
-                    )
-                stratify_values = np.asarray(train_data[split_stratify_by])
-            else:
-                if split_stratify_by not in train_data:
-                    raise KeyError(
-                        f"[BaseModel-validation Error] Field '{split_stratify_by}' not found for split control."
-                    )
-                stratify_values = np.asarray(train_data[split_stratify_by])
+            stratify_values = get_col_numpy(train_data, split_stratify_by)
 
             all_indices = np.arange(total_length)
-            train_parts = []
-            valid_parts = []
-            for label in pd.unique(stratify_values):
-                label_indices = all_indices[np.asarray(stratify_values) == label]
-                shuffled_indices = rng.permutation(label_indices)
-                split_idx = int(len(shuffled_indices) * (1 - valid_split))
-                train_parts.append(shuffled_indices[:split_idx])
-                valid_parts.append(shuffled_indices[split_idx:])
-            train_indices = np.concatenate(train_parts) if train_parts else np.asarray([], dtype=np.int64)
-            valid_indices = np.concatenate(valid_parts) if valid_parts else np.asarray([], dtype=np.int64)
+            train_parts, valid_parts = [], []
+
+            for label in np.unique(stratify_values):
+                idxs = all_indices[stratify_values == label]
+                shuffled = rng.permutation(idxs)
+                split_idx = int(len(shuffled) * (1 - valid_split))
+                train_parts.append(shuffled[:split_idx])
+                valid_parts.append(shuffled[split_idx:])
+
+            train_indices = np.concatenate(train_parts)
+            valid_indices = np.concatenate(valid_parts)
+
         else:
             indices = rng.permutation(total_length)
             split_idx = int(total_length * (1 - valid_split))
@@ -649,29 +608,20 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             valid_indices = indices[split_idx:]
 
         if len(train_indices) == 0 or len(valid_indices) == 0:
-            raise ValueError(
-                "[BaseModel-validation Error] Split produced an empty train or validation set. "
-                "Adjust valid_split / split_stratify_by / split_group_by."
-            )
+            raise ValueError("Split produced empty train or valid set")
 
         train_indices = rng.permutation(train_indices)
         valid_indices = rng.permutation(valid_indices)
-        if isinstance(train_data, pd.DataFrame):
-            train_split_data = train_data.iloc[train_indices].reset_index(drop=True)
-            valid_split_data = train_data.iloc[valid_indices].reset_index(drop=True)
-        else:
-            train_split_data = {k: np.asarray(v)[train_indices] for k, v in train_data.items()}
-            valid_split_data = {k: np.asarray(v)[valid_indices] for k, v in train_data.items()}
-        train_loader = self.prepare_data_loader(
-            data=train_split_data,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-        )
+
+        train_split_data = slice_data_by_indices(train_data, train_indices)
+        valid_split_data = slice_data_by_indices(train_data, valid_indices)
+
         logging.info(
-            f"Split data: {len(train_indices)} training samples, {len(valid_indices)} validation samples (split_stratify_by={split_stratify_by}, split_group_by={split_group_by})"
+            f"Split data: {len(train_indices)} train / {len(valid_indices)} valid "
+            f"(stratify={split_stratify_by}, group={split_group_by})"
         )
-        return train_loader, valid_split_data
+
+        return train_split_data, valid_split_data
 
     def compile(
         self,
@@ -790,7 +740,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
     def compute_loss(self, y_pred, y_true):
         adapter_loss = self.training_adapter.compute_loss(self, y_pred, y_true)
-        # if adapter_loss is not None, it means the training adapter has taken care of the loss computation, 
+        # if adapter_loss is not None, it means the training adapter has taken care of the loss computation,
         # e.g., for pairwise/listwise losses with explicit sampling, return it without further processing.
         if adapter_loss is not None:
             return adapter_loss
@@ -844,9 +794,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             else:
                 task_dim = y_pred_i.shape[1] if y_pred_i.dim() > 1 else 1
                 task_loss = (
-                    loss_fn(y_pred_i.view(-1), y_true_i.view(-1))
-                    if task_dim == 1
-                    else loss_fn(y_pred_i, y_true_i)
+                    loss_fn(y_pred_i.view(-1), y_true_i.view(-1)) if task_dim == 1 else loss_fn(y_pred_i, y_true_i)
                 )
             task_losses.append(task_loss)
 
@@ -911,6 +859,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         """
         if isinstance(data, DataLoader):
             return (data, None) if return_dataset else data
+
         tensors = build_tensors_from_data(
             data=data,
             raw_data=data,
@@ -936,8 +885,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
     def fit(
         self,
-        train_data: dict | pd.DataFrame | DataLoader | None = None,
-        valid_data: dict | pd.DataFrame | DataLoader | None = None,
+        train_data: dict | pd.DataFrame | pl.DataFrame | DataLoader | None = None,
+        valid_data: dict | pd.DataFrame | pl.DataFrame | DataLoader | None = None,
         metrics: (
             list[MetricsName] | dict[str, list[MetricsName]] | None
         ) = None,  # ['auc', 'logloss'] or {'target1': ['auc', 'logloss'], 'target2': ['mse']}
@@ -1015,8 +964,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         if not self.compiled:
             raise ValueError(
-                "[BaseModel-fit Error] Model must be compiled before fit(). "
-                "Call compile(loss=...) explicitly."
+                "[BaseModel-fit Error] Model must be compiled before fit(). " "Call compile(loss=...) explicitly."
             )
 
         if self.distributed and dist.is_available() and dist.is_initialized() and self.ddp_model is None:
@@ -1203,78 +1151,41 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
         train_sampler = None
         if valid_split is not None and valid_data is None:
-            train_loader, valid_data = self.handle_valid_split(
+            train_data, valid_data = self.handle_valid_split(
                 train_data=train_data,  # type: ignore[arg-type]
                 valid_split=valid_split,
-                batch_size=batch_size,
-                shuffle=shuffle,
-                num_workers=num_workers,
                 split_stratify_by=split_stratify_by,
                 split_group_by=split_group_by,
                 random_state=42,
             )
-            if use_ddp_sampler:
-                base_dataset = getattr(train_loader, "dataset", None)
-                if base_dataset is not None and not isinstance(
-                    getattr(train_loader, "sampler", None), DistributedSampler
-                ):
-                    train_sampler = DistributedSampler(
-                        base_dataset,
-                        num_replicas=self.world_size,
-                        rank=self.rank,
-                        shuffle=shuffle,
-                        drop_last=True,
-                    )
-                    train_loader = DataLoader(
-                        base_dataset,
-                        batch_size=batch_size,
-                        shuffle=False,
-                        sampler=train_sampler,
-                        collate_fn=collate_fn,
-                        num_workers=num_workers,
-                        drop_last=True,
-                    )
-        else:
-            if isinstance(train_data, DataLoader):
-                if use_ddp_sampler:
-                    train_loader, train_sampler = add_distributed_sampler(
-                        train_data,
-                        distributed=self.distributed,
-                        world_size=self.world_size,
-                        rank=self.rank,
-                        shuffle=shuffle,
-                        drop_last=True,
-                        default_batch_size=batch_size,
-                        is_main_process=self.is_main_process,
-                    )
-                else:
-                    train_loader = train_data
-            else:
-                loader, dataset = self.prepare_data_loader(
-                    train_data,
-                    batch_size=batch_size,
-                    shuffle=shuffle,
-                    num_workers=num_workers,
-                    return_dataset=True,
-                )
-                if use_ddp_sampler and dataset is not None:
-                    train_sampler = DistributedSampler(
-                        dataset,
-                        num_replicas=self.world_size,
-                        rank=self.rank,
-                        shuffle=shuffle,
-                        drop_last=True,
-                    )
-                    loader = DataLoader(
-                        dataset,
-                        batch_size=batch_size,
-                        shuffle=False,
-                        sampler=train_sampler,
-                        collate_fn=collate_fn,
-                        num_workers=num_workers,
-                        drop_last=True,
-                    )
-                train_loader = loader
+
+        loader, dataset = self.prepare_data_loader(
+            train_data,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            return_dataset=True,
+        )
+
+        if use_ddp_sampler and dataset is not None:
+            train_sampler = DistributedSampler(
+                dataset,
+                num_replicas=self.world_size,
+                rank=self.rank,
+                shuffle=shuffle,
+                drop_last=True,
+            )
+            loader = DataLoader(
+                dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                sampler=train_sampler,
+                collate_fn=collate_fn,
+                num_workers=num_workers,
+                drop_last=True,
+            )
+
+        train_loader = loader
 
         # If split-based loader was built without sampler, attach here when enabled
         if self.distributed and auto_ddp_sampler and isinstance(train_loader, DataLoader) and train_sampler is None:
@@ -1454,7 +1365,9 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             logging.info("")
             logging.info(colorize("Training finished.", color="bright_blue", bold=True))
             logging.info("")
-        if valid_loader is not None:
+        
+        # Without validation, keep the final epoch's model to avoid overfitting on training loss
+        if has_validation and valid_loader is not None:
             if self.is_main_process:
                 logging.info(format_kv("Load best model from", self.best_checkpoint_path))
             if os.path.exists(self.best_checkpoint_path):
@@ -1466,6 +1379,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         color="yellow",
                     )
                 )
+        elif self.is_main_process and not has_validation:
+            logging.info(
+                colorize(
+                    "[Training Info] No validation data provided. Using final epoch model.",
+                    color="yellow",
+                )
+            )
+        
         if self.training_logger:
             self.training_logger.close()
         return self
@@ -1565,7 +1486,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
 
     def prepare_validation_data(
         self,
-        valid_data: dict | pd.DataFrame | DataLoader | None,
+        valid_data: dict | pd.DataFrame | pl.DataFrame | DataLoader | None,
         batch_size: int,
         needs_user_ids: bool,
         user_id_column: str | None = "user_id",

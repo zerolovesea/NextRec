@@ -154,7 +154,11 @@ def resolve_file_paths(path: str) -> tuple[list[str], str]:
     raise ValueError(f"Invalid path: {path}")
 
 
-def read_table(path: str | Path, data_format: str | None = None) -> pd.DataFrame:
+def read_table(
+    path: str | Path,
+    data_format: str | None = None,
+    engine: str = "polars",
+) -> pd.DataFrame | pl.DataFrame:
     data_path = Path(path)
 
     if data_format:
@@ -164,19 +168,30 @@ def read_table(path: str | Path, data_format: str | None = None) -> pd.DataFrame
     else:
         raise ValueError(f"Cannot determine format for {data_path}. Please specify data_format parameter.")
 
+    if engine not in {"polars", "pandas"}:
+        raise ValueError(f"Unsupported engine: {engine}. Expected 'polars' or 'pandas'.")
+
     if data_path.is_dir():
         file_paths, _ = resolve_file_paths(str(data_path))
-        dataframes = [read_table(fp, fmt) for fp in file_paths]
+        dataframes = [read_table(fp, fmt, engine=engine) for fp in file_paths]
         if not dataframes:
             raise ValueError(f"No supported data files found in directory: {data_path}")
         if len(dataframes) == 1:
             return dataframes[0]
+        if engine == "polars":
+            return pl.concat(dataframes, how="vertical_relaxed")
         return pd.concat(dataframes, ignore_index=True)
 
     if fmt == "parquet":
+        if engine == "polars":
+            return pl.read_parquet(data_path)
         return pd.read_parquet(data_path)
+
     if fmt == "csv":
+        if engine == "polars":
+            return pl.read_csv(data_path)
         return pd.read_csv(data_path, low_memory=False)
+
     raise ValueError(f"Unsupported format: {fmt}.")
 
 
