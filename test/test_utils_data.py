@@ -89,12 +89,12 @@ def test_read_table_polars_engine(tmp_path):
     assert isinstance(pl_csv, pl.DataFrame)
     assert pl_csv.shape == (3, 2)
     assert pl_csv.columns == ["a", "b"]
-    
+
     # Test parquet reading with polars engine
     pl_parquet = data_utils.read_table(parquet_path, data_format="parquet", engine="polars")
     assert isinstance(pl_parquet, pl.DataFrame)
     assert pl_parquet.shape == (3, 2)
-    
+
     # Test directory reading with polars engine
     parquet_dir = tmp_path / "parquet_dir"
     parquet_dir.mkdir()
@@ -102,7 +102,7 @@ def test_read_table_polars_engine(tmp_path):
     pl_dir = data_utils.read_table(parquet_dir, engine="polars")
     assert isinstance(pl_dir, pl.DataFrame)
     assert pl_dir.shape == (3, 2)
-    
+
     # Test default engine is polars
     pl_default = data_utils.read_table(csv_path, data_format="csv")
     assert isinstance(pl_default, pl.DataFrame)
