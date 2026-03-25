@@ -508,12 +508,19 @@ def build_tensors_from_data(
     raw_data: dict | pd.DataFrame | "pl.DataFrame",
     features: list,
     target_columns: list[str],
-    id_columns: list[str],
+    id_columns: str | list[str] | None,
 ) -> dict:
     """
     Build feature, label, and ID tensors from raw input using feature definitions.
     This is used by RecDataLoader to construct model-ready batches.
     """
+
+    if id_columns is None:
+        effective_id_columns = []
+    elif isinstance(id_columns, str):
+        effective_id_columns = [id_columns]
+    else:
+        effective_id_columns = list(id_columns)
 
     feature_tensors = {}
     for feature in features:
@@ -546,9 +553,9 @@ def build_tensors_from_data(
         if not label_tensors:
             label_tensors = None
     id_tensors = None
-    if id_columns:
+    if effective_id_columns:
         id_tensors = {}
-        for id_col in id_columns:
+        for id_col in effective_id_columns:
             column = get_column_data(raw_data, id_col)
             if column is None:
                 column = get_column_data(data, id_col)

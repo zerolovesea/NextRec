@@ -819,6 +819,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         prefetch_factor: int | None = None,
         sampler: Any = None,
         return_dataset: Literal[False] = False,
+        id_columns: str | list[str] | None = None,
     ) -> DataLoader: ...
 
     @overload
@@ -831,6 +832,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         prefetch_factor: int | None = None,
         sampler: Any = None,
         return_dataset: Literal[True] = True,
+        id_columns: str | list[str] | None = None,
     ) -> tuple[DataLoader, TensorDictDataset | None]: ...
 
     def prepare_data_loader(
@@ -842,6 +844,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         prefetch_factor: int | None = None,
         sampler: Any = None,
         return_dataset: bool = False,
+        id_columns: str | list[str] | None = None,
     ) -> DataLoader | tuple[DataLoader, TensorDictDataset | None]:
         """
         Prepare a DataLoader from input data. Only used when input data is not a DataLoader.
@@ -854,6 +857,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             prefetch_factor: Number of batches loaded in advance by each worker.
             sampler: Optional sampler for DataLoader.
             return_dataset: Whether to return the tensor dataset along with the DataLoader, used for valid data
+            id_columns: Optional ID columns to include in the DataLoader. If None, uses self.id_columns.
         Returns:
             DataLoader (and tensor dataset if return_dataset is True).
         """
@@ -865,7 +869,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             raw_data=data,
             features=self.all_features,
             target_columns=self.target_columns,
-            id_columns=self.id_columns,
+            id_columns=id_columns if id_columns is not None else self.id_columns,
         )
         if tensors is None:
             raise ValueError("[BaseModel-prepare_data_loader Error] No data available to create DataLoader.")
@@ -1365,7 +1369,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             logging.info("")
             logging.info(colorize("Training finished.", color="bright_blue", bold=True))
             logging.info("")
-        
+
         # Without validation, keep the final epoch's model to avoid overfitting on training loss
         if has_validation and valid_loader is not None:
             if self.is_main_process:
@@ -1386,7 +1390,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                     color="yellow",
                 )
             )
-        
+
         if self.training_logger:
             self.training_logger.close()
         return self
@@ -1505,7 +1509,32 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 valid_loader = valid_data
             return valid_loader, None
         valid_sampler = None
-        valid_loader, valid_dataset = self.prepare_data_loader(valid_data, batch_size=batch_size, shuffle=False, num_workers=num_workers, return_dataset=True)  # type: ignore
+
+        # If valid_group_by is set, need to include those columns in id_columns for the validation DataLoader
+        valid_group_by = getattr(self, "valid_group_by", None)
+        group_by_columns = [valid_group_by] if isinstance(valid_group_by, str) else list(valid_group_by or [])
+
+        if group_by_columns:
+            valid_id_columns = list(
+                dict.fromkeys(
+                    [
+                        *(self.id_columns or []),
+                        *(group_by_columns or []),
+                        *([user_id_column] if needs_user_ids and user_id_column else []),
+                    ]
+                )
+            )
+        else:
+            valid_id_columns = None  # Use default self.id_columns
+
+        valid_loader, valid_dataset = self.prepare_data_loader(
+            valid_data,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            return_dataset=True,
+            id_columns=valid_id_columns,
+        )  # type: ignore
         if (
             auto_ddp_sampler
             and self.distributed
@@ -2385,7 +2414,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 batch_dict = batch_to_dict(batch_data, include_ids=include_ids)
                 X_input, _ = self.get_input(batch_dict, require_labels=False)
                 start = time.perf_counter()
-                y_pred = self.forward(X_input)
+                y_pred = self.training_adapter.forward(self, X_input)
                 if profiler is not None:
                     profiler.add("inference", time.perf_counter() - start)
                 if y_pred is None or not isinstance(y_pred, torch.Tensor):

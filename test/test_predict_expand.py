@@ -88,4 +88,5 @@ def test_predict_streaming_expands_rows_per_chunk(tmp_path):
     result = pd.read_csv(saved)
     assert result["uid"].tolist() == ["u1", "u1", "u2", "u2"]
     assert result["product"].astype(str).tolist() == ["4", "5", "4", "5"]
-    assert result["pred_0"].tolist() == [4.0, 5.0, 4.0, 5.0]
+    expected = [4.0, 5.0, 4.0, 5.0]
+    assert result["pred_0"].tolist() == pytest.approx([1 / (1 + math.exp(-x)) for x in expected])
