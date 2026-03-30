@@ -151,11 +151,11 @@ class EulerInteractionLayer(nn.Module):
         # l_k   = exp(sum_j alpha_{k,j} * log(lam_j) + delta'_k)
         psi = torch.einsum("bmd,nmd->bnd", theta, self.alpha) + self.delta_phase  # [B,n,d]
         log_l = torch.einsum("bmd,nmd->bnd", log_lam, self.alpha) + self.delta_logmod  # [B,n,d]
-        l = torch.exp(log_l)  # [B,n,d]
+        lam_transformed = torch.exp(log_l)  # [B,n,d]
 
         # Inverse Euler Transformation
-        r_hat = l * torch.cos(psi)  # [B,n,d]
-        p_hat = l * torch.sin(psi)  # [B,n,d]
+        r_hat = lam_transformed * torch.cos(psi)  # [B,n,d]
+        p_hat = lam_transformed * torch.sin(psi)  # [B,n,d]
 
         # Implicit interactions + fusion
         if self.use_implicit:

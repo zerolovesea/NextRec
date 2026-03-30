@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.model import BaseMatchModel
+from nextrec.models.retrieval.base import BaseMatchModel
 
 
 class SDM(BaseMatchModel):
@@ -23,7 +23,7 @@ class SDM(BaseMatchModel):
         return "SDM"
 
     @property
-    def support_training_modes(self) -> list[str]:
+    def supported_training_modes(self) -> list[str]:
         return ["pointwise"]
 
     def __init__(

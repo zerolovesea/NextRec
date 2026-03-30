@@ -26,7 +26,7 @@ from nextrec.basic.features import (
     SparseFeature,
 )
 from nextrec.data.batch_utils import collate_fn
-from nextrec.data.data_processing import get_column_data
+from nextrec.data.data_processing import get_column_data, has_column, normalize_column_names
 from nextrec.data.preprocessor import DataProcessor
 from nextrec.utils.data import (
     expand_tabular_rows,
@@ -74,6 +74,10 @@ class FileDataset(FeatureSet, IterableDataset):
         sequence_features: list[SequenceFeature],
         target_columns: list[str],
         id_columns: list[str] | None = None,
+        target_source: (
+            str | None
+        ) = None,  # source column for generating next-item labels in sequence modeling; must be a SequenceFeature if specified
+        target_shift_steps: int = 1,  # number of steps to shift for next-item prediction; used only if target_source is specified
         chunk_size: int = 10000,
         file_type: str = "csv",
         processor: DataProcessor | None = None,
@@ -99,6 +103,8 @@ class FileDataset(FeatureSet, IterableDataset):
         self.chunk_size = chunk_size
         self.file_type = file_type
         self.processor = processor
+        self.target_source = target_source
+        self.target_shift_steps = target_shift_steps
         self.shard_rank = int(shard_rank)
         self.shard_count = int(shard_count)
         self.profiler = profiler
@@ -187,6 +193,8 @@ class FileDataset(FeatureSet, IterableDataset):
                     features=self.all_features,
                     target_columns=self.target_columns,
                     id_columns=self.id_columns,
+                    target_source=self.target_source,
+                    target_shift_steps=self.target_shift_steps,
                 )
                 if self.profiler is not None:
                     self.profiler.add("tensorize", time.perf_counter() - start)
@@ -204,6 +212,8 @@ class RecDataLoader(FeatureSet):
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | None | str = None,
         id_columns: str | list[str] | None = None,
+        target_source: str | None = None,
+        target_shift_steps: int = 1,
         processor: DataProcessor | None = None,
         expand: dict[str, list] | None = None,
     ):
@@ -221,6 +231,8 @@ class RecDataLoader(FeatureSet):
         """
         self.processor = processor
         self.expand = expand or {}
+        self.target_source = target_source
+        self.target_shift_steps = target_shift_steps
         self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
 
     def create_dataloader(
@@ -319,6 +331,8 @@ class RecDataLoader(FeatureSet):
             features=self.all_features,
             target_columns=self.target_columns,
             id_columns=self.id_columns,
+            target_source=self.target_source,
+            target_shift_steps=self.target_shift_steps,
         )
         dataset = TensorDictDataset(tensors)
 
@@ -440,6 +454,8 @@ class RecDataLoader(FeatureSet):
             sequence_features=self.sequence_features,
             target_columns=self.target_columns,
             id_columns=self.id_columns,
+            target_source=self.target_source,
+            target_shift_steps=self.target_shift_steps,
             chunk_size=chunk_size,
             file_type=file_type,
             processor=self.processor,
@@ -503,24 +519,46 @@ def prepare_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
     return np.asarray(column, dtype=np.int64)
 
 
+def build_shifted_sequence_column(
+    column,
+    feature: SequenceFeature,
+    shift: int = 1,
+) -> np.ndarray:
+    """
+    Build next-item labels by shifting a padded sequence column to the left.
+
+    Example:
+        [1, 2, 3, 0] -> [2, 3, 0, 0]
+    """
+    if shift < 1:
+        raise ValueError("[RecDataLoader Error] sequence shift must be >= 1.")
+    seq = prepare_sequence_column(column, feature)
+    pad_value = feature.padding_idx if feature.padding_idx is not None else 0
+    if seq.shape[1] == 0:
+        return seq
+    if shift >= seq.shape[1]:
+        return np.full_like(seq, pad_value)
+    shifted = np.empty_like(seq)
+    shifted[:, :-shift] = seq[:, shift:]
+    shifted[:, -shift:] = pad_value
+    return shifted
+
+
 def build_tensors_from_data(
     data: dict | pd.DataFrame | "pl.DataFrame",
     raw_data: dict | pd.DataFrame | "pl.DataFrame",
     features: list,
     target_columns: list[str],
     id_columns: str | list[str] | None,
+    target_source: str | None = None,
+    target_shift_steps: int = 1,
 ) -> dict:
     """
     Build feature, label, and ID tensors from raw input using feature definitions.
     This is used by RecDataLoader to construct model-ready batches.
     """
 
-    if id_columns is None:
-        effective_id_columns = []
-    elif isinstance(id_columns, str):
-        effective_id_columns = [id_columns]
-    else:
-        effective_id_columns = list(id_columns)
+    effective_id_columns = normalize_column_names(id_columns)
 
     feature_tensors = {}
     for feature in features:
@@ -538,13 +576,38 @@ def build_tensors_from_data(
             tensor = to_tensor(arr, dtype=torch.long)
         feature_tensors[feature.name] = tensor
     label_tensors = None
+    feature_by_name = {feature.name: feature for feature in features}
     if target_columns:
         label_tensors = {}
         for target_name in target_columns:
-            column = get_column_data(data, target_name)
+            if not has_column(data, target_name):
+                column = None
+            else:
+                column = get_column_data(data, target_name)
+            if column is None and target_source is not None:
+                source_feature = feature_by_name.get(target_source)
+                if source_feature is None or not isinstance(source_feature, SequenceFeature):
+                    raise KeyError(
+                        f"[RecDataLoader Error] target_source='{target_source}' requires a matching SequenceFeature."
+                    )
+                source_column = get_column_data(data, target_source)
+                if source_column is None:
+                    raise KeyError(f"[RecDataLoader Error] target_source column '{target_source}' not found in data.")
+                label_array = build_shifted_sequence_column(
+                    source_column,
+                    source_feature,
+                    shift=target_shift_steps,
+                )
+                label_tensor = to_tensor(label_array, dtype=torch.long)
+                label_tensors[target_name] = label_tensor
+                continue
             if column is None:
                 continue
-            label_tensor = to_tensor(np.asarray(column, dtype=np.float32), dtype=torch.float32)
+            if len(column) > 0 and isinstance(column[0], (list, tuple, np.ndarray)):
+                label_array = np.stack([np.asarray(item) for item in column]).astype(np.float32)
+            else:
+                label_array = np.asarray(column, dtype=np.float32)
+            label_tensor = to_tensor(label_array, dtype=torch.float32)
             if label_tensor.dim() == 2 and label_tensor.shape[0] == 1 and label_tensor.shape[1] > 1:
                 label_tensor = label_tensor.t()
             if label_tensor.shape[1:] == (1,):

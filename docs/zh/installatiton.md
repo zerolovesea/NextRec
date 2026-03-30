@@ -43,7 +43,7 @@ cd NextRec
 # 训练所有支持的精排模型
 python tutorials/run_all_ranking_models.py 
 # 训练所有支持的召回模型
-python tutorials/run_all_match_models.py 
+python tutorials/run_all_retrieval_models.py 
 # 训练所有支持的多任务模型
 python tutorials/run_all_multitask_models.py  
 ```

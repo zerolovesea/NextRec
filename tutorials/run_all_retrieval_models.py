@@ -18,7 +18,7 @@
 
 使用方法:
     直接运行此脚本:
-        python tutorials/run_all_match_models.py
+        python tutorials/run_all_retrieval_models.py
 
 数据要求:
     使用合成数据,不需要外部数据文件。脚本会自动生成:

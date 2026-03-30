@@ -1,6 +1,6 @@
 ---
 title: 训练召回模型
-description: 完整的召回模型训练、评估、推理教程，包括双塔模型、向量化召回
+description: 完整的召回模型训练、评估、推理教程，包括双塔模型、向量化匹配
 ---
 
 # 训练召回模型
@@ -11,7 +11,7 @@ description: 完整的召回模型训练、评估、推理教程，包括双塔�
 
 推荐系统通常分为两个阶段：
 
-1. **召回（Retrieval）**：从海量候选池中快速筛选出候选集（几千到几万）
+1. **召回（Match）**：从海量候选池中快速筛选出候选集（几千到几万）
 2. **排序（Ranking）**：对召回的候选集精细排序
 
 ```
@@ -32,7 +32,7 @@ DSSM（Deep Structured Semantic Model）也称为双塔模型：
 
 - **用户塔**：将用户特征编码为向量
 - **物品塔**：将物品特征编码为向量
-- **相似度计算**：通过向量相似度匹配用户和物品
+- **相似度计算**：通过向量相似度召回用户和物品
 
 ```
 ┌────────────────────────────────────────────────┐
@@ -75,7 +75,7 @@ from nextrec.data.preprocessor import DataProcessor
 
 ## 1. 数据准备
 
-### 1.1 召回数据格式
+### 1.1 匹配数据格式
 
 召回模型需要用户-物品交互数据：
 
@@ -172,7 +172,7 @@ model = DSSM(
     user_tower_layers=[128, 64, 32],    # 用户塔 DNN 层
     item_tower_layers=[128, 64, 32],    # 物品塔 DNN 层
     temperature=0.1,                    # 温度参数，控制分布锐度
-    task="retrieval",
+    task="binary",
     device="cuda"
 )
 ```
@@ -196,7 +196,7 @@ model.compile(
 ```python
 # 构建训练数据：用户特征 + 正负样本物品特征
 # 格式: {user_features...}, {item_features...}, label
-train_data = build_retrieval_data(user_df, item_df, train_df)
+train_data = build_match_data(user_df, item_df, train_df)
 ```
 
 ### 4.2 训练
@@ -338,7 +338,7 @@ model = DSSM(
     user_tower_layers=[128, 64, 32],
     item_tower_layers=[128, 64, 32],
     temperature=0.1,
-    task="retrieval",
+    task="binary",
     device="cuda"
 )
 

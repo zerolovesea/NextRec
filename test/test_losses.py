@@ -10,8 +10,8 @@ from nextrec.loss.pointwise import (
     FocalLoss,
     WeightedBCELoss,
 )
-from nextrec.utils.loss import get_loss_fn
-from nextrec.utils.model import compute_ranking_loss, get_loss_list
+from nextrec.utils.loss import get_loss_fn, normalize_loss_list
+from nextrec.utils.model import compute_ranking_loss
 
 
 def test_focal_loss_binary_prefers_confident_logits():
@@ -268,7 +268,7 @@ def test_generative_retrieval_head_accepts_vocab_logits_in_format_model_output()
     model = _DummyGenerativeModel()
     logits = torch.tensor([[2.0, 0.5, -1.0, 1.2]])
 
-    output = model.format_model_output(logits)
+    output = model.training_adapter.format_model_output(model, logits)
 
     assert torch.equal(output, logits)
 
@@ -291,30 +291,30 @@ def test_single_task_generative_cross_entropy_uses_class_ids():
     assert torch.allclose(loss, expected)
 
 
-def test_get_loss_list_requires_explicit_loss():
+def test_normalize_loss_list_requires_explicit_loss():
     with pytest.raises(ValueError, match="provided explicitly"):
-        get_loss_list(
+        normalize_loss_list(
             loss=None,
             training_modes=["pointwise", "pairwise", "listwise"],
-            nums_task=3,
+            num_tasks=3,
         )
 
 
-def test_get_loss_list_rejects_bce_for_ranking_modes():
+def test_normalize_loss_list_rejects_bce_for_ranking_modes():
     with pytest.raises(ValueError, match="not valid for training_mode='pairwise'"):
-        get_loss_list(
+        normalize_loss_list(
             loss="bce",
             training_modes=["pairwise", "listwise"],
-            nums_task=2,
+            num_tasks=2,
         )
 
 
-def test_get_loss_list_rejects_short_loss_lists():
-    with pytest.raises(ValueError, match="must match nums_task"):
-        get_loss_list(
+def test_normalize_loss_list_rejects_short_loss_lists():
+    with pytest.raises(ValueError, match="must match num_tasks"):
+        normalize_loss_list(
             loss=["bce", "bpr"],
             training_modes=["pointwise", "pairwise", "listwise"],
-            nums_task=3,
+            num_tasks=3,
         )
 
 

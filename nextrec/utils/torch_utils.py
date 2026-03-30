@@ -31,7 +31,7 @@ from nextrec.utils.types import (
 )
 
 
-def to_list(value: str | list[str] | None) -> list[str]:
+def normalize_string_list(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):

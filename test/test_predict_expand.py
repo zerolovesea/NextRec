@@ -42,6 +42,11 @@ def test_get_expand_columns_rejects_invalid_values():
         raise AssertionError("get_expand_columns should reject scalar candidate values")
 
 
+def test_get_expand_columns_rejects_empty_values():
+    with pytest.raises(ValueError):
+        get_expand_columns({"product": []})
+
+
 def test_expand_tabular_rows_pandas_cartesian_product():
     df = pd.DataFrame({"uid": ["u1", "u2"], "base": [10, 20]})
     expanded = expand_tabular_rows(df, {"product": [1, 2], "channel": ["app", "h5"]})
@@ -49,6 +54,15 @@ def test_expand_tabular_rows_pandas_cartesian_product():
     assert len(expanded) == 8
     assert expanded["product"].tolist()[:4] == [1, 1, 2, 2]
     assert expanded["channel"].tolist()[:4] == ["app", "h5", "app", "h5"]
+
+
+def test_expand_tabular_rows_single_candidate_overrides_column():
+    df = pd.DataFrame({"uid": ["u1", "u2"]})
+    expanded = expand_tabular_rows(df, {"product": [9]})
+
+    assert len(expanded) == 2
+    assert expanded["uid"].tolist() == ["u1", "u2"]
+    assert expanded["product"].tolist() == [9, 9]
 
 
 def test_predict_expands_rows_and_includes_expand_column():
@@ -89,4 +103,21 @@ def test_predict_streaming_expands_rows_per_chunk(tmp_path):
     assert result["uid"].tolist() == ["u1", "u1", "u2", "u2"]
     assert result["product"].astype(str).tolist() == ["4", "5", "4", "5"]
     expected = [4.0, 5.0, 4.0, 5.0]
+    assert result["pred_0"].tolist() == pytest.approx([1 / (1 + math.exp(-x)) for x in expected])
+
+
+def test_predict_single_expand_candidate_still_injects_column():
+    model = _DummyPredictExpandModel()
+    data = pd.DataFrame({"uid": ["u1", "u2"]})
+
+    result = model.predict(
+        data=data,
+        batch_size=2,
+        return_dataframe=True,
+        expand={"product": [7]},
+    )
+
+    assert result["uid"].tolist() == ["u1", "u2"]
+    assert result["product"].tolist() == ["7", "7"]
+    expected = [7.0, 7.0]
     assert result["pred_0"].tolist() == pytest.approx([1 / (1 + math.exp(-x)) for x in expected])

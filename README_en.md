@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.4-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.5-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -36,7 +36,7 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 ## Why NextRec
 
-- **Multi-scenario coverage**: Ranking (CTR/CVR), retrieval, multi-task learning, and more marketing/rec models, with a continuously expanding model zoo.
+- **Multi-scenario coverage**: Ranking (CTR/CVR), match, multi-task learning, and more marketing/rec models, with a continuously expanding model zoo.
 - **Unified feature engineering & data pipeline**: NextRec provides unified Dense/Sparse/Sequence feature definitions, DataProcessor, and batch-optimized RecDataLoader, matching offline feature training/inference in industrial big-data settings.
 - **Developer-friendly experience**: `Stream processing/distributed training/inference` for `csv/parquet/pathlike` data, plus GPU/MPS acceleration and visualization support.
 - **Flexible CLI tooling**: Start training and inference via command line and config files for rapid experiment iteration and agile deployment.
@@ -49,10 +49,10 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 - **28/01/2026** Added support for ONNX export and loading in v0.4.39, and significantly accelerated data preprocessing speed (up to 9x speedup)
 - **01/01/2026** Happy New Year! In v0.4.27, added support for multiple multi-task models: [APG](/nextrec/models/multi_task/apg.py), [ESCM](/nextrec/models/multi_task/escm.py), [HMoE](/nextrec/models/multi_task/hmoe.py), [Cross Stitch](/nextrec/models/multi_task/cross_stitch.py)
 - **21/12/2025** Added support for [GradNorm](/nextrec/loss/grad_norm.py) in v0.4.16, configurable via `loss_weight='grad_norm'` in the compile method
-- **12/12/2025** Added [RQ-VAE](/nextrec/models/representation/rqvae.py), a common module for generative retrieval in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
+- **12/12/2025** Added [RQ-VAE](/nextrec/models/representation/rqvae.py), a common module for generative recommendation in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html) and [reference code](/nextrec_cli_preset).
 - **06/12/2025** Added single-machine multi-GPU DDP training in v0.4.1 with supporting [code](tutorials/distributed).
-- **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 11 multi-task models, 4 retrieval models, and a unified training/logging/metrics system.
+- **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 11 multi-task models, 4 match models, and a unified training/logging/metrics system.
 
 ## Architecture
 
@@ -73,19 +73,19 @@ pip install nextrec # or pip install -e .
 
 ## Tutorials
 
-See `tutorials/` for examples covering ranking, retrieval, multi-task learning, and data processing:
+See `tutorials/` for examples covering ranking, match, multi-task learning, and data processing:
 
 - [movielen_ranking_deepfm.py](/tutorials/movielen_ranking_deepfm.py) — DeepFM training on MovieLens 100k dataset
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) — DIN Deep Interest Network training on e-commerce dataset
 - [example_multitask.py](/tutorials/example_multitask.py) — ESMM multi-task learning training on e-commerce dataset
-- [movielen_match_dssm.py](/tutorials/movielen_match_dssm.py) — DSSM retrieval model training on MovieLens 100k dataset
+- [movielen_retrieval_dssm.py](/tutorials/movielen_retrieval_dssm.py) — DSSM retrieval model training on MovieLens 100k dataset
 
 - [example_onnx.py](/tutorials/example_onnx.py) — Train and export models to ONNX format with NextRec
 - [example_distributed_training.py](/tutorials/distributed/example_distributed_training.py) — Single-machine multi-GPU training with NextRec
 
 - [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) — Quickly validate availability of all ranking models
 - [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) — Quickly validate availability of all multi-task models
-- [run_all_match_models.py](/tutorials/run_all_match_models.py) — Quickly validate availability of all retrieval models
+- [run_all_retrieval_models.py](/tutorials/run_all_retrieval_models.py) — Quickly validate availability of all retrieval models
 
 To dive deeper into NextRec framework details, Jupyter notebooks are available:
 
@@ -202,11 +202,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.6.4, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.6.5, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.6.4. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.6.5. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -241,7 +241,7 @@ The current version is 0.6.4. All models and test code have been validated on th
 | [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask | Supported |
 | [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | Supported |
 
-### Retrieval Models
+### Match Models
 
 | Model | Paper | Status |
 | ------- | ------- | -------- |
@@ -255,7 +255,7 @@ The current version is 0.6.4. All models and test code have been validated on th
 
 | Model | Paper | Status |
 | ------- | ------- | -------- |
-| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | In Progress |
+| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | Supported |
 | [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | Supported |
 
 ### Multi-task Models
@@ -286,7 +286,7 @@ The current version is 0.6.4. All models and test code have been validated on th
 
 | Model | Paper | Status |
 | ------- | ------- | -------- |
-| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | In Progress |
+| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Recommendation | In Progress |
 
 ### Representation Models
 

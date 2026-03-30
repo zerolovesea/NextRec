@@ -11,42 +11,82 @@ Author: Yang Zhou, zyaztec@gmail.com
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.heads import GenerativeRetrievalHead, TaskHead
+from nextrec.data.data_processing import get_column_data
+from nextrec.data.dataloader import build_shifted_sequence_column
 from nextrec.loss.listwise import InfoNCELoss, SampledSoftmaxLoss
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
-
-if TYPE_CHECKING:
-    from nextrec.basic.model import BaseModel
+from nextrec.utils.torch_utils import to_tensor
 
 
 class TrainingAdapter:
     # if the adapter requires labels for loss computation
-    def needs_labels(self, model: "BaseModel") -> bool:
+    def needs_labels(self, model) -> bool:
         return True
 
-    def forward(self, model: "BaseModel", X_input: dict[str, torch.Tensor]):
+    def get_target_shift_config(self, model) -> tuple[str | None, int]:
+        """
+        Return the optional target source and shift used when labels are not
+        provided explicitly in the batch.
+
+        Non-sequential adapters default to no shift-based label synthesis.
+        """
+        return None, 1
+
+    def forward(self, model, X_input: dict[str, torch.Tensor]):
         raw_output = model.call_model(X_input)
-        return model.format_model_output(raw_output)
+        return self.format_model_output(model, raw_output)
+
+    def build_prediction_layer(self, model) -> nn.Module | None:
+        if model.training_modes[0] != "pointwise":
+            return None
+        task_type = model.task[0] if isinstance(model.task, list) else model.task
+        if task_type == "generative":
+            return GenerativeRetrievalHead(vocab_size=int(model.vocab_size), return_logits=True)
+        return TaskHead(task_type=model.task)
+
+    def format_model_output(self, model, raw_output: Any):
+        if model.training_modes[0] != "pointwise":
+            return raw_output
+        if isinstance(raw_output, torch.Tensor) and model.prediction_layer is not None:
+            return model.prediction_layer(raw_output)
+        return raw_output
 
     def compute_loss(
         self,
-        model: "BaseModel",
+        model,
         y_pred: Any,
         y_true: torch.Tensor | None,
     ) -> torch.Tensor | None:
         return None
 
-    # whether the adapter's output format is compatible with generic metric computation
-    # true for scorers with pointwise outputs,
-    # false for models with structured outputs or custom losses
-    # (e.g. two-tower with in-batch negatives or representation models)
-    def supports_metrics(self, y_pred: Any, y_true: torch.Tensor | None) -> bool:
-        return y_true is not None and isinstance(y_pred, torch.Tensor) and y_pred.dim() <= 2 and y_true.dim() <= 2
+    def build_target_tensor(
+        self,
+        model,
+        input_data: dict[str, Any],
+        target_name: str,
+        require_labels: bool,
+    ) -> torch.Tensor | None:
+        label_source = input_data.get("labels")
+        if label_source is None or target_name not in label_source:
+            if require_labels:
+                raise KeyError(f"[BaseModel-input Error] Target column '{target_name}' not found in input data.")
+            return None
+
+        target_data = get_column_data(label_source, target_name)
+        if target_data is None:
+            if require_labels:
+                raise ValueError(f"[BaseModel-input Error] Target column '{target_name}' contains no data.")
+            return None
+
+        target_tensor = to_tensor(target_data, dtype=torch.float32, device=model.device)
+        return target_tensor.reshape(target_tensor.size(0), -1)
 
 
 class RepresentationAdapter(TrainingAdapter):
@@ -60,11 +100,96 @@ class RepresentationAdapter(TrainingAdapter):
     generic metric collection by default.
     """
 
-    def forward(self, model: "BaseModel", X_input: dict[str, torch.Tensor]):
+    def forward(self, model, X_input: dict[str, torch.Tensor]):
         return model.call_model(X_input)
 
-    def supports_metrics(self, y_pred: Any, y_true: torch.Tensor | None) -> bool:
-        return False
+    def build_prediction_layer(self, model) -> nn.Module | None:
+        return None
+
+    def format_model_output(self, model, raw_output: Any):
+        return raw_output
+
+
+class RetrievalAdapter(TrainingAdapter):
+    """
+    Adapter for retrieval models that emit user/item embeddings and use a
+    RetrievalHead to convert them into final scores.
+    """
+
+    def build_prediction_layer(self, model) -> nn.Module | None:
+        return None
+
+    def format_model_output(self, model, raw_output: Any):
+        if not isinstance(raw_output, (tuple, list)) or len(raw_output) != 2:
+            return super().format_model_output(model, raw_output)
+        user_emb, item_emb = raw_output
+        return model.head(user_emb, item_emb, similarity_fn=model.compute_similarity)
+
+
+class SequentialAdapter(TrainingAdapter):
+    """
+    Adapter for sequential recommendation models.
+
+    Sequential models use the base adapter for output formatting and loss / metric
+    routing, while sequence-specific batch utilities live in BaseSequentialModel.
+    """
+
+    def get_target_shift_config(self, model) -> tuple[str | None, int]:
+        target_source = getattr(model, "target_source", None)
+        target_shift_steps = int(getattr(model, "target_shift_steps", 1))
+        return target_source, target_shift_steps
+
+    def build_target_tensor(
+        self,
+        model,
+        input_data: dict[str, Any],
+        target_name: str,
+        require_labels: bool,
+    ) -> torch.Tensor | None:
+        # SequentialAdapter support given explicit labels
+        # or create labels by shifting a source sequence feature.
+        # if explicit labels are provided, use them directly.
+        # Otherwise, fall back to shift-based label with target_source and target_shift_steps.
+        target_tensor = super().build_target_tensor(
+            model=model,
+            input_data=input_data,
+            target_name=target_name,
+            require_labels=False,
+        )
+        if target_tensor is not None:
+            return target_tensor
+
+        target_source, target_shift_steps = self.get_target_shift_config(model)
+        if target_source is None:
+            if require_labels:
+                raise KeyError(f"[BaseModel-input Error] Target column '{target_name}' not found in input data.")
+            return None
+
+        feature_source = input_data.get("features", {})
+        feature_by_name = {feature.name: feature for feature in model.all_features}
+        source_feature = feature_by_name.get(target_source)
+        if source_feature is None or not isinstance(source_feature, SequenceFeature):
+            raise KeyError(
+                f"[BaseModel-input Error] target_source='{target_source}' requires a matching SequenceFeature."
+            )
+
+        source_data = get_column_data(feature_source, target_source)
+        if source_data is None:
+            raise KeyError(f"[BaseModel-input Error] target_source column '{target_source}' not found in input data.")
+
+        target_data = build_shifted_sequence_column(
+            source_data,
+            source_feature,
+            shift=target_shift_steps,
+        )
+        target_tensor = to_tensor(target_data, dtype=torch.long, device=model.device)
+        return target_tensor.reshape(target_tensor.size(0), -1)
+
+    def build_prediction_layer(self, model) -> nn.Module | None:
+        return None
+
+    def format_model_output(self, model, raw_output: Any):
+        return raw_output
 
 
 class CandidateListAdapter(TrainingAdapter):
@@ -92,7 +217,7 @@ class CandidateListAdapter(TrainingAdapter):
 
     def list_size(
         self,
-        model: "BaseModel",
+        model,
         X_input: dict[str, torch.Tensor],
     ) -> int:
         list_sizes = set()
@@ -119,7 +244,7 @@ class CandidateListAdapter(TrainingAdapter):
 
     def prepare_list_input(
         self,
-        model: "BaseModel",
+        model,
         X_input: dict[str, torch.Tensor],
     ) -> tuple[int, int, dict[str, torch.Tensor]]:
         list_size = self.list_size(model, X_input)
@@ -154,13 +279,19 @@ class CandidateListAdapter(TrainingAdapter):
             return [self.reshape_list_output(item, batch_size, list_size) for item in output]
         return output
 
-    def forward(self, model: "BaseModel", X_input: dict[str, torch.Tensor]):
+    def format_model_output(self, model, raw_output: Any):
+        if not isinstance(raw_output, (tuple, list)) or len(raw_output) != 2:
+            return super().format_model_output(model, raw_output)
+        user_emb, item_emb = raw_output
+        return model.head(user_emb, item_emb, similarity_fn=model.compute_similarity)
+
+    def forward(self, model, X_input: dict[str, torch.Tensor]):
         list_size, batch_size, flat_input = self.prepare_list_input(model, X_input)
         raw_output = model.call_model(flat_input)
         # Restore the candidate-list axis after the model scores each flattened
         # user-candidate pair independently, e.g. [B*L] -> [B, L].
         raw_output = self.reshape_list_output(raw_output, batch_size=batch_size, list_size=list_size)
-        return model.format_model_output(raw_output)
+        return self.format_model_output(model, raw_output)
 
 
 class TwoTowerAdapter(CandidateListAdapter):
@@ -173,7 +304,7 @@ class TwoTowerAdapter(CandidateListAdapter):
     based on the model's configured loss function and similarity metric.
     """
 
-    def needs_labels(self, model: "BaseModel") -> bool:
+    def needs_labels(self, model) -> bool:
         return False
 
     def sample_inbatch_negatives(
@@ -202,7 +333,7 @@ class TwoTowerAdapter(CandidateListAdapter):
         expanded_indices = sampled_indices.unsqueeze(-1).expand(-1, -1, negatives.size(-1))
         return negatives.gather(1, expanded_indices)
 
-    def forward(self, model: "BaseModel", X_input: dict[str, torch.Tensor]):
+    def forward(self, model, X_input: dict[str, torch.Tensor]):
         for feature in model.all_features:
             tensor = X_input.get(feature.name)
             if tensor is None or not isinstance(tensor, torch.Tensor):
@@ -212,11 +343,11 @@ class TwoTowerAdapter(CandidateListAdapter):
                     "[TwoTowerAdapter-input Error] sampling_mode='inbatch' expects flat batch features without an explicit candidate-list axis."
                 )
         raw_output = model.call_model(X_input)
-        return model.format_model_output(raw_output)
+        return self.format_model_output(model, raw_output)
 
     def compute_loss(
         self,
-        model: "BaseModel",
+        model,
         y_pred: Any,
         y_true: torch.Tensor | None,
     ) -> torch.Tensor | None:
@@ -269,3 +400,6 @@ class TwoTowerAdapter(CandidateListAdapter):
         if model.loss_weights is not None:
             loss *= float(model.loss_weights[0])
         return loss
+
+    def build_prediction_layer(self, model) -> nn.Module | None:
+        return None

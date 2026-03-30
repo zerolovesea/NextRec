@@ -747,7 +747,7 @@ class TestTrainingModes:
             model.compile(loss="sampled_softmax")
 
         assert model.training_modes[0] == training_mode
-        assert training_mode in model.support_training_modes
+        assert training_mode in model.supported_training_modes
 
         logger.info(f"DSSM {training_mode} training mode test successful")
 
@@ -779,7 +779,7 @@ class TestTrainingModes:
             device=device,
         )
 
-        assert model.support_training_modes == ["pointwise"]
+        assert model.supported_training_modes == ["pointwise"]
 
         # Should fail with pairwise
         with pytest.raises(ValueError, match="does not support training_mode"):
@@ -823,7 +823,7 @@ class TestTrainingModes:
             device=device,
         )
 
-        assert model.support_training_modes == ["pointwise"]
+        assert model.supported_training_modes == ["pointwise"]
 
         # Should fail with listwise
         with pytest.raises(ValueError, match="does not support training_mode"):

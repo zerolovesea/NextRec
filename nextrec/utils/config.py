@@ -149,7 +149,7 @@ def safe_value(value: Any):
     return str(value)
 
 
-def select_features(feature_cfg: Dict[str, Any], df_columns: List[str]) -> Tuple[List[str], List[str], List[str]]:
+def select_feature_names(feature_cfg: Dict[str, Any], df_columns: List[str]) -> Tuple[List[str], List[str], List[str]]:
     columns = set(df_columns)
 
     def pick(group: str) -> List[str]:
@@ -395,7 +395,7 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
         candidates = [
             f"nextrec.models.{name.lower()}",
             f"nextrec.models.ranking.{name.lower()}",
-            f"nextrec.models.match.{name.lower()}",
+            f"nextrec.models.retrieval.{name.lower()}",
             f"nextrec.models.multi_task.{name.lower()}",
             f"nextrec.models.generative.{name.lower()}",
             f"nextrec.models.tree_base.{name.lower()}",

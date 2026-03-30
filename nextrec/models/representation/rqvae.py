@@ -46,22 +46,15 @@ RQ-VAE 通过残差量化学习分层离散表示，将连续嵌入（如物品/
 
 from __future__ import annotations
 
-import logging
 import math
-from typing import cast
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.cluster import KMeans
-from torch.utils.data import DataLoader
 
-from nextrec.basic.adapters import RepresentationAdapter
 from nextrec.basic.features import DenseFeature
-from nextrec.basic.loggers import colorize, setup_logger
-from nextrec.basic.model import BaseModel
-from nextrec.data.batch_utils import batch_to_dict
-from nextrec.utils.console import progress
+from nextrec.models.representation.base import BaseRepresentationModel
 
 
 def kmeans(data: torch.Tensor, n_clusters: int, kmeans_iters: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -454,20 +447,11 @@ class RQ(nn.Module):
 
 
 # RQ-VAE Model
-class RQVAE(BaseModel):
+class RQVAE(BaseRepresentationModel):
 
     @property
     def model_name(self) -> str:
         return "RQVAE"
-
-    @property
-    def default_task(self) -> str:
-        # task is unused for unsupervised training, keep a valid default for BaseModel
-        return "regression"
-
-    def set_task_output(self):
-        super().set_task_output()
-        self.training_adapter = RepresentationAdapter()
 
     def __init__(
         self,
@@ -535,79 +519,6 @@ class RQVAE(BaseModel):
         total_loss = recon_loss + rqvae_loss
         return recon_loss, rqvae_loss, total_loss
 
-    def prepare_loader(
-        self,
-        data: DataLoader | dict | list | tuple,
-        batch_size: int,
-        shuffle: bool,
-        num_workers: int,
-    ) -> DataLoader:
-        if isinstance(data, DataLoader):
-            return data
-        dataloader = self.prepare_data_loader(
-            data=data,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-        )
-        if isinstance(dataloader, tuple):
-            loader = dataloader[0]
-        else:
-            loader = dataloader
-        return cast(DataLoader, loader)
-
-    # extract input embeddings from batch data
-    def extract_embeddings(self, batch_data) -> torch.Tensor:
-
-        batch_dict = batch_to_dict(batch_data)
-        X_input, _ = self.get_input(batch_dict, require_labels=False)
-
-        if not self.all_features:
-            raise ValueError("[RQVAE] dense_features are required to use fit/predict helpers.")
-        tensors: list[torch.Tensor] = []
-        for name in self.feature_names:
-            if name not in X_input:
-                raise KeyError(
-                    f"[RQVAE] Feature '{name}' not found in input batch. Available keys: {list(X_input.keys())}"
-                )
-            tensors.append(X_input[name].to(self.device).float())
-        if not tensors:
-            raise ValueError("[RQVAE] No feature tensors found in batch.")
-        init_embedding = tensors[0] if len(tensors) == 1 else torch.cat(tensors, dim=-1)
-        if init_embedding.shape[-1] != self.input_dim:
-            raise ValueError(f"[RQVAE] Input dim mismatch: expected {self.input_dim}, got {init_embedding.shape[-1]}.")
-
-        return init_embedding
-
-    def init_codebook(self, train_loader: DataLoader, init_batches: int) -> None:
-        cached: list[torch.Tensor] = []
-        for batch_idx, batch in enumerate(train_loader):
-            cached.append(self.extract_embeddings(batch))
-            if batch_idx >= init_batches - 1:
-                break
-        if not cached:
-            raise ValueError("[RQVAE] No data available for codebook initialization.")
-
-        init_data = torch.cat(cached, dim=0)
-
-        with torch.no_grad():
-            # Encode to latent space, [num_samples, latent_dim]
-            z_e = self.encode(init_data)
-
-            r = z_e  # current residual
-
-            for level in range(self.num_codebooks):
-                vq = self.rq.vq(level)
-                if not vq.codebook_initialized:
-                    vq.create_codebook(r)
-                q, _ = vq(r)  # quantize current residual
-                r = r - q  # update residual
-
-    def get_semantic_ids(self, x_gt: torch.Tensor) -> torch.Tensor:
-        z_e = self.encode(x_gt)  # encode source input to latent space
-        vq_emb_list, semantic_id_list, rqvae_loss = self.rq(z_e)
-        return semantic_id_list
-
     def forward(
         self, x_gt: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -616,190 +527,3 @@ class RQVAE(BaseModel):
         x_hat = self.decode(vq_emb_list)
         recon_loss, rqvae_loss, total_loss = self.compute_loss(x_hat, x_gt, rqvae_loss)
         return x_hat, semantic_id_list, recon_loss, rqvae_loss, total_loss
-
-    def fit(
-        self,
-        train_data: DataLoader | dict | list | tuple,
-        valid_data: DataLoader | dict | list | tuple | None = None,
-        epochs: int = 1,
-        batch_size: int = 256,
-        shuffle: bool = True,
-        num_workers: int = 0,
-        lr: float = 1e-3,
-        init_batches: int = 3,
-    ):
-        """
-        Train RQ-VAE.
-
-        Args:
-            train_data: Training data (DataLoader, dict, or array-like) that matches dense_features.
-            valid_data: Optional validation data for monitoring loss.
-            epochs: Training epochs.
-            batch_size: Batch size for building DataLoader when raw data is provided.
-            shuffle: Shuffle training data when constructing a DataLoader.
-            num_workers: Number of DataLoader workers.
-            lr: Learning rate for Adam optimizer.
-            init_batches: Number of batches used to initialize the codebook.
-        """
-        train_loader = self.prepare_loader(
-            data=train_data,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-        )
-        valid_loader = (
-            self.prepare_loader(
-                data=valid_data,
-                batch_size=batch_size,
-                shuffle=False,
-                num_workers=num_workers,
-            )
-            if valid_data is not None
-            else None
-        )
-
-        if not self.logger_initialized and self.is_main_process:
-            setup_logger(session_id=self.session_id)
-            self.logger_initialized = True
-
-        # Minimal placeholders to satisfy BaseModel.summary when running unsupervised
-        if not hasattr(self, "metrics"):
-            self.metrics = ["loss"]
-        if not hasattr(self, "task_specific_metrics"):
-            self.task_specific_metrics = {}
-        if not hasattr(self, "best_metrics_mode"):
-            self.best_metrics_mode = "min"
-
-        self.to(self.device)
-        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        self.train()
-
-        try:
-            steps_per_epoch = len(train_loader)
-            is_streaming = False
-        except TypeError:
-            steps_per_epoch = None
-            is_streaming = True
-
-        self.init_codebook(train_loader, init_batches=init_batches)
-
-        if self.is_main_process:
-            self.summary()
-            logging.info("")
-            logging.info(colorize("=" * 80, bold=True))
-            logging.info(
-                colorize(
-                    "Start streaming training" if is_streaming else "Start training",
-                    bold=True,
-                )
-            )
-            logging.info(colorize("=" * 80, bold=True))
-            logging.info("")
-            logging.info(colorize(f"Model device: {self.device}", bold=True))
-
-        for epoch in range(epochs):
-            total_loss = 0.0
-            step_count = 0
-            if is_streaming and self.is_main_process:
-                logging.info("")
-                logging.info(colorize(f"Epoch {epoch + 1}/{epochs}", bold=True))
-            if is_streaming:
-                batch_iter = enumerate(train_loader)
-            else:
-                tqdm_disable = not self.is_main_process
-                batch_iter = enumerate(
-                    progress(
-                        train_loader,
-                        description=f"Epoch {epoch + 1}/{epochs}",
-                        total=steps_per_epoch,
-                        disable=tqdm_disable,
-                    )
-                )
-            for _, batch in batch_iter:
-                embeddings = self.extract_embeddings(batch)
-                _, _, recon_loss, rqvae_loss, total_batch_loss = self(embeddings)
-
-                optimizer.zero_grad()
-                total_batch_loss.backward()
-                optimizer.step()
-
-                total_loss += total_batch_loss.item()
-                step_count += 1
-
-            denom = steps_per_epoch if steps_per_epoch is not None else step_count
-            avg_loss = total_loss / max(1, denom)
-            train_log = f"Epoch {epoch + 1}/{epochs} - Train Loss: {avg_loss:.4f}"
-
-            if valid_loader is not None:
-                val_total = 0.0
-                val_steps = 0
-                with torch.no_grad():
-                    for batch in valid_loader:
-                        embeddings = self.extract_embeddings(batch)
-                        _, _, _, _, val_loss = self(embeddings)
-                        val_total += val_loss.item()
-                        val_steps += 1
-                try:
-                    val_denom = len(valid_loader)
-                except TypeError:
-                    val_denom = val_steps
-                val_avg = val_total / max(1, val_denom)
-                if self.is_main_process:
-                    logging.info(colorize(train_log))
-                    logging.info(
-                        colorize(
-                            f"  Epoch {epoch + 1}/{epochs} - Valid Loss: {val_avg:.4f}",
-                            color="cyan",
-                        )
-                    )
-            elif self.is_main_process:
-                logging.info(colorize(train_log))
-
-        if self.is_main_process:
-            logging.info("")
-            logging.info(colorize("Training finished.", bold=True))
-            logging.info("")
-        return self
-
-    def predict(
-        self,
-        data: DataLoader | dict | list | tuple,
-        batch_size: int = 256,
-        num_workers: int = 0,
-        return_reconstruction: bool = False,
-        as_numpy: bool = True,
-    ) -> torch.Tensor:
-        """
-        Generate semantic IDs or reconstructed embeddings.
-
-        Args:
-            data: Input data aligned with dense_features.
-            batch_size: Batch size for building DataLoader when raw data is provided.
-            num_workers: Number of DataLoader workers.
-            return_reconstruction: If True, return reconstructed embeddings; otherwise, return semantic IDs.
-            as_numpy: Whether to return a NumPy array; if False, returns a torch.Tensor on CPU.
-        """
-        data_loader = self.prepare_loader(
-            data=data,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-        )
-        outputs: list[torch.Tensor] = []
-        self.eval()
-        with torch.no_grad():
-            for batch in data_loader:
-                embeddings = self.extract_embeddings(batch)
-                if return_reconstruction:
-                    x_hat, _, _, _, _ = self(embeddings)
-                    outputs.append(x_hat.detach().cpu())
-                else:
-                    semantic_ids = self.get_semantic_ids(embeddings)
-                    outputs.append(semantic_ids.detach().cpu())
-
-        if outputs:
-            result = torch.cat(outputs, dim=0)
-        else:
-            out_dim = self.input_dim if return_reconstruction else self.num_codebooks
-            result = torch.empty((0, out_dim))
-        return result.numpy() if as_numpy else result

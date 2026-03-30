@@ -51,10 +51,27 @@ ESMM 由阿里巴巴团队发表在SIGIR’2018，主要为了解决CVR（转化
 
 import torch
 
+from nextrec.basic.adapters import TrainingAdapter
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.model import BaseModel
 from nextrec.utils.types import TaskTypeInput
+
+
+class ESMMAdapter(TrainingAdapter):
+    """
+    Adapter for ESMM-style multi-task probability composition.
+    """
+
+    def format_model_output(self, model: BaseModel, raw_output):
+        if model.training_modes[0] != "pointwise":
+            return raw_output
+        preds = super().format_model_output(model, raw_output)
+        if not isinstance(preds, torch.Tensor):
+            return preds
+        ctr, cvr = preds.chunk(2, dim=1)
+        ctcvr = ctr * cvr
+        return torch.cat([ctr, ctcvr], dim=1)
 
 
 class ESMM(BaseModel):
@@ -123,6 +140,9 @@ class ESMM(BaseModel):
         # Register regularization weights
         self.register_regularization_weights(embedding_attr="embedding", include_modules=["ctr_tower", "cvr_tower"])
 
+    def set_adapter(self):
+        self.training_adapter = ESMMAdapter()
+
     def forward(self, x):
         # Shared embedding flatten: [Batch, Dim_embedding]
         input_flat = self.embedding(x=x, features=self.all_features, squeeze_dim=True)
@@ -138,11 +158,3 @@ class ESMM(BaseModel):
         # preds: [Batch, 2], split to ctr/cvr each [Batch, 1]
         logits = torch.cat([ctr_logit, cvr_logit], dim=1)
         return logits
-
-    def format_model_output(self, raw_output):
-        if self.training_modes[0] != "pointwise":
-            return raw_output
-        preds = self.prediction_layer(raw_output)
-        ctr, cvr = preds.chunk(2, dim=1)
-        ctcvr = ctr * cvr
-        return torch.cat([ctr, ctcvr], dim=1)

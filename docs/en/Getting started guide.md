@@ -99,7 +99,7 @@ metrics = model.evaluate(
 ## 5. More Examples & Notebooks
 
 - Ranking: `tutorials/example_ranking_din.py` (e-commerce DIN), `tutorials/movielen_ranking_deepfm.py`
-- Retrieval: `tutorials/movielen_match_dssm.py`
+- Retrieval: `tutorials/movielen_retrieval_dssm.py`
 - Multi-task: `tutorials/example_multitask.py`
 - Notebooks: `tutorials/notebooks/zh/Hands on nextrec.ipynb`, `tutorials/notebooks/zh/Hands on dataprocessor.ipynb`
 
