@@ -37,6 +37,8 @@ def get_expand_columns(config: dict[str, Any] | None) -> dict[str, list[Any]]:
         if isinstance(raw_values, (str, bytes)) or not isinstance(raw_values, (list, tuple)):
             raise TypeError(f"[Predict Config Error] predict.expand.{name} must be a list of candidate values.")
         values = list(raw_values)
+        if not values:
+            raise ValueError(f"[Predict Config Error] predict.expand.{name} cannot be empty.")
         normalized[name] = values
     return normalized
 
@@ -59,10 +61,16 @@ def expand_tabular_rows(
         return data
 
     factor = get_expand_factor(expand)
-    if factor <= 1:
-        return data
 
     if isinstance(data, pd.DataFrame):
+        if factor <= 1:
+            expanded_df = data.copy()
+            n_rows = len(expanded_df)
+            for column, values in expand.items():
+                if len(values) == 0:
+                    continue
+                expanded_df[column] = np.repeat(values[0], n_rows)
+            return expanded_df
         row_indices = np.repeat(np.arange(len(data), dtype=np.int64), factor)
         expanded_df = data.iloc[row_indices].reset_index(drop=True)
         prefix = 1
@@ -74,6 +82,13 @@ def expand_tabular_rows(
         return expanded_df
 
     if isinstance(data, pl.DataFrame):
+        if factor <= 1:
+            expanded_df = data
+            for column, values in expand.items():
+                if len(values) == 0:
+                    continue
+                expanded_df = expanded_df.with_columns(pl.lit(values[0]).alias(column))
+            return expanded_df
         expanded_df = data
         for column, values in expand.items():
             if column in expanded_df.columns:
@@ -82,6 +97,15 @@ def expand_tabular_rows(
         return expanded_df
 
     if isinstance(data, dict):
+        if factor <= 1:
+            expanded = {k: np.asarray(v, dtype=object) for k, v in data.items()}
+            lengths_seen = {len(v) for v in expanded.values()}
+            n_rows = lengths_seen.pop() if lengths_seen else 0
+            for column, values in expand.items():
+                if len(values) == 0:
+                    continue
+                expanded[column] = np.repeat(values[0], n_rows)
+            return expanded
         lengths_seen = {len(v) for v in data.values()}
         n_rows = lengths_seen.pop()
         expanded = {}

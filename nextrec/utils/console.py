@@ -36,7 +36,7 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-from nextrec.utils.torch_utils import as_float, to_list
+from nextrec.utils.torch_utils import as_float, normalize_string_list
 
 T = TypeVar("T")
 
@@ -281,7 +281,7 @@ def display_metrics_table(
     if not is_main_process:
         return
 
-    target_list = to_list(target_names)
+    target_list = normalize_string_list(target_names)
     task_order, grouped = group_metrics_by_task(metrics, target_names=target_names)
 
     if isinstance(loss, np.ndarray) and target_list:

@@ -60,9 +60,11 @@ ActivationName = Literal[
 
 TrainingModeName = Literal["pointwise", "pairwise", "listwise"]
 
-TaskTypeName = Literal["binary", "regression", "generative"]
+TaskTypeName = Literal["binary", "regression", "generative", "sequential"]
 
 TaskTypeInput = TaskTypeName | str
+
+SequenceModeName = Literal["autoregressive", "masked"]
 
 EmbeddingInitType = Literal[
     "normal",

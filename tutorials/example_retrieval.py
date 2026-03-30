@@ -1,7 +1,7 @@
 """
 召回模型示例 - DSSM 双塔模型训练
 
-本示例演示如何使用 NextRec 框架训练一个召回(匹配)模型,使用 DSSM (Deep Structured Semantic Model)
+本示例演示如何使用 NextRec 框架训练一个召回模型,使用 DSSM (Deep Structured Semantic Model)
 双塔架构进行用户-物品匹配。示例包含完整的数据预处理、特征工程、模型训练和评估流程。
 
 主要功能:
@@ -9,11 +9,11 @@
     - 特征定义(稠密特征、稀疏特征、序列特征)
     - 数据编码与转换
     - DSSM 模型构建与训练
-    - 召回候选生成与评分
+    - 候选生成与评分
 
 使用方法:
     直接运行此脚本:
-        python tutorials/example_match.py
+        python tutorials/example_retrieval.py
 
 测试数据格式:
     - user_id: 用户ID
@@ -34,7 +34,7 @@
 
 输出:
     - 训练好的模型
-    - Top-K 召回结果
+    - Top-K 匹配结果
     - 评估指标
 
 作者: NextRec Team

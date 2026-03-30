@@ -27,7 +27,7 @@ from nextrec.basic.activation import activation_layer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
 from nextrec.basic.model import BaseModel
-from nextrec.utils.model import select_features
+from nextrec.utils.model import select_feature_objects
 from nextrec.utils.types import TaskTypeInput
 
 
@@ -325,23 +325,25 @@ class POSO(BaseModel):
         self.pc_sparse_feature_names = list(pc_sparse_features or [])
         self.pc_sequence_feature_names = list(pc_sequence_features or [])
 
-        self.main_dense_features = select_features(
+        self.main_dense_features = select_feature_objects(
             self.dense_features, self.main_dense_feature_names, "main_dense_features"
         )
-        self.main_sparse_features = select_features(
+        self.main_sparse_features = select_feature_objects(
             self.sparse_features, self.main_sparse_feature_names, "main_sparse_features"
         )
-        self.main_sequence_features = select_features(
+        self.main_sequence_features = select_feature_objects(
             self.sequence_features,
             self.main_sequence_feature_names,
             "main_sequence_features",
         )
 
-        self.pc_dense_features = select_features(self.dense_features, self.pc_dense_feature_names, "pc_dense_features")
-        self.pc_sparse_features = select_features(
+        self.pc_dense_features = select_feature_objects(
+            self.dense_features, self.pc_dense_feature_names, "pc_dense_features"
+        )
+        self.pc_sparse_features = select_feature_objects(
             self.sparse_features, self.pc_sparse_feature_names, "pc_sparse_features"
         )
-        self.pc_sequence_features = select_features(
+        self.pc_sequence_features = select_feature_objects(
             self.sequence_features,
             self.pc_sequence_feature_names,
             "pc_sequence_features",

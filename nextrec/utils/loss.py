@@ -19,7 +19,7 @@ from nextrec.loss.listwise import (
 )
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.loss.pointwise import ClassBalancedFocalLoss, FocalLoss, WeightedBCELoss
-from nextrec.utils.types import LossName
+from nextrec.utils.types import LossName, TrainingModeName
 
 
 def normalize_task_loss(
@@ -40,6 +40,38 @@ def build_cb_focal(kw):
     if "class_counts" not in kw:
         raise ValueError("class_balanced_focal requires class_counts")
     return ClassBalancedFocalLoss(**kw)
+
+
+def normalize_loss_list(
+    loss: LossName | nn.Module | list[LossName | nn.Module] | None,
+    training_modes: list[TrainingModeName],
+    num_tasks: int,
+) -> list[LossName | nn.Module]:
+    """Normalize scalar/list loss config to one entry per task and validate ranking compatibility."""
+    if loss is None:
+        raise ValueError("[Loss Error] loss must be provided explicitly.")
+
+    if isinstance(loss, list):
+        loss_list = list(loss)
+        if len(loss_list) == 1 and num_tasks > 1:
+            loss_list = loss_list * num_tasks
+        elif len(loss_list) != num_tasks:
+            raise ValueError(f"[Loss Error] loss list length ({len(loss_list)}) must match num_tasks ({num_tasks}).")
+    else:
+        loss_list = [loss] * num_tasks
+
+    for idx, mode in enumerate(training_modes[: len(loss_list)]):
+        if (
+            mode in {"pairwise", "listwise"}
+            and isinstance(loss_list[idx], str)
+            and loss_list[idx] in {"bce", "binary_crossentropy"}
+        ):
+            raise ValueError(
+                f"[Loss Error] loss='{loss_list[idx]}' is not valid for training_mode='{mode}'. "
+                "Use a ranking loss compatible with the configured training_mode."
+            )
+
+    return loss_list
 
 
 def get_loss_fn(

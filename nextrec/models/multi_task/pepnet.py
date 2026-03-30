@@ -67,7 +67,7 @@ from nextrec.basic.activation import activation_layer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, GateMLP
 from nextrec.basic.model import BaseModel
-from nextrec.utils.model import select_features
+from nextrec.utils.model import select_feature_objects
 from nextrec.utils.types import TaskTypeInput, TaskTypeName
 
 
@@ -275,9 +275,9 @@ class PEPNet(BaseModel):
         if not self.scene_feature_names:
             raise ValueError("PepNet requires at least one scene feature name.")
 
-        self.domain_features = select_features(self.all_features, self.scene_feature_names, "domain_features")
-        self.user_features = select_features(self.all_features, self.user_feature_names, "user_features")
-        self.item_features = select_features(self.all_features, self.item_feature_names, "item_features")
+        self.domain_features = select_feature_objects(self.all_features, self.scene_feature_names, "domain_features")
+        self.user_features = select_feature_objects(self.all_features, self.user_feature_names, "user_features")
+        self.item_features = select_feature_objects(self.all_features, self.item_feature_names, "item_features")
 
         if not self.all_features:
             raise ValueError("PepNet requires at least one input feature.")

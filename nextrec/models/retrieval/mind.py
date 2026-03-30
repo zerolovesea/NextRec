@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.model import BaseMatchModel
+from nextrec.models.retrieval.base import BaseMatchModel
 
 
 class MultiInterestSA(nn.Module):
@@ -155,7 +155,7 @@ class MIND(BaseMatchModel):
         return "MIND"
 
     @property
-    def support_training_modes(self) -> list[str]:
+    def supported_training_modes(self) -> list[str]:
         """MIND only supports pointwise training mode"""
         return ["pointwise"]
 

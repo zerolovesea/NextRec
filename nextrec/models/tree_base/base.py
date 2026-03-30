@@ -27,12 +27,12 @@ from nextrec.basic.features import (
     SparseFeature,
 )
 from nextrec.basic.loggers import colorize, format_kv, setup_logger
-from nextrec.basic.metrics import check_user_id, configure_metrics, evaluate_metrics
+from nextrec.basic.metrics import configure_metrics, evaluate_metrics, needs_user_ids
 from nextrec.basic.session import create_session, get_save_path
 from nextrec.data.dataloader import RecDataLoader
 from nextrec.data.data_processing import get_column_data
 from nextrec.utils.console import display_metrics_table
-from nextrec.utils.torch_utils import to_list
+from nextrec.utils.torch_utils import normalize_string_list
 from nextrec.utils.torch_utils import to_numpy
 
 
@@ -290,7 +290,7 @@ class TreeBaseModel(FeatureSet):
 
         target_names = self.target_columns or ["label"]
         metrics_list, task_specific_metrics, _ = configure_metrics(self.task, metrics, target_names)
-        need_user_id = check_user_id(metrics_list, task_specific_metrics)
+        need_user_id = needs_user_ids(metrics_list, task_specific_metrics)
         id_column = user_id_column or (self.id_columns[0] if self.id_columns else None)
         include_ids = need_user_id and id_column is not None
 
@@ -430,7 +430,7 @@ class TreeBaseModel(FeatureSet):
         if self.model is None:
             raise ValueError(f"[{self.model_name}-predict Error] Model is not loaded.")
 
-        predict_id_columns = to_list(id_columns) or self.id_columns
+        predict_id_columns = normalize_string_list(id_columns) or self.id_columns
         if include_ids is None:
             include_ids = bool(predict_id_columns)
         include_ids = include_ids and bool(predict_id_columns)
@@ -583,7 +583,6 @@ class TreeBaseModel(FeatureSet):
         if parquet_writer is not None:
             parquet_writer.close()
         if collected_frames:
-            combined_df = pd.concat(collected_frames, ignore_index=True)
             raise ValueError(f"Unsupported save format: {save_format}")
         return target_path
 

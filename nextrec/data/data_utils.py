@@ -11,6 +11,8 @@ from nextrec.data.batch_utils import batch_to_dict, collate_fn, stack_section
 from nextrec.data.data_processing import (
     build_eval_candidates,
     get_column_data,
+    normalize_column_names,
+    has_column,
     get_user_ids,
     split_dict_random,
 )
@@ -27,6 +29,8 @@ __all__ = [
     "stack_section",
     # Data processing
     "get_column_data",
+    "normalize_column_names",
+    "has_column",
     "split_dict_random",
     "build_eval_candidates",
     "get_user_ids",

@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 import numpy as np
+import torch
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -27,6 +28,10 @@ TASK_DEFAULT_METRICS = {
     "binary": ["auc", "gauc", "ks", "logloss", "accuracy", "precision", "recall", "f1"],
     "regression": ["mse", "mae", "rmse", "r2", "mape"],
     "generative": ["hitrate@10"]
+    + [f"recall@{k}" for k in (5, 10, 20)]
+    + [f"ndcg@{k}" for k in (5, 10, 20)]
+    + [f"mrr@{k}" for k in (5, 10, 20)],
+    "sequential": ["hitrate@10"]
     + [f"recall@{k}" for k in (5, 10, 20)]
     + [f"ndcg@{k}" for k in (5, 10, 20)]
     + [f"mrr@{k}" for k in (5, 10, 20)],
@@ -62,12 +67,12 @@ TASK_METRIC_ALLOWLIST = {
 
 def needs_user_group(metric_names: list[MetricsName]) -> bool:
     for metric_name in metric_names:
-        if metric_name == "gauc" or metric_name.startswith(RANKING_METRIC_PREFIXES):
+        if metric_name == "gauc" or is_ranking_metric(metric_name):
             return True
     return False
 
 
-def check_user_id(*metric_sources: Any) -> bool:
+def needs_user_ids(*metric_sources: Any) -> bool:
     """Return True when GAUC or ranking@K metrics appear in the provided sources."""
     metric_names = set()
     stack = list(metric_sources)
@@ -86,6 +91,152 @@ def check_user_id(*metric_sources: Any) -> bool:
         except TypeError:
             continue
     return needs_user_group(list(metric_names))
+
+
+def flatten_metric_names(metrics: list[MetricsName] | dict[str, list[MetricsName]]) -> list[str]:
+    """Flatten metric names while preserving order and removing duplicates."""
+    if isinstance(metrics, dict):
+        flattened: list[str] = []
+        for task_metrics in metrics.values():
+            for metric in task_metrics:
+                if metric not in flattened:
+                    flattened.append(metric)
+        return flattened
+    return list(metrics)
+
+
+def is_ranking_metric(metric: str) -> bool:
+    return metric.startswith(RANKING_METRIC_PREFIXES)
+
+
+def is_sequential_ranking_metric(metric: str) -> bool:
+    return is_ranking_metric(metric)
+
+
+def parse_metric_suffix(metric: str) -> int:
+    try:
+        return int(metric.split("@", 1)[1])
+    except Exception as exc:
+        raise ValueError(f"[Metrics Error] Invalid metric name '{metric}'.") from exc
+
+
+def compute_sequential_ranks(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """
+    Compute 1-based ranks of the true label against full-vocab logits.
+
+    Args:
+        logits: [N, V]
+        labels: [N]
+    Returns:
+        ranks: [N], where 1 means the true item is ranked first.
+    """
+    if logits.dim() != 2:
+        raise ValueError(f"[Metrics Error] Sequential logits must be 2D, got shape {tuple(logits.shape)}.")
+    if labels.dim() != 1:
+        raise ValueError(f"[Metrics Error] Sequential labels must be 1D, got shape {tuple(labels.shape)}.")
+    true_scores = logits.gather(1, labels.unsqueeze(1)).squeeze(1)
+    return (logits > true_scores.unsqueeze(1)).sum(dim=1) + 1
+
+
+def accumulate_sequential_ranking_metrics(
+    metric_sums: dict[str, float],
+    metric_names: list[str],
+    ranks: torch.Tensor,
+    vocab_size: int,
+) -> None:
+    """
+    Accumulate sequential ranking metric numerators for a batch.
+
+    The caller is responsible for dividing by the number of valid samples.
+    """
+    if ranks.numel() == 0:
+        return
+
+    ranks_f = ranks.to(dtype=torch.float32)
+    for metric in metric_names:
+        if metric.startswith(("hitrate@", "hr@", "recall@")):
+            k = parse_metric_suffix(metric)
+            metric_sums[metric] += float((ranks <= k).float().sum().item())
+        elif metric.startswith("precision@"):
+            k = parse_metric_suffix(metric)
+            k_eff = min(max(k, 1), vocab_size)
+            metric_sums[metric] += float(((ranks <= k).float() / float(k_eff)).sum().item())
+        elif metric.startswith("mrr@") or metric.startswith("map@"):
+            k = parse_metric_suffix(metric)
+            contribution = torch.where(
+                ranks <= k,
+                1.0 / ranks_f,
+                torch.zeros_like(ranks_f),
+            )
+            metric_sums[metric] += float(contribution.sum().item())
+        elif metric.startswith("ndcg@"):
+            k = parse_metric_suffix(metric)
+            contribution = torch.where(
+                ranks <= k,
+                1.0 / torch.log2(ranks_f + 1.0),
+                torch.zeros_like(ranks_f),
+            )
+            metric_sums[metric] += float(contribution.sum().item())
+        elif metric.startswith("topk_recall@"):
+            k_percent = parse_metric_suffix(metric)
+            k_count = min(vocab_size, max(int(np.ceil(vocab_size * (k_percent / 100.0))), 0))
+            metric_sums[metric] += float((ranks <= k_count).float().sum().item())
+        elif metric.startswith("topk_precision@"):
+            k_percent = parse_metric_suffix(metric)
+            k_count = min(vocab_size, max(int(np.ceil(vocab_size * (k_percent / 100.0))), 0))
+            if k_count > 0:
+                metric_sums[metric] += float(((ranks <= k_count).float() / float(k_count)).sum().item())
+        elif metric.startswith("lift@"):
+            k_percent = parse_metric_suffix(metric)
+            k_count = min(vocab_size, max(int(np.ceil(vocab_size * (k_percent / 100.0))), 0))
+            if k_count > 0:
+                contribution = torch.where(
+                    ranks <= k_count,
+                    float(vocab_size) / float(k_count),
+                    torch.zeros_like(ranks_f),
+                )
+                metric_sums[metric] += float(contribution.sum().item())
+
+
+def compute_sequential_metric_batch(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    metrics: list[str] | dict[str, list[str]],
+    padding_idx: int,
+    ignore_label: int | float | None = None,
+) -> tuple[dict[str, float], int, int | None]:
+    """
+    Compute batch-level sequential ranking metric numerators and valid sample count.
+
+    Returns:
+        metric_sums: Per-metric numerator contributions for the batch.
+        valid_count: Number of valid next-item positions.
+        vocab_size: Logit vocabulary size for the batch, or None when no valid samples exist.
+    """
+    metric_names = flatten_metric_names(metrics)
+    metric_names = [metric for metric in metric_names if is_sequential_ranking_metric(metric)]
+    metric_sums = {metric: 0.0 for metric in metric_names}
+    if not metric_names:
+        return metric_sums, 0, None
+
+    if logits.dim() == 3:
+        logits = logits.reshape(-1, logits.size(-1))
+    elif logits.dim() != 2:
+        raise ValueError(f"[Metrics Error] Sequential logits must have 2 or 3 dims, got shape {tuple(logits.shape)}.")
+
+    labels = labels.reshape(-1)
+    valid_mask = labels.ne(padding_idx)
+    if ignore_label is not None:
+        valid_mask = valid_mask & labels.ne(int(ignore_label))
+    if not torch.any(valid_mask):
+        return metric_sums, 0, None
+
+    logits = logits[valid_mask]
+    labels = labels[valid_mask].long()
+    ranks = compute_sequential_ranks(logits, labels)
+    vocab_size = int(logits.size(1))
+    accumulate_sequential_ranking_metrics(metric_sums, metric_names, ranks, vocab_size=vocab_size)
+    return metric_sums, int(ranks.numel()), vocab_size
 
 
 def compute_ks(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -514,18 +665,7 @@ def get_best_metric_mode(first_metric: MetricsName, primary_task: TaskTypeName) 
     }:
         return "max"
     # Ranking metrics that should be maximized (with @K suffix)
-    if (
-        first_metric.startswith("recall@")
-        or first_metric.startswith("precision@")
-        or first_metric.startswith("hitrate@")
-        or first_metric.startswith("hr@")
-        or first_metric.startswith("mrr@")
-        or first_metric.startswith("ndcg@")
-        or first_metric.startswith("map@")
-        or first_metric.startswith("topk_recall@")
-        or first_metric.startswith("topk_precision@")
-        or first_metric.startswith("lift@")
-    ):
+    if is_ranking_metric(first_metric):
         return "max"
     # Cosine separation should be maximized
     if first_metric == "cosine":
@@ -556,32 +696,31 @@ def compute_single_metric(
     y_p_binary = (y_pred > threshold).astype(int)
     try:
         if metric.startswith("topk_recall@"):
-            k_percent = int(metric.split("@")[1])
+            k_percent = parse_metric_suffix(metric)
             return compute_topk_recall(y_true, y_pred, k_percent)
         if metric.startswith("topk_precision@"):
-            k_percent = int(metric.split("@")[1])
+            k_percent = parse_metric_suffix(metric)
             return compute_topk_precision(y_true, y_pred, k_percent)
         if metric.startswith("lift@"):
-            k_percent = int(metric.split("@")[1])
+            k_percent = parse_metric_suffix(metric)
             return compute_lift_at_k(y_true, y_pred, k_percent)
         if metric.startswith("recall@"):
-            k = int(metric.split("@")[1])
+            k = parse_metric_suffix(metric)
             return compute_recall_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("precision@"):
-            k = int(metric.split("@")[1])
+            k = parse_metric_suffix(metric)
             return compute_precision_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("hitrate@") or metric.startswith("hr@"):
-            k_str = metric.split("@")[1]
-            k = int(k_str)
+            k = parse_metric_suffix(metric)
             return compute_hitrate_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("mrr@"):
-            k = int(metric.split("@")[1])
+            k = parse_metric_suffix(metric)
             return compute_mrr_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("ndcg@"):
-            k = int(metric.split("@")[1])
+            k = parse_metric_suffix(metric)
             return compute_ndcg_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         if metric.startswith("map@"):
-            k = int(metric.split("@")[1])
+            k = parse_metric_suffix(metric)
             return compute_map_at_k(y_true, y_pred, user_ids, k, user_groups=user_groups)  # type: ignore
         # cosine for matching task
         if metric == "cosine":
@@ -804,14 +943,12 @@ def evaluate_metrics(
                 else:
                     for metric in metrics:
                         if allowed_metrics is not None and metric not in allowed_metrics:
-                            if not metric.startswith(RANKING_METRIC_PREFIXES):
+                            if not is_ranking_metric(metric):
                                 continue
                         result[f"{metric}_{target_name}"] = 0.0
                     continue
             task_metrics_to_compute = [
-                m
-                for m in metrics
-                if allowed_metrics is None or m in allowed_metrics or m.startswith(RANKING_METRIC_PREFIXES)
+                m for m in metrics if allowed_metrics is None or m in allowed_metrics or is_ranking_metric(m)
             ]
             need_group_for_task = needs_user_group(task_metrics_to_compute)
             user_groups_task = (
@@ -821,7 +958,7 @@ def evaluate_metrics(
             )
             for metric in metrics:
                 if allowed_metrics is not None and metric not in allowed_metrics:
-                    if metric.startswith(RANKING_METRIC_PREFIXES):
+                    if is_ranking_metric(metric):
                         pass
                     else:
                         continue

@@ -1,5 +1,5 @@
 """
-Base Model & Base Match Model Class
+Base Model Class
 
 Date: create on 27/10/2025
 Checkpoint: edit on 21/03/2026
@@ -39,13 +39,12 @@ except Exception:  # pragma: no cover
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from nextrec import __version__
-from nextrec.basic.adapters import CandidateListAdapter, TrainingAdapter, TwoTowerAdapter
+from nextrec.basic.adapters import CandidateListAdapter, TrainingAdapter
 from nextrec.basic.asserts import (
     assert_loss_weights,
     assert_onnx_session_mp_compat,
@@ -53,7 +52,6 @@ from nextrec.basic.asserts import (
     assert_streaming_data_is_filepath,
     assert_task,
 )
-from nextrec.basic.heads import GenerativeRetrievalHead, TaskHead
 from nextrec.basic.callback import (
     CallbackList,
     CheckpointSaver,
@@ -66,10 +64,9 @@ from nextrec.basic.features import (
     SequenceFeature,
     SparseFeature,
 )
-from nextrec.basic.heads import RetrievalHead
 from nextrec.basic.loggers import TrainingLogger, colorize, format_kv, setup_logger
 from nextrec.basic.metrics import (
-    check_user_id,
+    needs_user_ids,
     compute_confusion_matrix,
     configure_metrics,
     evaluate_metrics,
@@ -90,7 +87,7 @@ from nextrec.data.dataloader import (
     build_tensors_from_data,
 )
 from nextrec.loss.grad_norm import GradNormLossWeighting
-from nextrec.utils.loss import get_loss_fn
+from nextrec.utils.loss import get_loss_fn, normalize_loss_list
 from nextrec.loss.grad_norm import get_grad_norm_shared_params
 from nextrec.utils.console import display_metrics_table, progress, render_confusion_block
 from nextrec.utils.timing import StageTimer
@@ -105,10 +102,7 @@ from nextrec.utils.torch_utils import (
 )
 from nextrec.utils.config import safe_value
 from nextrec.utils.data import get_expand_columns
-from nextrec.utils.model import (
-    compute_ranking_loss,
-    get_loss_list,
-)
+from nextrec.utils.model import compute_ranking_loss
 from nextrec.utils.onnx_utils import (
     OnnxModelWrapper,
     build_onnx_input_feed,
@@ -206,7 +200,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.local_rank = env_local_rank if local_rank is None else local_rank
         self.is_main_process = self.rank == 0
         self.ddp_find_unused_parameters = ddp_find_unused_parameters
-        self.ddp_model: DDP | None = None
+        self.ddp_model = None
         self.device = get_device(self.distributed, self.local_rank, device)
 
         # session and features setup
@@ -248,18 +242,18 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.callbacks = CallbackList()
 
         # set task-aware training adapter and output layer according to the specified task and training mode
-        self.set_task_output()
+        self.set_adapter()
+        self.prediction_layer = self.training_adapter.build_prediction_layer(self)
 
         self.train_data_summary = None
         self.valid_data_summary = None
         self.note = None
 
-    def set_task_output(self):
+    def set_adapter(self):
         """
-        Set task-aware training adapter and output layer.
+        Set the task-aware training adapter for general recommendation tasks.
 
         If training mode is:
-            - pointwise: use TaskHead for binary/regression tasks, and GenerativeRetrievalHead for generative retrieval task.
             - pairwise/listwise: use CandidateListAdapter to organize candidates for ranking loss computation.
         """
         if self.training_modes[0] in {"pairwise", "listwise"} and self.sampling_mode == "explicit":
@@ -267,31 +261,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         else:
             self.training_adapter = TrainingAdapter()
 
-        self.prediction_layer = None
-        if self.training_modes[0] != "pointwise":
-            return
-        task_type = self.task[0] if isinstance(self.task, list) else self.task
-        if task_type == "generative":
-            self.prediction_layer = GenerativeRetrievalHead(vocab_size=int(self.vocab_size), return_logits=True)
-            return
-        self.prediction_layer = TaskHead(task_type=self.task)
-
-    def format_model_output(self, raw_output: Any):
-        """
-        Apply the configured prediction head when pointwise outputs need
-        task-aware post-processing.
-
-        If training mode:
-            - pointwise: apply the prediction layer to raw output for task-aware post-processing, e.g., applying sigmoid for binary classification.
-            - pairwise/listwise: return raw output without extra processing, as the loss function will handle it.
-                                 e.g., for pairwise BPR loss, the raw output is expected to be the difference between positive and negative scores,
-                                 and no extra activation is needed.
-        """
-        if self.training_modes[0] != "pointwise":
-            return raw_output
-        if isinstance(raw_output, torch.Tensor) and self.prediction_layer is not None:
-            return self.prediction_layer(raw_output)
-        return raw_output
+    def get_default_metrics_task(self) -> TaskTypeName | list[TaskTypeName]:
+        return self.task
 
     def call_model(self, X_input: dict[str, torch.Tensor]):
         module = self.ddp_model if self.ddp_model is not None else self
@@ -478,21 +449,17 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         ):
             target_tensors = []
             for target_name in self.target_columns:
-                if label_source is None or target_name not in label_source:
-                    if require_labels:
-                        raise KeyError(
-                            f"[BaseModel-input Error] Target column '{target_name}' not found in input data."
-                        )
+                # different training adapters may have different ways to build target tensors,
+                # e.g., CandidateListAdapter will organize labels into candidate lists for pairwise/listwise training.
+                # ESMMAdapter will compose CTCVR from CTR and CVR predictions.
+                target_tensor = self.training_adapter.build_target_tensor(
+                    model=self,
+                    input_data=input_data,
+                    target_name=target_name,
+                    require_labels=require_labels,
+                )
+                if target_tensor is None:
                     continue
-                target_data = get_column_data(label_source, target_name)
-                if target_data is None:
-                    if require_labels:
-                        raise ValueError(f"[BaseModel-input Error] Target column '{target_name}' contains no data.")
-                    continue
-                target_tensor = to_tensor(target_data, dtype=torch.float32, device=self.device)
-                target_tensor = target_tensor.reshape(
-                    target_tensor.size(0), -1
-                )  # always reshape to (batch_size, num_targets)
                 target_tensors.append(target_tensor)
 
             if target_tensors:
@@ -664,7 +631,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.ignore_label = ignore_label
 
         # get loss list
-        loss_list = get_loss_list(loss, self.training_modes, self.nums_task)
+        loss_list = normalize_loss_list(loss, self.training_modes, self.nums_task)
 
         self.loss_params = loss_params or {}
         self.optimizer_params = optimizer_params or {}
@@ -870,6 +837,8 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
             features=self.all_features,
             target_columns=self.target_columns,
             id_columns=id_columns if id_columns is not None else self.id_columns,
+            target_source=(target_shift_config := self.training_adapter.get_target_shift_config(self))[0],
+            target_shift_steps=target_shift_config[1],
         )
         if tensors is None:
             raise ValueError("[BaseModel-prepare_data_loader Error] No data available to create DataLoader.")
@@ -992,8 +961,12 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         if not self.logger_initialized and self.is_main_process:  # only main process initializes logger
             setup_logger(session_id=self.session_id)
             self.logger_initialized = True
+        self.metric_user_id_column = user_id_column
+        metrics_task = self.get_default_metrics_task() if metrics is None else self.task
         self.metrics, self.task_specific_metrics, self.best_metrics_mode = configure_metrics(
-            task=self.task, metrics=metrics, target_names=self.target_columns
+            task=metrics_task,
+            metrics=metrics,
+            target_names=self.target_columns,
         )  # ['auc', 'logloss'], {'target1': ['auc', 'logloss'], 'target2': ['mse']}, 'max'
 
         self.early_stop_patience = early_stop_patience
@@ -1137,9 +1110,10 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         self.callbacks.set_params({"epochs": epochs, "batch_size": batch_size, "metrics": self.metrics})
         self.best_metric = float("-inf") if self.best_metrics_mode == "max" else float("inf")
 
-        self.needs_user_ids = check_user_id(
-            self.metrics, self.task_specific_metrics
-        )  # check user_id needed for GAUC metrics
+        primary_task = self.task[0] if isinstance(self.task, list) else self.task
+        self.needs_user_ids = (
+            needs_user_ids(self.metrics, self.task_specific_metrics) if primary_task != "sequential" else False
+        )  # user_id is only needed for GAUC / ranking-style classification metrics
         self.epoch_index = 0
         self.stop_training = False
         self.best_checkpoint_path = self.best_path
@@ -1304,13 +1278,26 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 val_metrics = None
                 if should_eval_valid:
                     self.callbacks.on_validation_begin()
-                    val_metrics = self.evaluate(
-                        valid_loader,
-                        user_ids=valid_user_ids if self.needs_user_ids else None,
-                        user_id_column=user_id_column or "user_id",
-                        group_by=self.valid_group_by,
-                        num_workers=num_workers,
-                    )
+                    if self.task == "sequential":
+                        if self.is_main_process and self.valid_group_by:
+                            logging.info(
+                                colorize(
+                                    "[Validation Info] valid_group_by is ignored for sequential evaluation.",
+                                    color="yellow",
+                                )
+                            )
+                        val_metrics = self.evaluate(
+                            valid_loader,
+                            num_workers=num_workers,
+                        )
+                    else:
+                        val_metrics = self.evaluate(
+                            valid_loader,
+                            user_ids=valid_user_ids if self.needs_user_ids else None,
+                            user_id_column=user_id_column or "user_id",
+                            group_by=self.valid_group_by,
+                            num_workers=num_workers,
+                        )
                     val_metrics_for_state = (
                         val_metrics.get("overall", {})
                         if isinstance(val_metrics, dict) and "overall" in val_metrics and "grouped" in val_metrics
@@ -1404,6 +1391,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         y_true_list = []
         y_pred_list = []
         collect_metrics = getattr(self, "collect_train_metrics", True)
+        primary_task = self.task[0] if isinstance(self.task, list) else self.task
 
         user_ids_list = [] if self.needs_user_ids else None
         tqdm_disable = not self.is_main_process
@@ -1448,11 +1436,24 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 self.grad_norm.step()
             accumulated_loss += loss.item()
 
-            if collect_metrics and self.training_adapter.supports_metrics(y_pred, y_true):
+            if (
+                collect_metrics
+                and primary_task != "sequential"
+                and isinstance(y_pred, torch.Tensor)
+                and y_true is not None
+                and y_pred.dim() <= 2
+                and y_true.dim() <= 2
+            ):
                 y_true_list.append(y_true.detach().cpu().numpy())
                 y_pred_list.append(y_pred.detach().cpu().numpy())
                 if self.needs_user_ids and user_ids_list is not None:
-                    batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
+                    metric_user_id_column = getattr(self, "metric_user_id_column", None)
+                    metric_user_id_columns = (
+                        [metric_user_id_column]
+                        if isinstance(metric_user_id_column, str) and metric_user_id_column
+                        else self.id_columns
+                    )
+                    batch_user_id = get_user_ids(data=batch_dict, id_columns=metric_user_id_columns)
                     if batch_user_id is not None:
                         user_ids_list.append(batch_user_id)
             num_batches += 1
@@ -1615,13 +1616,14 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 "[BaseModel-evaluate Error] No metrics specified for evaluation. Please provide metrics parameter or call fit() first."
             )
         task_specific_metrics = getattr(self, "task_specific_metrics", None)
-        needs_user_ids = check_user_id(eval_metrics, task_specific_metrics)
+        require_user_ids = needs_user_ids(eval_metrics, task_specific_metrics)
+        primary_task = self.task[0] if isinstance(self.task, list) else self.task
         group_by_columns = [group_by] if isinstance(group_by, str) else [str(name) for name in (group_by or [])]
 
         if isinstance(data, DataLoader):
             data_loader = data
         else:
-            if user_ids is None and needs_user_ids:
+            if user_ids is None and require_user_ids:
                 user_ids = get_user_ids(data=data, id_columns=user_id_column)
             if group_by_columns:
                 eval_id_columns = list(
@@ -1629,7 +1631,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                         [
                             *(self.id_columns or []),
                             *(group_by_columns or []),
-                            *([user_id_column] if needs_user_ids and user_ids is None and user_id_column else []),
+                            *([user_id_column] if require_user_ids and user_ids is None and user_id_column else []),
                         ]
                     )
                 )
@@ -1665,11 +1667,30 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
                 batch_dict = batch_to_dict(batch_data)
                 X_input, y_true = self.get_input(batch_dict, require_labels=True)
                 y_pred = self.training_adapter.forward(self, X_input)
-                if self.training_adapter.supports_metrics(y_pred, y_true):
+                if (
+                    primary_task != "sequential"
+                    and isinstance(y_pred, torch.Tensor)
+                    and y_true is not None
+                    and y_pred.dim() <= 2
+                    and y_true.dim() <= 2
+                ):
                     y_true_list.append(y_true.cpu().numpy())
                     y_pred_list.append(y_pred.cpu().numpy())
-                if needs_user_ids and user_ids is None:
-                    batch_user_id = get_user_ids(data=batch_dict, id_columns=self.id_columns)
+                if require_user_ids and user_ids is None:
+                    metric_user_id_columns = (
+                        [user_id_column]
+                        if user_id_column
+                        else (
+                            [self.metric_user_id_column]
+                            if isinstance(getattr(self, "metric_user_id_column", None), str)
+                            and self.metric_user_id_column
+                            else self.id_columns
+                        )
+                    )
+                    batch_user_id = get_user_ids(
+                        data=batch_dict,
+                        id_columns=metric_user_id_columns,
+                    )
                     if batch_user_id is not None:
                         collected_user_ids.append(batch_user_id)
                 if group_by_columns:
@@ -1708,7 +1729,7 @@ class BaseModel(SummarySet, FeatureSet, nn.Module):
         # gather across ranks even when local arrays are empty to keep collectives aligned
         y_true_all = gather_numpy(self, y_true_all_local)
         y_pred_all = gather_numpy(self, y_pred_all_local)
-        final_user_ids = gather_numpy(self, final_user_ids_local) if needs_user_ids else None
+        final_user_ids = gather_numpy(self, final_user_ids_local) if require_user_ids else None
         group_arrays = (
             {
                 name: gather_numpy(self, np.concatenate(values, axis=0) if values else None)
@@ -3395,340 +3416,3 @@ def predict_onnx_streaming_worker(
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(error_text, encoding="utf-8")
         raise
-
-
-class BaseMatchModel(BaseModel):
-    """
-    Base class for match (retrieval/recall) models
-
-    - Pointwise: predicts a user-item match score/probability using labels (default target: 'label')
-    - Pairwise/Listwise with explicit candidate lists: uses labels to separate positives and negatives
-    - Pairwise/Listwise with in-batch negatives: labels are optional; diagonal pairs are treated as positives
-
-    Sampling mode support:
-    - 'explicit': supported by BaseModel and BaseMatchModel
-    - 'inbatch': supported only by BaseMatchModel
-    """
-
-    @property
-    def model_name(self) -> str:  # type: ignore[override]
-        raise NotImplementedError
-
-    supported_sampling_modes = ["explicit", "inbatch"]
-
-    @property
-    def default_task(self) -> TaskTypeName:
-        return "binary"
-
-    @property
-    def support_training_modes(self) -> list[str]:
-        """
-        Returns list of supported training modes for this model.
-        Override in subclasses to restrict training modes.
-
-        Returns:
-            List of supported modes: ['pointwise', 'pairwise', 'listwise']
-        """
-        return ["pointwise", "pairwise", "listwise"]
-
-    def set_task_output(self):
-        super().set_task_output()
-        if self.training_modes[0] in {"pairwise", "listwise"} and self.sampling_mode == "inbatch":
-            self.training_adapter = TwoTowerAdapter()
-
-    def __init__(
-        self,
-        user_dense_features: list[DenseFeature] | None = None,
-        user_sparse_features: list[SparseFeature] | None = None,
-        user_sequence_features: list[SequenceFeature] | None = None,
-        item_dense_features: list[DenseFeature] | None = None,
-        item_sparse_features: list[SparseFeature] | None = None,
-        item_sequence_features: list[SequenceFeature] | None = None,
-        training_mode: TrainingModeName = "pointwise",
-        num_negative_samples: int = 4,
-        temperature: float = 1.0,
-        similarity_metric: Literal["dot", "cosine", "euclidean"] = "dot",
-        device: str = "cpu",
-        embedding_l1_reg: float = 0.0,
-        dense_l1_reg: float = 0.0,
-        embedding_l2_reg: float = 0.0,
-        dense_l2_reg: float = 0.0,
-        target: list[str] | str | None = "label",
-        id_columns: list[str] | str | None = None,
-        task: TaskTypeInput | list[TaskTypeInput] | None = None,
-        session_id: str | None = None,
-        distributed: bool = False,
-        rank: int | None = None,
-        world_size: int | None = None,
-        local_rank: int | None = None,
-        ddp_find_unused_parameters: bool = False,
-        sampling_mode: Literal["explicit", "inbatch"] = "explicit",
-        **kwargs,
-    ):
-        """
-        Initialize a retrieval model.
-
-        Args:
-            sampling_mode: Candidate organization mode for pairwise/listwise training.
-                Use 'explicit' when positives/negatives are provided explicitly.
-                Use 'inbatch' to treat other samples in the same batch as negatives.
-                Unlike BaseModel, BaseMatchModel supports both modes.
-        """
-        user_dense_features = list(user_dense_features or [])
-        user_sparse_features = list(user_sparse_features or [])
-        user_sequence_features = list(user_sequence_features or [])
-        item_dense_features = list(item_dense_features or [])
-        item_sparse_features = list(item_sparse_features or [])
-        item_sequence_features = list(item_sequence_features or [])
-
-        all_dense_features = user_dense_features + item_dense_features
-        all_sparse_features = user_sparse_features + item_sparse_features
-        all_sequence_features = user_sequence_features + item_sequence_features
-
-        super(BaseMatchModel, self).__init__(
-            dense_features=all_dense_features,
-            sparse_features=all_sparse_features,
-            sequence_features=all_sequence_features,
-            target=target,
-            id_columns=id_columns,
-            task=task,
-            training_mode=training_mode,
-            sampling_mode=sampling_mode,
-            embedding_l1_reg=embedding_l1_reg,
-            dense_l1_reg=dense_l1_reg,
-            embedding_l2_reg=embedding_l2_reg,
-            dense_l2_reg=dense_l2_reg,
-            device=device,
-            session_id=session_id,
-            distributed=distributed,
-            rank=rank,
-            world_size=world_size,
-            local_rank=local_rank,
-            ddp_find_unused_parameters=ddp_find_unused_parameters,
-        )
-
-        self.user_dense_features = user_dense_features
-        self.user_sparse_features = user_sparse_features
-        self.user_sequence_features = user_sequence_features
-        self.item_dense_features = item_dense_features
-        self.item_sparse_features = item_sparse_features
-        self.item_sequence_features = item_sequence_features
-
-        self.num_negative_samples = num_negative_samples
-        self.temperature = temperature
-        self.similarity_metric = similarity_metric
-        self.primary_mode = self.training_modes[0] if self.training_modes else "pointwise"
-        if self.primary_mode not in self.support_training_modes:
-            raise ValueError(
-                f"{self.model_name.upper()} does not support training_mode='{self.primary_mode}'. Supported modes: {self.support_training_modes}"
-            )
-        self.user_features_all = self.user_dense_features + self.user_sparse_features + self.user_sequence_features
-        self.item_features_all = self.item_dense_features + self.item_sparse_features + self.item_sequence_features
-        self.user_feature_names = {feature.name for feature in self.user_features_all}
-        self.item_feature_names = {feature.name for feature in self.item_features_all}
-        self.head = RetrievalHead(
-            similarity_metric=self.similarity_metric,
-            temperature=self.temperature,
-            training_mode=self.primary_mode,
-            sampling_mode=self.sampling_mode,
-            apply_sigmoid=True,
-        )
-
-    def compile(
-        self,
-        optimizer: OptimizerName | torch.optim.Optimizer = "adam",
-        optimizer_params: dict | None = None,
-        scheduler: (
-            SchedulerName
-            | torch.optim.lr_scheduler._LRScheduler
-            | torch.optim.lr_scheduler.LRScheduler
-            | type[torch.optim.lr_scheduler._LRScheduler]
-            | type[torch.optim.lr_scheduler.LRScheduler]
-            | None
-        ) = None,
-        scheduler_params: dict | None = None,
-        warmup: bool | dict | None = None,
-        loss: LossName | nn.Module | list[LossName | nn.Module] | None = None,
-        loss_params: dict | list[dict] | None = None,
-        loss_weights: int | float | list[int | float] | dict | None = None,
-        ignore_label: int | float | None = -1,
-    ):
-        return super().compile(
-            optimizer=optimizer,
-            optimizer_params=optimizer_params,
-            scheduler=scheduler,
-            scheduler_params=scheduler_params,
-            warmup=warmup,
-            loss=loss,
-            loss_params=loss_params,
-            loss_weights=loss_weights,
-            ignore_label=ignore_label,
-        )
-
-    def inbatch_logits(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
-        """Compute in-batch logits matrix between user and item embeddings."""
-        if self.similarity_metric == "dot":
-            logits = torch.matmul(user_emb, item_emb.t())
-        elif self.similarity_metric == "cosine":
-            user_norm = F.normalize(user_emb, p=2, dim=-1)
-            item_norm = F.normalize(item_emb, p=2, dim=-1)
-            logits = torch.matmul(user_norm, item_norm.t())
-        elif self.similarity_metric == "euclidean":
-            user_sq = torch.sum(user_emb**2, dim=1, keepdim=True)  # [B, 1]
-            item_sq = torch.sum(item_emb**2, dim=1, keepdim=True).t()  # [1, B]
-            logits = -(user_sq + item_sq - 2.0 * torch.matmul(user_emb, item_emb.t()))
-        else:
-            raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
-        return logits / self.temperature
-
-    def compute_similarity(self, user_emb: torch.Tensor, item_emb: torch.Tensor) -> torch.Tensor:
-        """Compute similarity score between user and item embeddings."""
-        if user_emb.dim() == 2 and item_emb.dim() == 3:
-            user_emb = user_emb.unsqueeze(1)
-
-        if self.similarity_metric == "dot":
-            similarity = torch.sum(user_emb * item_emb, dim=-1)
-        elif self.similarity_metric == "cosine":
-            similarity = F.cosine_similarity(user_emb, item_emb, dim=-1)
-        elif self.similarity_metric == "euclidean":
-            similarity = -torch.sum((user_emb - item_emb) ** 2, dim=-1)
-        else:
-            raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
-        similarity = similarity / self.temperature
-        return similarity
-
-    def user_tower(self, user_input: dict) -> torch.Tensor:
-        """User tower to encode user features into embeddings."""
-        raise NotImplementedError
-
-    def item_tower(self, item_input: dict) -> torch.Tensor:
-        """Item tower to encode item features into embeddings."""
-        raise NotImplementedError
-
-    def forward(self, X_input: dict) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """Return raw user/item embeddings; formatting is handled by adapter/base class."""
-        user_input = {name: tensor for name, tensor in X_input.items() if name in self.user_feature_names}
-        item_input = {name: tensor for name, tensor in X_input.items() if name in self.item_feature_names}
-
-        user_emb = self.user_tower(user_input)  # [B, D]
-        item_emb = self.item_tower(item_input)  # [B, D]
-
-        return user_emb, item_emb
-
-    def format_model_output(self, raw_output: Any):
-        if not isinstance(raw_output, (tuple, list)) or len(raw_output) != 2:
-            return super().format_model_output(raw_output)
-        user_emb, item_emb = raw_output
-        return self.head(user_emb, item_emb, similarity_fn=self.compute_similarity)
-
-    def prepare_feature_data(
-        self,
-        data,
-        features: list,
-        batch_size: int,
-        num_workers: int = 0,
-        stream_chunk_size: int = 10000,
-    ) -> DataLoader:
-        """Prepare data loader for specific features."""
-        if isinstance(data, DataLoader):
-            return data
-        if isinstance(data, (str, os.PathLike)):
-            dense_features = [f for f in features if isinstance(f, DenseFeature)]
-            sparse_features = [f for f in features if isinstance(f, SparseFeature)]
-            sequence_features = [f for f in features if isinstance(f, SequenceFeature)]
-            rec_loader = RecDataLoader(
-                dense_features=dense_features,
-                sparse_features=sparse_features,
-                sequence_features=sequence_features,
-                target=[],
-                id_columns=[],
-            )
-            return rec_loader.create_dataloader(
-                data=data,
-                batch_size=batch_size,
-                shuffle=False,
-                streaming=True,
-                chunk_size=stream_chunk_size,
-                num_workers=num_workers,
-            )
-        tensors = build_tensors_from_data(
-            data=data,
-            raw_data=data,
-            features=features,
-            target_columns=[],
-            id_columns=[],
-        )
-        if tensors is None:
-            raise ValueError("[BaseMatchModel-prepare_feature_data Error] No data available to create DataLoader.")
-        dataset = TensorDictDataset(tensors)
-        return DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            collate_fn=collate_fn,
-            num_workers=num_workers,
-        )
-
-    def build_feature_tensors(self, feature_source: dict, features: list) -> dict:
-        """Convert feature values to tensors on the model device."""
-        tensors = {}
-        for feature in features:
-            if feature.name not in feature_source:
-                raise KeyError(f"[BaseMatchModel-feature Error] Feature '{feature.name}' not found in input data.")
-            feature_data = get_column_data(feature_source, feature.name)
-            tensors[feature.name] = to_tensor(
-                feature_data,
-                dtype=(torch.float32 if isinstance(feature, DenseFeature) else torch.long),
-                device=self.device,
-            )
-        return tensors
-
-    def encode_user(
-        self,
-        data: dict | pd.DataFrame | DataLoader | str | os.PathLike | list[str | os.PathLike],
-        batch_size: int = 512,
-        num_workers: int = 0,
-        stream_chunk_size: int = 10000,
-    ) -> np.ndarray:
-        self.eval()
-        data_loader = self.prepare_feature_data(
-            data,
-            self.user_features_all,
-            batch_size,
-            num_workers=num_workers,
-            stream_chunk_size=stream_chunk_size,
-        )
-
-        embeddings_list = []
-        with torch.no_grad():
-            for batch_data in progress(data_loader, description="Encoding users"):
-                batch_dict = batch_to_dict(batch_data, include_ids=False)
-                user_input = self.build_feature_tensors(batch_dict["features"], self.user_features_all)
-                user_emb = self.user_tower(user_input)
-                embeddings_list.append(user_emb.cpu().numpy())
-        return np.concatenate(embeddings_list, axis=0)
-
-    def encode_item(
-        self,
-        data: dict | pd.DataFrame | DataLoader | str | os.PathLike | list[str | os.PathLike],
-        batch_size: int = 512,
-        num_workers: int = 0,
-        stream_chunk_size: int = 10000,
-    ) -> np.ndarray:
-        self.eval()
-        data_loader = self.prepare_feature_data(
-            data,
-            self.item_features_all,
-            batch_size,
-            num_workers=num_workers,
-            stream_chunk_size=stream_chunk_size,
-        )
-
-        embeddings_list = []
-        with torch.no_grad():
-            for batch_data in progress(data_loader, description="Encoding items"):
-                batch_dict = batch_to_dict(batch_data, include_ids=False)
-                item_input = self.build_feature_tensors(batch_dict["features"], self.item_features_all)
-                item_emb = self.item_tower(item_input)
-                embeddings_list.append(item_emb.cpu().numpy())
-        return np.concatenate(embeddings_list, axis=0)

@@ -12,7 +12,7 @@ import torch
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.model import BaseMatchModel
+from nextrec.models.retrieval.base import BaseMatchModel
 
 
 class DSSM(BaseMatchModel):
@@ -28,7 +28,7 @@ class DSSM(BaseMatchModel):
         return "DSSM"
 
     @property
-    def support_training_modes(self) -> list[str]:
+    def supported_training_modes(self) -> list[str]:
         return ["pointwise", "pairwise", "listwise"]
 
     def __init__(

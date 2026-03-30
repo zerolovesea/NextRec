@@ -35,6 +35,26 @@ def get_column_data(data: dict | pd.DataFrame | pl.DataFrame, name: str):
     raise KeyError(f"Only dict or DataFrame supported, got {type(data)}")
 
 
+def normalize_column_names(columns: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    """Normalize optional column name inputs to a list of strings."""
+    if columns is None:
+        return []
+    if isinstance(columns, str):
+        return [columns]
+    return [str(column) for column in columns]
+
+
+def has_column(data: dict | pd.DataFrame | pl.DataFrame, name: str) -> bool:
+    """Return True when the input contains the specified column/key."""
+    if isinstance(data, dict):
+        return name in data
+    if isinstance(data, pd.DataFrame):
+        return name in data.columns
+    if isinstance(data, pl.DataFrame):
+        return name in data.columns
+    return False
+
+
 def get_col_numpy(data: dict | pd.DataFrame | pl.DataFrame, name: str) -> np.ndarray:
     """
     Get a column as numpy array, raising error if not found.
@@ -165,7 +185,7 @@ def get_user_ids(data: Any, id_columns: list[str] | str | None = None) -> np.nda
     Returns:
         np.ndarray | None: User IDs as numpy array, or None if not found
     """
-    id_columns = id_columns if isinstance(id_columns, list) else [id_columns] if isinstance(id_columns, str) else []
+    id_columns = normalize_column_names(id_columns)
     if not id_columns:
         return None
 

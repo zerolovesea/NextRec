@@ -18,7 +18,7 @@ from nextrec.basic.activation import activation_layer
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, MLP
 from nextrec.basic.model import BaseModel
-from nextrec.utils.model import select_features
+from nextrec.utils.model import select_feature_objects
 from nextrec.utils.types import ActivationName, TaskTypeInput, TaskTypeName
 
 
@@ -238,7 +238,7 @@ class APG(BaseModel):
             raise ValueError("APG requires scene_features to generate parameters.")
         if isinstance(scene_features, str):
             scene_features = [scene_features]
-        self.scene_features = select_features(self.all_features, scene_features, "scene_features")
+        self.scene_features = select_feature_objects(self.all_features, scene_features, "scene_features")
         self.detach_scene = detach_scene
 
         if len(mlp_params["hidden_dims"]) == 0:

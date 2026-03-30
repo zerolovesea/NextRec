@@ -10,7 +10,7 @@ import torch
 from typing import Literal
 
 from nextrec.utils.embedding import get_auto_embedding_dim
-from nextrec.utils.torch_utils import to_list
+from nextrec.utils.torch_utils import normalize_string_list
 from nextrec.utils.types import EmbeddingInitType, SequenceCombinerType
 
 
@@ -226,13 +226,13 @@ class FeatureSet:
 
         self.all_features = self.dense_features + self.sparse_features + self.sequence_features
         self.feature_names = [feat.name for feat in self.all_features]
-        self.target_columns = to_list(target)
-        self.id_columns = to_list(id_columns)
+        self.target_columns = normalize_string_list(target)
+        self.id_columns = normalize_string_list(id_columns)
 
     def set_target_id(
         self,
         target: str | list[str] | None = None,
         id_columns: str | list[str] | None = None,
     ) -> None:
-        self.target_columns = to_list(target)
-        self.id_columns = to_list(id_columns)
+        self.target_columns = normalize_string_list(target)
+        self.id_columns = normalize_string_list(id_columns)

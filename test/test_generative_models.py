@@ -13,7 +13,9 @@ from test.helpers import assert_no_nan_or_inf
 import pytest
 import torch
 
+from nextrec.basic.features import SequenceFeature
 from nextrec.models.sequential.hstu import (
+    HSTU,
     HSTULayer,
     HSTUPointwiseAttention,
     RelativePositionBias,
@@ -281,6 +283,62 @@ class TestHSTULayer:
         # Output should maintain input shape due to residual connection
         assert output.shape == x.shape
         logger.info("Residual connection test completed")
+
+
+class TestHSTUModel:
+    def test_hstu_forward_and_loss(self):
+        sequence_features = [
+            SequenceFeature(
+                name="item_history",
+                vocab_size=16,
+                max_len=5,
+                embedding_dim=8,
+                padding_idx=0,
+            )
+        ]
+        model = HSTU(
+            sequence_features=sequence_features,
+            item_history_name="item_history",
+            hidden_dim=8,
+            num_heads=2,
+            num_layers=1,
+            ff_hidden_dim=16,
+            max_seq_len=5,
+            dropout_rate=0.0,
+            use_rab_pos=True,
+            use_temporal_bias=False,
+            tie_embeddings=True,
+            target=["next_item"],
+            task="sequential",
+            device="cpu",
+            session_id="hstu_test",
+        )
+        model.compile(loss="ce")
+
+        x = {
+            "item_history": torch.tensor(
+                [
+                    [1, 2, 3, 4, 0],
+                    [2, 3, 4, 5, 0],
+                ],
+                dtype=torch.long,
+            )
+        }
+        y_true = torch.tensor(
+            [
+                [2, 3, 4, 5, 0],
+                [3, 4, 5, 6, 0],
+            ],
+            dtype=torch.long,
+        )
+
+        y_pred = model.forward(x)
+        assert y_pred.shape == (2, 5, 16)
+        assert_no_nan_or_inf(y_pred, "hstu_logits")
+
+        loss = model.compute_loss(y_pred, y_true)
+        assert loss.dim() == 0
+        assert torch.isfinite(loss)
 
 
 if __name__ == "__main__":

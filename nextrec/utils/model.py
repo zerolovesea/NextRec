@@ -7,7 +7,6 @@ Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import torch
-import torch.nn as nn
 
 from nextrec.loss.listwise import (
     ApproxNDCGLoss,
@@ -17,11 +16,6 @@ from nextrec.loss.listwise import (
 )
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 
-from nextrec.utils.types import (
-    LossName,
-    TrainingModeName,
-)
-
 
 def get_mlp_output_dim(params: dict, fallback: int) -> int:
     hidden_dims = params.get("hidden_dims")
@@ -30,7 +24,7 @@ def get_mlp_output_dim(params: dict, fallback: int) -> int:
     return fallback
 
 
-def select_features(
+def select_feature_objects(
     available_features: list,
     names: list[str],
     param_name: str,
@@ -66,37 +60,6 @@ def compute_pair_scores(model, data, batch_size: int = 512):
         if mode == "pointwise":
             scores = torch.sigmoid(scores)
     return scores.detach().cpu().numpy()
-
-
-def get_loss_list(
-    loss: LossName | nn.Module | list[LossName | nn.Module] | None,
-    training_modes: list[TrainingModeName],
-    nums_task: int,
-):
-    if loss is None:
-        raise ValueError("[Loss Error] loss must be provided explicitly.")
-
-    if isinstance(loss, list):
-        loss_list = list(loss)
-        if len(loss_list) == 1 and nums_task > 1:
-            loss_list = loss_list * nums_task
-        elif len(loss_list) != nums_task:
-            raise ValueError(f"[Loss Error] loss list length ({len(loss_list)}) must match nums_task ({nums_task}).")
-    else:
-        loss_list = [loss] * nums_task
-
-    for idx, mode in enumerate(training_modes[: len(loss_list)]):
-        if (
-            mode in {"pairwise", "listwise"}
-            and isinstance(loss_list[idx], str)
-            and loss_list[idx] in {"bce", "binary_crossentropy"}
-        ):
-            raise ValueError(
-                f"[Loss Error] loss='{loss_list[idx]}' is not valid for training_mode='{mode}'. "
-                "Use a ranking loss compatible with the configured training_mode."
-            )
-
-    return loss_list
 
 
 def prepare_ranking_targets(y_pred: torch.Tensor, y_true: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

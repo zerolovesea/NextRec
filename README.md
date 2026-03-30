@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.4-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.5-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -34,7 +34,7 @@
 NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程团队提供快速的建模、训练与评估流。框架内置丰富的模型库、数据处理工具和工程化训练组件。此外提供了易上手的接口，命令行工具及教程，推荐算法学习者能以最快速度了解模型架构，复现学术论文并进行训练和部署。
 
 ## Why NextRec
-- **多场景推荐能力**：覆盖排序（CTR/CVR）、召回、多任务学习、生成式召回等推荐/营销模型，持续跟进业界进展。
+- **多场景推荐能力**：覆盖排序（CTR/CVR）、匹配、多任务学习、生成式召回等推荐/营销模型，持续跟进业界进展。
 - **统一的特征工程与数据流水线**：提供了统一的特征定义、可持久化的数据处理、批处理优化，符合工业大数据Spark/Hive场景下，基于离线特征的模型训练推理流程。
 - **友好的工程体验**：支持多种格式数据(`csv/parquet/pathlike`)的流式处理/分布式训练/推理与可视化指标监控，方便业务算法工程师和推荐算法学习者快速复现实验。
 - **灵活的命令行工具**：支持通过命令行和配置文件，一键启动训练和推理进程，方便快速实验迭代和敏捷部署。
@@ -49,7 +49,7 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 - **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/representation/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html)和[教学代码](/nextrec_cli_preset)
 - **06/12/2025** 在v0.4.1中支持了单机多卡的分布式DDP训练，并且提供了配套的[代码](tutorials/distributed)
-- **11/11/2025** NextRec v0.1.0发布，我们提供了10余种Ranking模型，11种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
+- **11/11/2025** NextRec v0.1.0发布，我们提供了10余种排序模型，11种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
 
 ## 架构
 
@@ -74,14 +74,14 @@ pip install nextrec # or pip install -e .
 - [movielen_ranking_deepfm.py](/tutorials/movielen_ranking_deepfm.py) - movielen 100k数据集上的 DeepFM 模型训练示例
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) - 电商数据集上的DIN 深度兴趣网络训练示例
 - [example_multitask.py](/tutorials/example_multitask.py) - 电商数据集上的ESMM多任务学习训练示例
-- [movielen_match_dssm.py](/tutorials/movielen_match_dssm.py) - 基于movielen 100k数据集训练的 DSSM 召回模型示例
+- [movielen_retrieval_dssm.py](/tutorials/movielen_retrieval_dssm.py) - 基于movielen 100k数据集训练的 DSSM 召回模型示例
 
 - [example_onnx.py](/tutorials/example_onnx.py) - 使用NextRec训练和导出onnx模型
 - [example_distributed_training.py](/tutorials/distributed/example_distributed_training.py) - 使用NextRec进行单机多卡训练的代码示例
 
 - [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) - 快速校验所有排序模型的可用性
 - [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) - 快速校验所有多任务模型的可用性
-- [run_all_match_models.py](/tutorials/run_all_match_models.py) - 快速校验所有召回模型的可用性
+- [run_all_retrieval_models.py](/tutorials/run_all_retrieval_models.py) - 快速校验所有召回模型的可用性
 
 如果想了解更多NextRec框架的细节，我们还提供了Jupyter notebook来帮助你了解：
 
@@ -197,11 +197,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.6.4，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.6.5，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.6.4，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.6.5，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -248,7 +248,7 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 | 模型 | 论文 | 状态 |
 | ------ | ------ | ------ |
-| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | 开发中 |
+| [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | 已支持 |
 | [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | 已支持 |
 
 ### 多任务模型
@@ -279,7 +279,7 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 | 模型 | 论文 | 状态 |
 | ------ | ------ | ------ |
-| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Retrieval | 开发中 |
+| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Recommendation | 开发中 |
 
 ### 表征模型
 

@@ -13,7 +13,7 @@ from typing import Any
 
 from nextrec.utils.types import TaskTypeName
 
-SUPPORTED_TASK_TYPES = ["binary", "regression", "generative"]
+SUPPORTED_TASK_TYPES = ["binary", "regression", "generative", "sequential"]
 
 
 def assert_task(

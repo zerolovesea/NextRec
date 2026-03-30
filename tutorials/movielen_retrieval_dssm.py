@@ -16,7 +16,7 @@ MovieLens 数据集召回模型示例 - DSSM 双塔模型
 
 使用方法:
     直接运行此脚本:
-        python tutorials/movielen_match_dssm.py
+        python tutorials/movielen_retrieval_dssm.py
 
 测试数据格式:
     - user_id: 用户ID

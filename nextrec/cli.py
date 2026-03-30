@@ -45,7 +45,7 @@ from nextrec.utils.config import (
     build_model_instance,
     register_processor_features,
     resolve_path,
-    select_features,
+    select_feature_names,
 )
 from nextrec.utils.console import get_nextrec_version
 from nextrec.utils.data import (
@@ -58,7 +58,7 @@ from nextrec.utils.data import (
     resolve_file_paths,
 )
 from nextrec.utils.timing import StageTimer
-from nextrec.utils.torch_utils import to_list
+from nextrec.utils.torch_utils import normalize_string_list
 
 logger = logging.getLogger(__name__)
 
@@ -158,11 +158,11 @@ def train_model(train_config_path: str) -> None:
 
     # train data basics
     data_path = resolve_path(data_cfg["path"], config_dir)
-    target = to_list(data_cfg["target"])
+    target = normalize_string_list(data_cfg["target"])
     val_data_path = data_cfg.get("valid_path")
     split_stratify_by = data_cfg.get("split_stratify_by")
     split_group_by = data_cfg.get("split_group_by")
-    valid_group_by = to_list(train_cfg.get("valid_group_by"))
+    valid_group_by = normalize_string_list(train_cfg.get("valid_group_by"))
 
     feature_cfg = read_yaml(feature_cfg_path)
     model_cfg = read_yaml(model_cfg_path)
@@ -257,7 +257,7 @@ def train_model(train_config_path: str) -> None:
             "Streaming validation currently splits by files only."
         )
 
-    dense_names, sparse_names, sequence_names = select_features(feature_cfg, df_columns)
+    dense_names, sparse_names, sequence_names = select_feature_names(feature_cfg, df_columns)
 
     split_columns = [col for col in [split_stratify_by, split_group_by] if col]
     active_split_columns = split_columns if (not streaming and not val_data_path) else []
@@ -595,7 +595,9 @@ def predict_model(predict_config_path: str) -> None:
 
     # Load id_columns override from predict config
     input_id_columns = predict_cfg.get("id_column")
-    effective_id_columns = to_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
+    effective_id_columns = (
+        normalize_string_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
+    )
     expand = get_expand_columns(predict_cfg.get("expand"))
     output_id_columns = list(dict.fromkeys([*effective_id_columns, *expand.keys()]))
     if input_id_columns is not None or expand:
@@ -942,7 +944,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
 
     input_targets = evaluate_cfg.get("target")
     if input_targets is not None:
-        input_targets = to_list(input_targets)
+        input_targets = normalize_string_list(input_targets)
         if list(input_targets) != list(target_cols):
             logger.warning(
                 "[NextRec CLI Warning] evaluate.target does not match trained targets; "
@@ -963,8 +965,10 @@ def evaluate_model(evaluate_config_path: str) -> None:
     model.load_model(model_file, map_location=device, verbose=True)
 
     input_id_columns = evaluate_cfg.get("id_column")
-    effective_id_columns = to_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
-    by_columns = to_list(evaluate_cfg.get("group_by"))
+    effective_id_columns = (
+        normalize_string_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
+    )
+    by_columns = normalize_string_list(evaluate_cfg.get("group_by"))
     if input_id_columns is not None:
         model.id_columns = effective_id_columns
     loader_id_columns = list(dict.fromkeys([*effective_id_columns, *by_columns]))
