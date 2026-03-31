@@ -20,6 +20,16 @@ NextRec建议环境为：
 pip install nextrec
 ```
 
+> 说明：`wandb` 和 `swanlab` 属于可选实验跟踪依赖，默认不会随 `nextrec` 一起安装。
+>
+> 在部分 Linux 环境中，安装 `wandb` 可能会触发源码构建，并因为缺少 `go` 编译环境而失败。因此默认安装命令保持最小依赖集。
+>
+> 如果你需要 WandB 或 SwanLab，请额外安装：
+>
+> ```bash
+> pip install "nextrec[tracking]"
+> ```
+
 ### 方式 2：从源码安装
 
 对于有需求的开发者，可以从源码进行安装：
@@ -30,6 +40,12 @@ cd NextRec
 pip install -e .
 # 安装单元测试的依赖项
 pip install -r test_requirements.txt 
+```
+
+如果你需要实验跟踪功能，还需要继续执行：
+
+```bash
+pip install ".[tracking]"
 ```
 
 ## 快速校验

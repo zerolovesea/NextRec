@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.5-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.6-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -49,7 +49,7 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 - **28/01/2026** Added support for ONNX export and loading in v0.4.39, and significantly accelerated data preprocessing speed (up to 9x speedup)
 - **01/01/2026** Happy New Year! In v0.4.27, added support for multiple multi-task models: [APG](/nextrec/models/multi_task/apg.py), [ESCM](/nextrec/models/multi_task/escm.py), [HMoE](/nextrec/models/multi_task/hmoe.py), [Cross Stitch](/nextrec/models/multi_task/cross_stitch.py)
 - **21/12/2025** Added support for [GradNorm](/nextrec/loss/grad_norm.py) in v0.4.16, configurable via `loss_weight='grad_norm'` in the compile method
-- **12/12/2025** Added [RQ-VAE](/nextrec/models/representation/rqvae.py), a common module for generative recommendation in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
+- **12/12/2025** Added [RQ-VAE](/nextrec/models/pretrain/rqvae.py), a common module for generative recommendation in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html) and [reference code](/nextrec_cli_preset).
 - **06/12/2025** Added single-machine multi-GPU DDP training in v0.4.1 with supporting [code](tutorials/distributed).
 - **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 11 multi-task models, 4 match models, and a unified training/logging/metrics system.
@@ -70,6 +70,16 @@ git clone https://github.com/zerolovesea/NextRec.git
 cd NextRec/
 pip install nextrec # or pip install -e .
 ```
+
+> Note: Experiment tracking backends `wandb` and `swanlab` are not installed by default. Some Linux environments may fall back to building `wandb` from source, which can fail if the `go` toolchain is missing.
+>
+> If you only need training, evaluation, and inference, `pip install nextrec` is enough.
+>
+> If you want WandB or SwanLab logging, install the optional extra:
+>
+> ```bash
+> pip install "nextrec[tracking]"
+> ```
 
 ## Tutorials
 
@@ -185,6 +195,8 @@ metrics = model.evaluate(
 )
 ```
 
+If you want to sync training logs to WandB or SwanLab, install `pip install "nextrec[tracking]"` first.
+
 ## CLI Usage
 
 NextRec provides a powerful command-line interface for model training and prediction using YAML configuration files. For detailed CLI documentation, see:
@@ -202,11 +214,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.6.5, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.6.6, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.6.5. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.6.6. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -288,17 +300,17 @@ The current version is 0.6.5. All models and test code have been validated on th
 | ------- | ------- | -------- |
 | [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Recommendation | In Progress |
 
-### Representation Models
+### Pretrain Models
 
 | Model | Paper | Status |
 | ------- | ------- | -------- |
-| [RQ-VAE](nextrec/models/representation/rqvae.py) | Autoregressive Image Generation using Residual Quantization | Supported |
-| [BPR](nextrec/models/representation/bpr.py) | Bayesian Personalized Ranking | In Progress |
-| [MF](nextrec/models/representation/mf.py) | Matrix Factorization Techniques for Recommender Systems | In Progress |
-| [AutoRec](nextrec/models/representation/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | In Progress |
-| [LightGCN](nextrec/models/representation/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | In Progress |
-| [S3Rec](nextrec/models/representation/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | In Progress |
-| [CL4SRec](nextrec/models/representation/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | In Progress |
+| [RQ-VAE](nextrec/models/pretrain/rqvae.py) | Autoregressive Image Generation using Residual Quantization | Supported |
+| [BPR](nextrec/models/pretrain/bpr.py) | Bayesian Personalized Ranking | In Progress |
+| [MF](nextrec/models/pretrain/mf.py) | Matrix Factorization Techniques for Recommender Systems | In Progress |
+| [AutoRec](nextrec/models/pretrain/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | In Progress |
+| [LightGCN](nextrec/models/pretrain/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | In Progress |
+| [S3Rec](nextrec/models/pretrain/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | In Progress |
+| [CL4SRec](nextrec/models/pretrain/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | In Progress |
 
 ---
 

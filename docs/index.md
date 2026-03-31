@@ -49,6 +49,8 @@ features:
 pip install nextrec
 ```
 
+如果需要 WandB 或 SwanLab 实验跟踪，请额外安装 `pip install "nextrec[tracking]"`。默认安装不会包含这两个可选依赖，以避免部分 Linux 环境安装 `wandb` 时因缺少 `go` 编译环境而失败。
+
 ## 快速开始
 
 ```python

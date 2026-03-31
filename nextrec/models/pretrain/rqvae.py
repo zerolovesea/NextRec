@@ -54,7 +54,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 
 from nextrec.basic.features import DenseFeature
-from nextrec.models.representation.base import BaseRepresentationModel
+from nextrec.models.pretrain.base import BasePretrainModel
 
 
 def kmeans(data: torch.Tensor, n_clusters: int, kmeans_iters: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -447,7 +447,7 @@ class RQ(nn.Module):
 
 
 # RQ-VAE Model
-class RQVAE(BaseRepresentationModel):
+class RQVAE(BasePretrainModel):
 
     @property
     def model_name(self) -> str:

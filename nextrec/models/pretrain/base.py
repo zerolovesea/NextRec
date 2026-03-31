@@ -1,9 +1,9 @@
 """
-Base class for representation models.
+Base class for pretrain models.
 
-Representation models do not use the supervised task heads or ranking adapters
+Pretrain models do not use the supervised task heads or ranking adapters
 from the general recommendation stack. They reuse the shared infrastructure
-from BaseModel but always route outputs through RepresentationAdapter.
+from BaseModel but always route outputs through PretrainAdapter.
 """
 
 from __future__ import annotations
@@ -14,20 +14,20 @@ from typing import Any, cast
 import torch
 from torch.utils.data import DataLoader
 
-from nextrec.basic.adapters import RepresentationAdapter
+from nextrec.basic.adapters import PretrainAdapter
 from nextrec.basic.loggers import colorize, setup_logger
 from nextrec.basic.model import BaseModel
 from nextrec.data.batch_utils import batch_to_dict
 from nextrec.utils.console import progress
 
 
-class BaseRepresentationModel(BaseModel):
+class BasePretrainModel(BaseModel):
     @property
     def default_task(self):  # type: ignore[override]
         return "regression"
 
     def set_adapter(self):
-        self.training_adapter = RepresentationAdapter()
+        self.training_adapter = PretrainAdapter()
         self.prediction_layer = None
 
     def prepare_loader(
@@ -56,22 +56,22 @@ class BaseRepresentationModel(BaseModel):
         X_input, _ = self.get_input(batch_dict, require_labels=False)
 
         if not self.all_features:
-            raise ValueError("[BaseRepresentationModel] dense_features are required to use fit/predict helpers.")
+            raise ValueError("[BasePretrainModel] dense_features are required to use fit/predict helpers.")
 
         tensors: list[torch.Tensor] = []
         for name in self.feature_names:
             if name not in X_input:
                 raise KeyError(
-                    f"[BaseRepresentationModel] Feature '{name}' not found in input batch. Available keys: {list(X_input.keys())}"
+                    f"[BasePretrainModel] Feature '{name}' not found in input batch. Available keys: {list(X_input.keys())}"
                 )
             tensors.append(X_input[name].to(self.device).float())
         if not tensors:
-            raise ValueError("[BaseRepresentationModel] No feature tensors found in batch.")
+            raise ValueError("[BasePretrainModel] No feature tensors found in batch.")
 
         init_embedding = tensors[0] if len(tensors) == 1 else torch.cat(tensors, dim=-1)
         if hasattr(self, "input_dim") and init_embedding.shape[-1] != self.input_dim:
             raise ValueError(
-                f"[BaseRepresentationModel] Input dim mismatch: expected {self.input_dim}, got {init_embedding.shape[-1]}."
+                f"[BasePretrainModel] Input dim mismatch: expected {self.input_dim}, got {init_embedding.shape[-1]}."
             )
 
         return init_embedding
@@ -83,7 +83,7 @@ class BaseRepresentationModel(BaseModel):
             if batch_idx >= init_batches - 1:
                 break
         if not cached:
-            raise ValueError("[BaseRepresentationModel] No data available for codebook initialization.")
+            raise ValueError("[BasePretrainModel] No data available for codebook initialization.")
 
         init_data = torch.cat(cached, dim=0)
 

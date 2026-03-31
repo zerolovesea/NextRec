@@ -8,6 +8,8 @@ This short guide shows how to train and launch a recommender model with NextRec 
 - Stable install: `pip install nextrec`
 - Dev mode: from repo root run `pip install -e .`
 
+If you also want WandB or SwanLab logging, install the optional tracking extra with `pip install "nextrec[tracking]"`. These backends are not installed by default because some Linux environments may try to build `wandb` from source and fail without a `go` toolchain.
+
 ## 2. Data & Feature Primer
 
 Recommender models usually mix multiple signal types and convert them into vectors:

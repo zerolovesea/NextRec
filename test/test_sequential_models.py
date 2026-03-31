@@ -12,7 +12,11 @@ import torch
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.adapters import SequentialAdapter
+from nextrec.models.sequential.bert4rec import BERT4Rec
+from nextrec.models.sequential.cl4srec import CL4SRec
+from nextrec.models.sequential.gru4rec import GRU4Rec
 from nextrec.models.sequential.sasrec import SASRec
+from nextrec.models.sequential.s3rec import S3Rec
 from test.helpers import assert_no_nan_or_inf
 
 
@@ -45,6 +49,119 @@ def _build_sasrec_model(vocab_size: int, max_len: int = 5, sequence_mode: str = 
         task="sequential",
         device="cpu",
         session_id="sasrec_test",
+    )
+    model.compile(loss="ce")
+    return model
+
+
+def _build_bert4rec_model(vocab_size: int, max_len: int = 5) -> BERT4Rec:
+    sequence_features = [
+        SequenceFeature(
+            name="item_history",
+            vocab_size=vocab_size,
+            max_len=max_len,
+            embedding_dim=8,
+            padding_idx=0,
+        )
+    ]
+    model = BERT4Rec(
+        sequence_features=sequence_features,
+        item_history_name="item_history",
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        max_seq_len=max_len,
+        dropout_rate=0.0,
+        mask_ratio=0.4,
+        target=["next_item"],
+        task="sequential",
+        device="cpu",
+        session_id="bert4rec_test",
+    )
+    model.compile(loss="ce")
+    return model
+
+
+def _build_gru4rec_model(vocab_size: int, max_len: int = 5) -> GRU4Rec:
+    sequence_features = [
+        SequenceFeature(
+            name="item_history",
+            vocab_size=vocab_size,
+            max_len=max_len,
+            embedding_dim=8,
+            padding_idx=0,
+        )
+    ]
+    model = GRU4Rec(
+        sequence_features=sequence_features,
+        item_history_name="item_history",
+        hidden_dim=8,
+        num_layers=1,
+        max_seq_len=max_len,
+        dropout_rate=0.0,
+        target=["next_item"],
+        task="sequential",
+        device="cpu",
+        session_id="gru4rec_test",
+    )
+    model.compile(loss="ce")
+    return model
+
+
+def _build_cl4srec_model(vocab_size: int, max_len: int = 5) -> CL4SRec:
+    sequence_features = [
+        SequenceFeature(
+            name="item_history",
+            vocab_size=vocab_size,
+            max_len=max_len,
+            embedding_dim=8,
+            padding_idx=0,
+        )
+    ]
+    model = CL4SRec(
+        sequence_features=sequence_features,
+        item_history_name="item_history",
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        max_seq_len=max_len,
+        dropout_rate=0.0,
+        cl_weight=0.1,
+        temperature=0.2,
+        target=["next_item"],
+        task="sequential",
+        device="cpu",
+        session_id="cl4srec_test",
+    )
+    model.compile(loss="ce")
+    return model
+
+
+def _build_s3rec_model(vocab_size: int, max_len: int = 5) -> S3Rec:
+    sequence_features = [
+        SequenceFeature(
+            name="item_history",
+            vocab_size=vocab_size,
+            max_len=max_len,
+            embedding_dim=8,
+            padding_idx=0,
+        )
+    ]
+    model = S3Rec(
+        sequence_features=sequence_features,
+        item_history_name="item_history",
+        hidden_dim=8,
+        num_heads=2,
+        num_layers=1,
+        max_seq_len=max_len,
+        dropout_rate=0.0,
+        mask_ratio=0.4,
+        mip_weight=1.0,
+        sp_weight=0.1,
+        target=["next_item"],
+        task="sequential",
+        device="cpu",
+        session_id="s3rec_test",
     )
     model.compile(loss="ce")
     return model
@@ -209,3 +326,115 @@ def test_sasrec_masked_mode_disables_causal_attention_mask():
     assert y_pred.shape == (2, 5, 16)
     loss = model.compute_loss(y_pred, y_true)
     assert torch.isfinite(loss)
+
+
+def test_bert4rec_forward_and_predict_last():
+    model = _build_bert4rec_model(vocab_size=16, max_len=5)
+    model.train()
+
+    x = {
+        "item_history": torch.tensor(
+            [
+                [1, 2, 3, 4, 0],
+                [2, 3, 4, 5, 6],
+            ],
+            dtype=torch.long,
+        )
+    }
+
+    y_pred = model.forward(x)
+    assert y_pred.shape == (2, 5, 16)
+    assert_no_nan_or_inf(y_pred, "bert4rec_logits")
+
+    loss = model.compute_loss(y_pred, None)
+    assert torch.isfinite(loss)
+
+    model.eval()
+    last_logits = model.predict_last(x)
+    assert last_logits.shape == (2, 16)
+    assert_no_nan_or_inf(last_logits, "bert4rec_last_logits")
+
+
+def test_gru4rec_forward_and_loss():
+    model = _build_gru4rec_model(vocab_size=16, max_len=5)
+    assert isinstance(model.training_adapter, SequentialAdapter)
+
+    x = {
+        "item_history": torch.tensor(
+            [
+                [1, 2, 3, 4, 0],
+                [2, 3, 4, 5, 0],
+            ],
+            dtype=torch.long,
+        )
+    }
+    y_true = torch.tensor(
+        [
+            [2, 3, 4, 0, 0],
+            [3, 4, 5, 0, 0],
+        ],
+        dtype=torch.long,
+    )
+
+    y_pred = model.forward(x)
+    assert y_pred.shape == (2, 5, 16)
+    assert_no_nan_or_inf(y_pred, "gru4rec_logits")
+
+    loss = model.compute_loss(y_pred, y_true)
+    assert torch.isfinite(loss)
+
+
+def test_cl4srec_forward_and_contrastive_loss():
+    model = _build_cl4srec_model(vocab_size=16, max_len=5)
+    model.train()
+
+    x = {
+        "item_history": torch.tensor(
+            [
+                [1, 2, 3, 4, 0],
+                [2, 3, 4, 5, 0],
+                [3, 4, 5, 6, 0],
+            ],
+            dtype=torch.long,
+        )
+    }
+    y_true = torch.tensor(
+        [
+            [2, 3, 4, 0, 0],
+            [3, 4, 5, 0, 0],
+            [4, 5, 6, 0, 0],
+        ],
+        dtype=torch.long,
+    )
+
+    y_pred = model.forward(x)
+    assert y_pred.shape == (3, 5, 16)
+    assert_no_nan_or_inf(y_pred, "cl4srec_logits")
+
+    loss = model.compute_loss(y_pred, y_true)
+    assert torch.isfinite(loss)
+    assert torch.isfinite(model._last_contrastive_loss)
+
+
+def test_s3rec_forward_and_pretrain_losses():
+    model = _build_s3rec_model(vocab_size=16, max_len=5)
+    model.train()
+
+    x = {
+        "item_history": torch.tensor(
+            [
+                [1, 2, 3, 4, 0],
+                [2, 3, 4, 5, 0],
+                [3, 4, 5, 6, 0],
+            ],
+            dtype=torch.long,
+        )
+    }
+
+    y_pred = model.forward(x)
+    assert y_pred.shape == (3, 5, 16)
+    assert_no_nan_or_inf(y_pred, "s3rec_logits")
+
+    loss = model.compute_loss(y_pred, None)
+    assert torch.isfinite(loss)
+    assert torch.isfinite(model._last_sp_loss)
