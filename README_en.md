@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.6-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.7-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -75,6 +75,12 @@ pip install nextrec # or pip install -e .
 >
 > If you only need training, evaluation, and inference, `pip install nextrec` is enough.
 >
+> If you need ONNX export or ONNX Runtime inference, install the optional extra:
+>
+> ```bash
+> pip install "nextrec[onnx]"
+> ```
+>
 > If you want WandB or SwanLab logging, install the optional extra:
 >
 > ```bash
@@ -102,6 +108,8 @@ To dive deeper into NextRec framework details, Jupyter notebooks are available:
 - [Hands on the NextRec framework](/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
 - [Using the data processor for preprocessing](/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
 - [Build semantic ID with RQ-VAE](/tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb)
+
+Before running ONNX examples, install `pip install "nextrec[onnx]"`.
 
 ## 5-Minute Quick Start
 
@@ -214,11 +222,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.6.6, NextRec CLI supports single-machine training; distributed training features are currently under development.
+> As of version 0.6.7, NextRec CLI supports single-machine training; distributed training features are currently under development.
 
 ## Platform Compatibility
 
-The current version is 0.6.6. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.6.7. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|

@@ -16,7 +16,7 @@ ONNX 模型导出与推理示例
         python tutorials/example_onnx.py
 
     前置条件:
-        - 安装 ONNX 和 ONNX Runtime: pip install onnx onnxruntime
+        - 安装 NextRec 的 ONNX 可选依赖: pip install "nextrec[onnx]"
 
 数据要求:
     使用合成数据,不需要外部数据文件。脚本会自动生成:
