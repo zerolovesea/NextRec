@@ -77,7 +77,6 @@ class SASRec(BaseSequentialModel):
         dense_features: Optional[list[DenseFeature]] = None,
         sparse_features: Optional[list[SparseFeature]] = None,
         item_history_name: str = "item_history",
-        item_history: str | None = None,
         hidden_dim: Optional[int] = None,
         num_heads: int = 1,
         num_layers: int | None = None,
@@ -98,8 +97,6 @@ class SASRec(BaseSequentialModel):
         if not sequence_features:
             raise ValueError("[SASRec Error] SASRec requires at least one SequenceFeature.")
 
-        if item_history is not None:
-            item_history_name = item_history
         if num_layers is None:
             num_layers = num_blocks if num_blocks is not None else 2
         if dropout is not None:

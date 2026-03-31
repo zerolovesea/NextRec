@@ -349,7 +349,6 @@ class HSTU(BaseSequentialModel):
         dense_features: Optional[list[DenseFeature]] = None,
         sparse_features: Optional[list[SparseFeature]] = None,
         item_history_name: str = "item_history",
-        item_history: str | None = None,
         hidden_dim: Optional[int] = None,
         num_heads: int = 8,
         num_layers: int = 4,
@@ -379,8 +378,6 @@ class HSTU(BaseSequentialModel):
         if not sequence_features:
             raise ValueError("[HSTU Error] HSTU requires at least one SequenceFeature (user behavior history).")
 
-        if item_history is not None:
-            item_history_name = item_history
         if num_blocks is not None:
             num_layers = num_blocks
         if dropout is not None:

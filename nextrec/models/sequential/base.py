@@ -12,7 +12,7 @@ This module extracts the sequence-paradigm concerns shared by sequential models:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 import pandas as pd
 import torch
@@ -34,6 +34,8 @@ from nextrec.utils.types import LossName, TaskTypeInput, SequenceModeName, Train
 
 
 class BaseSequentialModel(BaseModel):
+    supported_sampling_modes = ["explicit", "inbatch"]
+
     @property
     def default_task(self) -> str:
         return "sequential"
@@ -61,7 +63,7 @@ class BaseSequentialModel(BaseModel):
         world_size: int | None = None,
         local_rank: int | None = None,
         ddp_find_unused_parameters: bool = False,
-        sampling_mode: str = "explicit",
+        sampling_mode: Literal["explicit", "inbatch"] = "explicit",
         **kwargs,
     ):
         self.sequence_mode = sequence_mode
