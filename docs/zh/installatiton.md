@@ -24,6 +24,12 @@ pip install nextrec
 >
 > 在部分 Linux 环境中，安装 `wandb` 可能会触发源码构建，并因为缺少 `go` 编译环境而失败。因此默认安装命令保持最小依赖集。
 >
+> 如果你需要 ONNX 导出或 ONNX Runtime 推理，请额外安装：
+>
+> ```bash
+> pip install "nextrec[onnx]"
+> ```
+>
 > 如果你需要 WandB 或 SwanLab，请额外安装：
 >
 > ```bash
@@ -46,6 +52,12 @@ pip install -r test_requirements.txt
 
 ```bash
 pip install ".[tracking]"
+```
+
+如果你需要 ONNX 相关功能，还需要继续执行：
+
+```bash
+pip install ".[onnx]"
 ```
 
 ## 快速校验

@@ -51,6 +51,8 @@ pip install nextrec
 
 如果需要 WandB 或 SwanLab 实验跟踪，请额外安装 `pip install "nextrec[tracking]"`。默认安装不会包含这两个可选依赖，以避免部分 Linux 环境安装 `wandb` 时因缺少 `go` 编译环境而失败。
 
+如果需要 ONNX 导出或 ONNX Runtime 推理，请额外安装 `pip install "nextrec[onnx]"`。默认安装不会包含 ONNX 相关依赖，以避免部分 Linux 环境因 `onnxruntime` 不可用而安装失败。
+
 ## 快速开始
 
 ```python

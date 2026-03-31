@@ -10,6 +10,8 @@ This short guide shows how to train and launch a recommender model with NextRec 
 
 If you also want WandB or SwanLab logging, install the optional tracking extra with `pip install "nextrec[tracking]"`. These backends are not installed by default because some Linux environments may try to build `wandb` from source and fail without a `go` toolchain.
 
+If you need ONNX export or ONNX Runtime inference, install the optional ONNX extra with `pip install "nextrec[onnx]"`. ONNX dependencies are not installed by default because some Linux environments do not provide a compatible `onnxruntime` build.
+
 ## 2. Data & Feature Primer
 
 Recommender models usually mix multiple signal types and convert them into vectors:

@@ -9,6 +9,8 @@ description: NextRec 快速入门指南
 
 如果你还需要把训练日志同步到 WandB 或 SwanLab，请额外安装 `pip install "nextrec[tracking]"`。这两个组件默认不参与安装，以避免部分 Linux 环境在安装 `wandb` 时因缺少 `go` 编译环境而失败。
 
+如果你需要 ONNX 导出或 ONNX Runtime 推理，请额外安装 `pip install "nextrec[onnx]"`。默认安装不会包含 ONNX 相关依赖，以避免部分 Linux 环境因 `onnxruntime` 版本不可用而安装失败。
+
 
 ## 快速训练一个精排模型
 
