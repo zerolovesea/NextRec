@@ -7,6 +7,8 @@ description: NextRec 快速入门指南
 
 这份文档将帮助开发者在几分钟里快速完成一个推荐模型的训练流程。在此之前需要已经安装Nextrec，开发者可以通过`pip install nextrec`来快速安装。
 
+如果你还需要把训练日志同步到 WandB 或 SwanLab，请额外安装 `pip install "nextrec[tracking]"`。这两个组件默认不参与安装，以避免部分 Linux 环境在安装 `wandb` 时因缺少 `go` 编译环境而失败。
+
 
 ## 快速训练一个精排模型
 

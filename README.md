@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.5-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.6-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -46,7 +46,7 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 - **28/01/2026** 在v0.4.39中加入了对onnx导出和加载的支持，并大大加速了数据预处理速度（最高9x加速）
 - **01/01/2026** 新年好，在v0.4.27中加入了多个多目标模型的支持：[APG](nextrec/models/multi_task/apg.py), [ESCM](nextrec/models/multi_task/escm.py), [HMoE](nextrec/models/multi_task/hmoe.py), [Cross Stitch](nextrec/models/multi_task/cross_stitch.py)
 - **21/12/2025** 在v0.4.16中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
-- **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/representation/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
+- **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/pretrain/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html)和[教学代码](/nextrec_cli_preset)
 - **06/12/2025** 在v0.4.1中支持了单机多卡的分布式DDP训练，并且提供了配套的[代码](tutorials/distributed)
 - **11/11/2025** NextRec v0.1.0发布，我们提供了10余种排序模型，11种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
@@ -66,6 +66,16 @@ git clone https://github.com/zerolovesea/NextRec.git
 cd NextRec/
 pip install nextrec # or pip install -e .
 ```
+
+> 实验跟踪组件 `wandb` 和 `swanlab` 不作为默认依赖安装，因为部分 Linux 环境在安装 `wandb` 时可能会回退到源码构建，并因缺少 `go` 编译环境而失败。
+>
+> 如果你只需要训练、评估、推理，执行 `pip install nextrec` 即可。
+>
+> 如果你需要启用 WandB 或 SwanLab，请额外安装：
+>
+> ```bash
+> pip install "nextrec[tracking]"
+> ```
 
 ## 示例代码
 
@@ -180,6 +190,8 @@ metrics = model.evaluate(
 )
 ```
 
+如果要把训练日志同步到 WandB 或 SwanLab，请先执行 `pip install "nextrec[tracking]"`。
+
 ## 命令行工具
 
 NextRec 提供了强大的命令行界面，支持通过 YAML 配置文件进行模型训练和预测。详细的 CLI 文档请参见：
@@ -197,11 +209,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.6.5，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
+> 截止当前版本0.6.6，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
 
 ## 兼容平台
 
-当前最新版本为0.6.5，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.6.6，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -281,17 +293,17 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | ------ | ------ | ------ |
 | [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Recommendation | 开发中 |
 
-### 表征模型
+### 预训练模型
 
 | 模型 | 论文 | 状态 |
 | ------ | ------ | ------ |
-| [RQ-VAE](nextrec/models/representation/rqvae.py) | Autoregressive Image Generation using Residual Quantization | 已支持 |
-| [BPR](nextrec/models/representation/bpr.py) | Bayesian Personalized Ranking | 开发中 |
-| [MF](nextrec/models/representation/mf.py) | Matrix Factorization Techniques for Recommender Systems | 开发中 |
-| [AutoRec](nextrec/models/representation/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | 开发中 |
-| [LightGCN](nextrec/models/representation/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | 开发中 |
-| [S3Rec](nextrec/models/representation/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | 开发中 |
-| [CL4SRec](nextrec/models/representation/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | 开发中 |
+| [RQ-VAE](nextrec/models/pretrain/rqvae.py) | Autoregressive Image Generation using Residual Quantization | 已支持 |
+| [BPR](nextrec/models/pretrain/bpr.py) | Bayesian Personalized Ranking | 开发中 |
+| [MF](nextrec/models/pretrain/mf.py) | Matrix Factorization Techniques for Recommender Systems | 开发中 |
+| [AutoRec](nextrec/models/pretrain/autorec.py) | AutoRec: Autoencoders Meet Collaborative Filtering | 开发中 |
+| [LightGCN](nextrec/models/pretrain/lightgcn.py) | LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation | 开发中 |
+| [S3Rec](nextrec/models/pretrain/s3rec.py) | S3-Rec: Self-Supervised Learning for Sequential Recommendation | 开发中 |
+| [CL4SRec](nextrec/models/pretrain/cl4srec.py) | CL4SRec: Contrastive Learning for Sequential Recommendation | 开发中 |
 
 ---
 

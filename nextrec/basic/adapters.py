@@ -3,7 +3,7 @@ Training adapters for NextRec models.
 
 These adapters provide flexible interfaces between NextRec's training loop
 and various model architectures and loss functions, enabling support for
-pointwise, pairwise, listwise, representation, and two-tower models with in-batch negatives.
+pointwise, pairwise, listwise, pretrain, and two-tower models with in-batch negatives.
 
 Date: create on 22/03/2026
 Checkpoint: edit on 22/03/2026
@@ -89,9 +89,9 @@ class TrainingAdapter:
         return target_tensor.reshape(target_tensor.size(0), -1)
 
 
-class RepresentationAdapter(TrainingAdapter):
+class PretrainAdapter(TrainingAdapter):
     """
-    Adapter for representation / generative models.
+    Adapter for pretrain / generative models.
 
     These models usually expose structured raw outputs such as reconstructions,
     semantic IDs, quantization losses, or latent states, and typically manage
@@ -108,8 +108,6 @@ class RepresentationAdapter(TrainingAdapter):
 
     def format_model_output(self, model, raw_output: Any):
         return raw_output
-
-
 class RetrievalAdapter(TrainingAdapter):
     """
     Adapter for retrieval models that emit user/item embeddings and use a
@@ -190,6 +188,18 @@ class SequentialAdapter(TrainingAdapter):
 
     def format_model_output(self, model, raw_output: Any):
         return raw_output
+
+
+class MaskedSequentialAdapter(SequentialAdapter):
+    """
+    Adapter for masked sequential pretraining models.
+
+    These models synthesize labels from the input sequence during forward(), so
+    the generic input pipeline should not require explicit labels.
+    """
+
+    def needs_labels(self, model) -> bool:
+        return False
 
 
 class CandidateListAdapter(TrainingAdapter):
