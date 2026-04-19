@@ -70,7 +70,7 @@ import torch.nn.functional as F
 from typing import Literal
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
@@ -158,7 +158,7 @@ class MaskBlockOnHidden(nn.Module):
         return out
 
 
-class MaskNet(BaseModel):
+class MaskNet(BaseRankingModel):
     @property
     def model_name(self):
         return "MaskNet"

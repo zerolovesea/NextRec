@@ -1,0 +1,39 @@
+checkpoint_path: nextrec_logs/ctcvr_task
+
+model_config: model_configs/mmoe.yaml
+
+predict:
+  data_path: ../dataset/ctcvr_task.csv
+  source_data_format: csv                  # Input data format: csv, parquet, etc.
+                                           # Use 'auto' for automatic detection
+  key_column: user_id                      # Column name for passthrough key columns
+                                           # Will be included in prediction output
+  name: pred                               # Output filename (without extension) or absolute path
+                                           # Filename -> {checkpoint_path}/predictions/{name}.{save_data_format}
+                                           # Absolute path -> saved directly (extension auto-added if missing)
+  save_data_format: csv                    # Output format: csv, parquet
+  preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
+
+  batch_size: 512                           # Batch size for inference
+                                           # Larger = faster but more memory
+  num_workers: 4                           # Number of parallel data loading workers
+                                           # 0 = single process, >0 = multiprocessing
+  # num_processes: 1                       # Number of inference processes for streaming
+                                           # If omitted, CLI auto-selects 1~5 based on system load
+                                           # >1 requires streaming=true and disables ONNX
+                                           # Each process loads its own model/data; memory usage increases linearly
+  device: cpu                              # Computation device:
+                                           # - 'cpu': CPU computation
+                                           # - 'cuda': NVIDIA GPU
+                                           # - 'cuda:0', 'cuda:1': specific GPU
+                                           # - 'mps': Apple Silicon GPU (M1/M2)
+  streaming: true                          # Enable streaming for large datasets
+                                           # true: stream from disk, lower RAM usage
+                                           # false: load entire dataset into memory
+  chunk_size: 20000                        # Chunk size for streaming mode (when streaming=true)
+                                           # Adjust based on available memory
+
+  # use_onnx: false
+
+# cd nextrec_cli_preset                                           
+# nextrec --mode predict --predict_config predict_config.yaml

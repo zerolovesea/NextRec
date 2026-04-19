@@ -11,15 +11,15 @@ from nextrec.data.batch_utils import batch_to_dict, collate_fn, stack_section
 from nextrec.data.data_processing import (
     build_eval_candidates,
     get_column_data,
-    normalize_column_names,
+    get_group_ids,
     has_column,
-    get_user_ids,
     split_dict_random,
+    to_column_names,
 )
 from nextrec.utils.data import (
+    get_file_paths,
     iter_file_chunks,
     read_table,
-    resolve_file_paths,
 )
 
 __all__ = [
@@ -29,13 +29,13 @@ __all__ = [
     "stack_section",
     # Data processing
     "get_column_data",
-    "normalize_column_names",
+    "to_column_names",
     "has_column",
     "split_dict_random",
     "build_eval_candidates",
-    "get_user_ids",
+    "get_group_ids",
     # File utilities
-    "resolve_file_paths",
+    "get_file_paths",
     "iter_file_chunks",
     "read_table",
 ]

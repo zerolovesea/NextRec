@@ -61,11 +61,11 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FieldAwareEmbeddingLayer, InputMask
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
-class FFM(BaseModel):
+class FFM(BaseRankingModel):
     @property
     def model_name(self):
         return "FFM"

@@ -1,0 +1,81 @@
+# ============================================================================
+# NextRec Complete Prediction Configuration Template
+# ============================================================================
+# This template shows all available configuration options with descriptions.
+# Copy and customize as needed for your use case.
+# ============================================================================
+
+# ===== Checkpoint Configuration =====
+# Required: Path to the trained model checkpoint directory
+# This directory should contain: processor.pkl, features_config.pkl, and *.model files
+checkpoint_path: /path/to/checkpoint/directory
+
+# ===== Model Configuration =====
+# Optional: Path to model architecture config (YAML file)
+# If not specified, will auto-search in checkpoint_path/model_config.yaml
+# model_config: /path/to/model_config.yaml
+
+# ===== Session Configuration =====
+# Optional: Session settings for logging and identification
+# If not specified, session_id will be inferred from checkpoint directory name
+# session:
+#   id: my_experiment_session
+
+# ===== Prediction Settings =====
+predict:
+  # ----- Required Settings -----
+  # Path to input data for prediction (file or directory)
+  data_path: /path/to/prediction/data
+  
+  # ----- Data Format Settings -----
+  source_data_format: parquet              # Input data format: csv, parquet, etc.
+                                           # Use 'auto' for automatic detection
+  # data_format: auto                      # Alias for source_data_format
+
+  # ----- Identification Settings -----
+  key_column: user_id                      # Column name for passthrough key columns
+                                           # Will be included in prediction output
+  
+  # ----- Output Settings -----
+  name: pred                               # Output filename (without extension) or absolute path
+                                           # Filename -> {checkpoint_path}/predictions/{name}.{save_data_format}
+                                           # Absolute path -> saved directly (extension auto-added if missing)
+  save_data_format: csv                    # Output format: csv, parquet
+  # save_format: csv                       # Alias for save_data_format
+  preview_rows: 5                          # Number of output rows to preview in logs (0 to disable)
+  # Expand each row into multiple candidates before prediction
+  # expand:
+  #   custom_scenario_label_1: [product1, product2, product3]
+  #   custom_scenario_label_2: [app, h5]
+  
+  # ----- Performance Settings -----
+  batch_size: 20000                          # Batch size for inference
+                                           # Larger = faster but more memory
+  num_workers: 4                           # Number of parallel data loading workers
+                                           # 0 = single process, >0 = multiprocessing
+  # num_processes: 1                       # Number of inference processes for streaming
+                                           # If omitted, CLI auto-selects 1~5 based on system load
+                                           # >1 requires streaming=true and disables ONNX
+                                           # Each process loads its own model/data; memory usage increases linearly
+  device: cpu                              # Computation device:
+                                           # - 'cpu': CPU computation
+                                           # - 'cuda': NVIDIA GPU
+                                           # - 'cuda:0', 'cuda:1': specific GPU
+                                           # - 'mps': Apple Silicon GPU (M1/M2)
+
+  # ----- ONNX Inference Settings -----
+  use_onnx: false                          # Enable ONNX inference
+  # onnx_path: /path/to/model.onnx         # Optional ONNX model path (overrides auto-detect)
+  
+  # ----- Memory Management Settings -----
+  streaming: true                          # Enable streaming for large datasets
+                                           # true: stream from disk, lower RAM usage
+                                           # false: load entire dataset into memory
+  chunk_size: 20000                        # Chunk size for streaming mode (when streaming=true)
+                                           # Adjust based on available memory
+  # prefetch_factor: 2                     # DataLoader prefetch factor (only when num_workers>0)
+  # profile: false                         # Enable timing profiler for prediction stages
+
+# ===== Usage Example =====
+# Run prediction with this config:
+# nextrec --mode predict --predict_config /path/to/this/predict_config.yaml

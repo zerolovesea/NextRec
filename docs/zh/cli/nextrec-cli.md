@@ -50,8 +50,8 @@ data:
   target:
     - label_apply
     - label_credit
-  # 用户/样本ID列名称                                                             
-  id_column: phone
+  # 分组指标使用的用户/样本分组列
+  group_id: phone
   # 验证集比例，也可以在valid_path下直配置验证集数据路径
   valid_ratio: 0.2
   # valid_path
@@ -238,8 +238,8 @@ predict:
   data_path: /path/to/your/data
   # 数据集格式
   source_data_format: csv
-  # 推理集的id列
-  id_column: phone
+  # 推理结果中需要透传的 key 列
+  key_column: phone
   # 推理结果文件名
   # 结果文件将保存至{checkpoint_path}/predictions/{name}.{save_data_format}
   name: pred 
@@ -290,7 +290,8 @@ evaluate:
   data_path: /path/to/your/data
   # 验证集数据格式
   source_data_format: csv                 
-  id_column: user_id                    
+  key_column: user_id
+  group_id: user_id
   # 按自定义的场景列进行分组评估，可填单列
   group_by: custom_col
   # 目标列
@@ -320,7 +321,7 @@ evaluate:
 - `evaluate.group_by` 用于按列分组统计指标，例如 `custom_col=custom_class_1/custom_class_2/...`。
 - 配置后会同时输出整体指标和分组指标。
 - 分组结果会保存到 `{checkpoint_path}/evaluate/{name}/metrics_by.csv` 与 `metrics_by.json`。
-- `gauc` 等依赖 `id_column` 的指标仍然使用 `id_column` 作为用户 ID，`group_by` 只负责切分统计口径。
+- `gauc` 等依赖分组的指标使用 `group_id` 作为用户 ID，`key_column` 只负责结果透传，`group_by` 只负责切分统计口径。
 
 ## 下一步
 

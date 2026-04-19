@@ -10,7 +10,7 @@ import torch
 from typing import Literal
 
 from nextrec.utils.embedding import get_auto_embedding_dim
-from nextrec.utils.torch_utils import normalize_string_list
+from nextrec.utils.torch_utils import to_list
 from nextrec.utils.types import EmbeddingInitType, SequenceCombinerType
 
 
@@ -31,8 +31,6 @@ class EmbeddingFeature(BaseFeature):
         padding_idx: int = 0,
         init_type: EmbeddingInitType = "normal",
         init_params: dict | None = None,
-        l1_reg: float = 0.0,
-        l2_reg: float = 0.0,
         trainable: bool = True,
         pretrained_weight: torch.Tensor | None = None,
     ):
@@ -44,8 +42,6 @@ class EmbeddingFeature(BaseFeature):
         self.init_type = init_type
         self.init_params = init_params or {}
         self.padding_idx = padding_idx
-        self.l1_reg = l1_reg
-        self.l2_reg = l2_reg
         self.trainable = trainable
         self.pretrained_weight = pretrained_weight
 
@@ -63,8 +59,6 @@ class SequenceFeature(EmbeddingFeature):
         padding_idx: int = 0,
         init_type: EmbeddingInitType = "normal",
         init_params: dict | None = None,
-        l1_reg: float = 0.0,
-        l2_reg: float = 0.0,
         trainable: bool = True,
         pretrained_weight: torch.Tensor | None = None,
     ):
@@ -81,8 +75,6 @@ class SequenceFeature(EmbeddingFeature):
             padding_idx: Index used for padding tokens.
             init_type: Embedding initializer type.
             init_params: Initializer parameters.
-            l1_reg: L1 regularization weight on embedding.
-            l2_reg: L2 regularization weight on embedding.
             trainable: Whether the embedding is trainable. [TODO] This is for representation learning.
             pretrained_weight: Optional pretrained embedding weights. [TODO] This is for representation learning.
         """
@@ -94,8 +86,6 @@ class SequenceFeature(EmbeddingFeature):
             padding_idx=padding_idx,
             init_type=init_type,
             init_params=init_params,
-            l1_reg=l1_reg,
-            l2_reg=l2_reg,
             trainable=trainable,
             pretrained_weight=pretrained_weight,
         )
@@ -114,8 +104,6 @@ class SparseFeature(EmbeddingFeature):
         padding_idx: int = 0,
         init_type: EmbeddingInitType = "normal",
         init_params: dict | None = None,
-        l1_reg: float = 0.0,
-        l2_reg: float = 0.0,
         trainable: bool = True,
         pretrained_weight: torch.Tensor | None = None,
     ):
@@ -130,8 +118,6 @@ class SparseFeature(EmbeddingFeature):
             padding_idx: Index used for padding tokens.
             init_type: Embedding initializer type.
             init_params: Initializer parameters.
-            l1_reg: L1 regularization weight on embedding.
-            l2_reg: L2 regularization weight on embedding.
             trainable: Whether the embedding is trainable.
             pretrained_weight: Optional pretrained embedding weights.
         """
@@ -143,8 +129,6 @@ class SparseFeature(EmbeddingFeature):
             padding_idx=padding_idx,
             init_type=init_type,
             init_params=init_params,
-            l1_reg=l1_reg,
-            l2_reg=l2_reg,
             trainable=trainable,
             pretrained_weight=pretrained_weight,
         )
@@ -218,7 +202,7 @@ class FeatureSet:
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: str | list[str] | None = None,
-        id_columns: str | list[str] | None = None,
+        key_columns: str | list[str] | None = None,
     ):
         self.dense_features = list(dense_features) if dense_features else []
         self.sparse_features = list(sparse_features) if sparse_features else []
@@ -226,13 +210,14 @@ class FeatureSet:
 
         self.all_features = self.dense_features + self.sparse_features + self.sequence_features
         self.feature_names = [feat.name for feat in self.all_features]
-        self.target_columns = normalize_string_list(target)
-        self.id_columns = normalize_string_list(id_columns)
+        self.feature_scopes = {feat.name: "shared" for feat in self.all_features}
+        self.target_columns = to_list(target)
+        self.key_columns = to_list(key_columns)
 
-    def set_target_id(
+    def set_target_keys(
         self,
         target: str | list[str] | None = None,
-        id_columns: str | list[str] | None = None,
+        key_columns: str | list[str] | None = None,
     ) -> None:
-        self.target_columns = normalize_string_list(target)
-        self.id_columns = normalize_string_list(id_columns)
+        self.target_columns = to_list(target)
+        self.key_columns = to_list(key_columns)

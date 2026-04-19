@@ -4,8 +4,9 @@ from nextrec.basic.features import DenseFeature
 from nextrec.models.pretrain import BasePretrainModel, RQVAE
 
 
-def test_pretrain_import_and_forward(device):
+def test_pretrain_import_and_forward(device, monkeypatch):
     assert BasePretrainModel is not None
+    monkeypatch.setattr(RQVAE, "default_task", "regression", raising=False)
 
     model = RQVAE(
         input_dim=4,

@@ -77,7 +77,7 @@ model.fit(
 )
 ```
 
-- `metrics` supports `auc`/`logloss`/`accuracy`/`gauc`; when using GAUC, pass `user_id_column="user_id"`.
+- `metrics` supports `auc`/`logloss`/`accuracy`/`gauc`; when using GAUC or ranking@K metrics, pass `group_id="user_id"`.
 - Training uses early stopping and saves best weights/config/logs under `nextrec_logs/movielens_deepfm`.
 
 ## 4. Inference & Evaluation
@@ -93,7 +93,7 @@ metrics = model.evaluate(
     valid_df,
     metrics=["auc", "gauc", "logloss"],
     batch_size=512,
-    user_id_column="user_id",  # only needed for GAUC
+    group_id="user_id",  # required for GAUC / ranking@K metrics
 )
 ```
 
@@ -103,7 +103,7 @@ metrics = model.evaluate(
 ## 5. More Examples & Notebooks
 
 - Ranking: `tutorials/example_ranking_din.py` (e-commerce DIN), `tutorials/movielen_ranking_deepfm.py`
-- Retrieval: `tutorials/movielen_retrieval_dssm.py`
+- Retrieval: `tutorials/movielen_matching_dssm.py`
 - Multi-task: `tutorials/example_multitask.py`
 - Notebooks: `tutorials/notebooks/zh/Hands on nextrec.ipynb`, `tutorials/notebooks/zh/Hands on dataprocessor.ipynb`
 

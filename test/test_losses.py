@@ -2,7 +2,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from nextrec.basic.model import BaseModel
+from nextrec.engine.model import Model as BaseModel
 from nextrec.loss.listwise import ListNetLoss, SampledSoftmaxLoss
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.loss.pointwise import (
@@ -10,7 +10,7 @@ from nextrec.loss.pointwise import (
     FocalLoss,
     WeightedBCELoss,
 )
-from nextrec.utils.loss import get_loss_fn, normalize_loss_list
+from nextrec.utils.loss import get_loss_fn, get_loss_list, scale_task_loss
 from nextrec.utils.model import compute_ranking_loss
 
 
@@ -85,6 +85,12 @@ def test_sampled_softmax_shapes():
     assert loss.item() > 0
 
 
+def test_scale_task_loss_uses_valid_ratio():
+    task_loss = torch.tensor(4.0)
+    scaled = scale_task_loss(task_loss, valid_count=3, total_count=6)
+    assert torch.allclose(scaled, torch.tensor(2.0))
+
+
 def test_get_loss_fn_routes_pairwise():
     loss_fn = get_loss_fn(loss="bpr")
     assert isinstance(loss_fn, BPRLoss)
@@ -111,6 +117,10 @@ class _DummyBinaryModel(BaseModel):  # type: ignore[misc]
         return "DummyBinary"
 
     @property
+    def model_family(self) -> str:
+        return "ranking"
+
+    @property
     def default_task(self) -> str:
         return "binary"
 
@@ -132,6 +142,10 @@ class _DummyMultiTaskModel(BaseModel):  # type: ignore[misc]
     @property
     def model_name(self) -> str:
         return "DummyMultiTask"
+
+    @property
+    def model_family(self) -> str:
+        return "multitask"
 
     @property
     def default_task(self) -> list[str]:
@@ -157,6 +171,10 @@ class _DummyPairwiseModel(BaseModel):  # type: ignore[misc]
         return "DummyPairwise"
 
     @property
+    def model_family(self) -> str:
+        return "ranking"
+
+    @property
     def default_task(self) -> str:
         return "binary"
 
@@ -179,6 +197,10 @@ class _DummyGenerativeModel(BaseModel):  # type: ignore[misc]
     @property
     def model_name(self) -> str:
         return "DummyGenerative"
+
+    @property
+    def model_family(self) -> str:
+        return "ranking"
 
     @property
     def default_task(self) -> str:
@@ -223,17 +245,15 @@ def test_multitask_loss_ignores_negative_labels():
     assert torch.allclose(loss, expected)
 
 
-def test_multitask_loss_skips_fully_missing_task():
+def test_multitask_loss_rejects_fully_missing_task():
     model = _DummyMultiTaskModel()
     model.compile(loss="bce")
 
     y_pred = torch.tensor([[0.6, 0.3], [0.2, 0.9]])
     y_true = torch.tensor([[1.0, -1.0], [0.0, -1.0]])
 
-    loss = model.compute_loss(y_pred, y_true)
-
-    task1_loss = model.loss_fn[0](y_pred[:, 0:1], y_true[:, 0:1])
-    assert torch.allclose(loss, task1_loss)
+    with pytest.raises(ValueError, match="Task 1 has no valid labels after ignore_label filtering"):
+        model.compute_loss(y_pred, y_true)
 
 
 def test_single_task_pairwise_loss_uses_full_candidate_list():
@@ -264,11 +284,11 @@ def test_single_task_pairwise_loss_uses_full_candidate_list():
     assert torch.allclose(loss, expected)
 
 
-def test_generative_retrieval_head_accepts_vocab_logits_in_format_model_output():
+def test_generative_matching_head_accepts_vocab_logits_in_adapt_output():
     model = _DummyGenerativeModel()
     logits = torch.tensor([[2.0, 0.5, -1.0, 1.2]])
 
-    output = model.training_adapter.format_model_output(model, logits)
+    output = model.training_adapter.adapt_output(model, logits)
 
     assert torch.equal(output, logits)
 
@@ -291,29 +311,29 @@ def test_single_task_generative_cross_entropy_uses_class_ids():
     assert torch.allclose(loss, expected)
 
 
-def test_normalize_loss_list_requires_explicit_loss():
+def test_get_loss_list_requires_explicit_loss():
     with pytest.raises(ValueError, match="provided explicitly"):
-        normalize_loss_list(
+        get_loss_list(
             loss=None,
-            training_modes=["pointwise", "pairwise", "listwise"],
+            training_mode="pointwise",
             num_tasks=3,
         )
 
 
-def test_normalize_loss_list_rejects_bce_for_ranking_modes():
+def test_get_loss_list_rejects_bce_for_ranking_modes():
     with pytest.raises(ValueError, match="not valid for training_mode='pairwise'"):
-        normalize_loss_list(
+        get_loss_list(
             loss="bce",
-            training_modes=["pairwise", "listwise"],
+            training_mode="pairwise",
             num_tasks=2,
         )
 
 
-def test_normalize_loss_list_rejects_short_loss_lists():
+def test_get_loss_list_rejects_short_loss_lists():
     with pytest.raises(ValueError, match="must match num_tasks"):
-        normalize_loss_list(
+        get_loss_list(
             loss=["bce", "bpr"],
-            training_modes=["pointwise", "pairwise", "listwise"],
+            training_mode="pointwise",
             num_tasks=3,
         )
 

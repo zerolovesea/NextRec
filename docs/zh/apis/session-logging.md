@@ -62,5 +62,3 @@ Wandb和SwanLab是在线训练日志平台，支持将实时的训练指标和�
 
 ## 下一步
 
-- [分布式训练](./distributed-training.md) - 了解使用NextRec进行分布式训练
-

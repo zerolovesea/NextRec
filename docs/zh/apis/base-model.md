@@ -5,7 +5,7 @@ description: BaseModel 的初始化、compile、fit、evaluate/predict 的完整
 
 # 基类模型的生命周期
 
-NextRec里几乎所有模型都继承自基类模型（`nextrec.basic.model.BaseModel`），它封装了模型训练/评估/推理等通用方法。要构建一个推荐算法模型，需要经过**初始化模型，模型定义，编译，训练，验证，推理环节**。
+NextRec里几乎所有模型都继承自基类模型（`nextrec.engine.model.Model`），它封装了模型训练/评估/推理等通用方法。要构建一个推荐算法模型，需要经过**初始化模型，模型定义，编译，训练，验证，推理环节**。
 
 
 ## 初始化
@@ -50,7 +50,7 @@ model = DeepFM(
 | `sparse_features` | 稀疏特征列表 List[SparseFeature] |
 | `sequence_features` | 序列特征列表 List[SequenceFeature] |
 | `target` | 目标列名，如 `"click"` 或 `["click", "buy"]`（多任务） |
-| `id_columns` | 用于计算 GAUC 或推理时透传的 ID 列 |
+| `key_columns` | 用于透传、分组或输出的 key 列 |
 | `task` | 任务类型：`"binary"`、`"regression"`|
 | `training_mode` | 训练模式：`"pointwise"`、`"pairwise"`、`"listwise"` |
 | `sampling_mode` | 采样方式：`"explicit"`、`"inbatch"` |
@@ -60,11 +60,6 @@ model = DeepFM(
 | `dense_l2_reg` | 密集向量参数 L2 正则化强度，如 `1e-4` |
 | `device` | 计算设备：`"cpu"`、`"cuda:0"`、`"mps"` |
 | `session_id` | 实验会话名，用于日志管理 |
-| `distributed` | **[无需主动设置]** 是否启用 DistributedDataParallel |
-| `rank` | **[无需主动设置]** 全局排名，默认从环境变量 `RANK` 获取 |
-| `world_size` | **[无需主动设置]** 进程数，默认从环境变量 `WORLD_SIZE` 获取 |
-| `local_rank` | **[无需主动设置]** 本地设备的RANK |
-| `ddp_find_unused_parameters` | **[无需主动设置]** DDP 模型中是否存在未使用参数 |
 
 ## 训练模式与采样方式
 
@@ -194,7 +189,7 @@ model.fit(
     epochs=10,
     batch_size=256,
     metrics=["auc", "gauc", "logloss"],
-    user_id_column="user_id",
+    group_id="user_id",
     early_stop_patience=5,
     early_stop_monitor_task="click"
 )
@@ -219,7 +214,7 @@ model.fit(
 | `epochs` | 训练轮数 |
 | `shuffle` | 是否打乱训练数据 |
 | `batch_size` | 批次大小 |
-| `user_id_column` | GAUC 计算所需的用户 ID 列 |
+| `group_id` | GAUC / ranking@K 计算所需的分组列 |
 | `valid_split` | 当未输入valid_data时，从train_data进行划分出验证集的比例，如 `0.1` |
 | `split_stratify_by` | 根据某个类别/标签的分布切分，保证训练验证集里该类别/标签分布一致 |
 | `split_group_by` | 按比例分配训练验证集的样本，保证一个同一个group的样本统一落在同一侧 |
@@ -233,7 +228,6 @@ model.fit(
 | `swanlab_api` | SwanLab API 密钥 |
 | `wandb_kwargs` | wandb.init 的额外参数 |
 | `swanlab_kwargs` | swanlab.init 的额外参数，例如`{"project": "nextrec", "name": nextrec_model}` |
-| `auto_ddp_sampler` | **[无需主动设置]** 自动附加 DistributedSampler |
 | `log_interval` | 每 N 轮记录验证指标 |
 | `note` | 训练运行的备注 |
 | `summary_sections` | 打印的摘要部分，如 `["feature", "model", "train", "data"]` |
@@ -273,7 +267,7 @@ print(metrics)  # {'auc': 0.8532, 'logloss': 0.3421}
 metrics = model.evaluate(
     valid_df,
     metrics=["auc", "gauc", "logloss", "precision@10"],
-    user_id_column="user_id"
+    group_id="user_id"
 )
 
 # 多任务评估
@@ -302,8 +296,8 @@ print(metrics["grouped"])
 | `data` | 评估数据：DataFrame / Dict / DataLoader |
 | `metrics` | 指标名称，如 `['auc', 'logloss']` |
 | `batch_size` | 批次大小 |
-| `user_ids` | GAUC 计算的用户 ID 列名 |
-| `user_id_column` | 用户 ID 列名 |
+| `group_ids` | 直接传入的分组 ID 数组 |
+| `group_id` | 分组列名 |
 | `group_by` | 按列分组评估，可传单列或列名列表 |
 | `num_workers` | Pytorch DataLoader 进程数，提高以加速数据加载 |
 | `thresholds` | 二分类任务的阈值 |
@@ -360,14 +354,12 @@ onnx_path = model.export_onnx(
     batch_size=1
 )
 
-# 使用 ONNX 推理
-import nextrec.utils.onnx as onnx
-
-predictions = onnx.predict_onnx(
-    onnx_path="./model.onnx",
-    data=test_df,
+# 使用 ONNX 后端推理
+predictions = model.predict(
+    test_df,
     batch_size=512,
-    return_dataframe=True
+    return_dataframe=True,
+    inference_model="./model.onnx",
 )
 ```
 

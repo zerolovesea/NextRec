@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.7-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.8-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 English | [中文文档](README.md)
@@ -47,7 +47,7 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 - **03/02/2026** In v0.5.3, we introduced the NextRec Studio front-end project as a companion tool for the NextRec CLI, and provided a related [tutorial](nextrec_studio/README_en.md).
 - **28/01/2026** Added support for ONNX export and loading in v0.4.39, and significantly accelerated data preprocessing speed (up to 9x speedup)
-- **01/01/2026** Happy New Year! In v0.4.27, added support for multiple multi-task models: [APG](/nextrec/models/multi_task/apg.py), [ESCM](/nextrec/models/multi_task/escm.py), [HMoE](/nextrec/models/multi_task/hmoe.py), [Cross Stitch](/nextrec/models/multi_task/cross_stitch.py)
+- **01/01/2026** Happy New Year! In v0.4.27, added support for multiple multi-task models: [APG](/nextrec/models/multitask/apg.py), [ESCM](/nextrec/models/multitask/escm.py), [HMoE](/nextrec/models/multitask/hmoe.py), [Cross Stitch](/nextrec/models/multitask/cross_stitch.py)
 - **21/12/2025** Added support for [GradNorm](/nextrec/loss/grad_norm.py) in v0.4.16, configurable via `loss_weight='grad_norm'` in the compile method
 - **12/12/2025** Added [RQ-VAE](/nextrec/models/pretrain/rqvae.py), a common module for generative recommendation in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html) and [reference code](/nextrec_cli_preset).
@@ -94,14 +94,14 @@ See `tutorials/` for examples covering ranking, match, multi-task learning, and 
 - [movielen_ranking_deepfm.py](/tutorials/movielen_ranking_deepfm.py) — DeepFM training on MovieLens 100k dataset
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) — DIN Deep Interest Network training on e-commerce dataset
 - [example_multitask.py](/tutorials/example_multitask.py) — ESMM multi-task learning training on e-commerce dataset
-- [movielen_retrieval_dssm.py](/tutorials/movielen_retrieval_dssm.py) — DSSM retrieval model training on MovieLens 100k dataset
+- [movielen_matching_dssm.py](/tutorials/movielen_matching_dssm.py) — DSSM retrieval model training on MovieLens 100k dataset
 
 - [example_onnx.py](/tutorials/example_onnx.py) — Train and export models to ONNX format with NextRec
 - [example_distributed_training.py](/tutorials/distributed/example_distributed_training.py) — Single-machine multi-GPU training with NextRec
 
 - [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) — Quickly validate availability of all ranking models
 - [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) — Quickly validate availability of all multi-task models
-- [run_all_retrieval_models.py](/tutorials/run_all_retrieval_models.py) — Quickly validate availability of all retrieval models
+- [run_all_matching_models.py](/tutorials/run_all_matching_models.py) — Quickly validate availability of all retrieval models
 
 To dive deeper into NextRec framework details, Jupyter notebooks are available:
 
@@ -185,7 +185,7 @@ model.fit(
     epochs=3,
     batch_size=512,
     shuffle=True,
-    user_id_column='user_id',            # used for GAUC
+    group_id='user_id',                  # group key for GAUC / ranking@K
     valid_split=0.2,                     # auto split validation (optional)
     num_workers=4,                       # DataLoader workers
     use_wandb=False,                     # enable W&B (optional)
@@ -199,7 +199,7 @@ metrics = model.evaluate(
     df,
     metrics=['auc', 'gauc', 'logloss'],
     batch_size=512,
-    user_id_column='user_id'
+    group_id='user_id'
 )
 ```
 
@@ -222,11 +222,9 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_data_format}`.
 
-> As of version 0.6.7, NextRec CLI supports single-machine training; distributed training features are currently under development.
-
 ## Platform Compatibility
 
-The current version is 0.6.7. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.6.8. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -265,11 +263,11 @@ The current version is 0.6.7. All models and test code have been validated on th
 
 | Model | Paper | Status |
 | ------- | ------- | -------- |
-| [DSSM](nextrec/models/retrieval/dssm.py) | Learning deep structured semantic models for web search using clickthrough data | Supported |
-| [DSSM v2](nextrec/models/retrieval/dssm_v2.py) | DSSM v2 - DSSM with pairwise training using BPR loss | Supported |
-| [YouTube DNN](nextrec/models/retrieval/youtube_dnn.py) | Deep neural networks for youtube recommendations | Supported |
-| [MIND](nextrec/models/retrieval/mind.py) | Multi-interest network with dynamic routing for recommendation at Tmall | Supported |
-| [SDM](nextrec/models/retrieval/sdm.py) | Sequential recommender system based on hierarchical attention networks | Supported |
+| [DSSM](nextrec/models/matching/dssm.py) | Learning deep structured semantic models for web search using clickthrough data | Supported |
+| [DSSM v2](nextrec/models/matching/dssm_v2.py) | DSSM v2 - DSSM with pairwise training using BPR loss | Supported |
+| [YouTube DNN](nextrec/models/matching/youtube_dnn.py) | Deep neural networks for youtube recommendations | Supported |
+| [MIND](nextrec/models/matching/mind.py) | Multi-interest network with dynamic routing for recommendation at Tmall | Supported |
+| [SDM](nextrec/models/matching/sdm.py) | Sequential recommender system based on hierarchical attention networks | Supported |
 
 ### Sequential Recommendation Models
 
@@ -282,25 +280,17 @@ The current version is 0.6.7. All models and test code have been validated on th
 
 | Model | Paper | Status |
 | ------- | ------- | -------- |
-| [MMOE](nextrec/models/multi_task/mmoe.py) | Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts | Supported |
-| [PLE](nextrec/models/multi_task/ple.py) | Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations | Supported |
-| [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate | Supported |
-| [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | Supported |
-| [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold Start Modules for Large-scale Recommender Systems | Supported |
-| [PEPNet](nextrec/models/multi_task/pepnet.py) | PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information | Supported |
-| [APG](nextrec/models/multi_task/apg.py) | APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction | Supported |
-| [CrossStitch](nextrec/models/multi_task/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | Supported |
-| [HMOE](nextrec/models/multi_task/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | Supported |
-| [SNRTrans](nextrec/models/multi_task/snr_trans.py) | SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space | Supported |
-| [AITM](nextrec/models/multi_task/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | Supported |
-
-### Tree-based Models
-
-| Model | Notes | Status |
-| ------- | ------- | -------- |
-| [XGBoost](nextrec/models/tree_base/xgboost.py) | Adapter (requires `xgboost`) | Supported |
-| [LightGBM](nextrec/models/tree_base/lightgbm.py) | Adapter (requires `lightgbm`) | Supported |
-| [CatBoost](nextrec/models/tree_base/catboost.py) | Adapter (requires `catboost`) | Supported |
+| [MMOE](nextrec/models/multitask/mmoe.py) | Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts | Supported |
+| [PLE](nextrec/models/multitask/ple.py) | Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations | Supported |
+| [ESMM](nextrec/models/multitask/esmm.py) | Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate | Supported |
+| [ShareBottom](nextrec/models/multitask/share_bottom.py) | Multitask Learning | Supported |
+| [POSO](nextrec/models/multitask/poso.py) | POSO: Personalized Cold Start Modules for Large-scale Recommender Systems | Supported |
+| [PEPNet](nextrec/models/multitask/pepnet.py) | PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information | Supported |
+| [APG](nextrec/models/multitask/apg.py) | APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction | Supported |
+| [CrossStitch](nextrec/models/multitask/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | Supported |
+| [HMOE](nextrec/models/multitask/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | Supported |
+| [SNRTrans](nextrec/models/multitask/snr_trans.py) | SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space | Supported |
+| [AITM](nextrec/models/multitask/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | Supported |
 
 ### Generative Models
 

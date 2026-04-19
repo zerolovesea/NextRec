@@ -307,14 +307,12 @@ print(f"ONNX 模型已保存到: {onnx_path}")
 ### 7.2 使用 ONNX 推理
 
 ```python
-import nextrec.utils.onnx as onnx
-
-# 使用 ONNX 模型推理
-onnx_predictions = onnx.predict_onnx(
-    onnx_path="./deepfm_movielens.onnx",
-    data=valid_df,
+# 使用 ONNX 后端推理
+onnx_predictions = model.predict(
+    valid_df,
     batch_size=512,
-    return_dataframe=True
+    return_dataframe=True,
+    inference_model="./deepfm_movielens.onnx",
 )
 
 print(f"ONNX 预测结果:\n{onnx_predictions.head()}")
@@ -325,7 +323,7 @@ print(f"ONNX 预测结果:\n{onnx_predictions.head()}")
 ```python
 # 对比两种方式的预测结果
 torch_pred = model.predict(valid_df.iloc[0:100])
-onnx_pred = onnx.predict_onnx(onnx_path, valid_df.iloc[0:100])
+onnx_pred = model.predict(valid_df.iloc[0:100], inference_model=onnx_path)
 
 # 计算差异
 diff = np.abs(torch_pred['rating'] - onnx_pred['rating'].values)

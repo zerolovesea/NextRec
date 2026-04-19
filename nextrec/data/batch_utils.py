@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 
-def stack_section(batch: list[dict], section: Literal["features", "labels", "ids"]):
+def stack_section(batch: list[dict], section: Literal["features", "labels", "keys"]):
     """
     input example:
     batch = [
@@ -49,14 +49,14 @@ def collate_fn(batch):
     {
         "features": {name: Tensor(B, ...)},
         "labels": {target: Tensor(B, ...)} or None,
-        "ids": {id_name: Tensor(B, ...)} or None,
+        "keys": {key_name: Tensor(B, ...)} or None,
     }
     Args: batch: List of samples from DataLoader
 
     Returns: dict: Batched data in unified format
     """
     if not batch:
-        return {"features": {}, "labels": None, "ids": None}
+        return {"features": {}, "labels": None, "keys": None, "schema": None}
 
     first = batch[0]
     if isinstance(first, dict) and "features" in first:
@@ -65,12 +65,14 @@ def collate_fn(batch):
             return {
                 "features": first.get("features", {}),
                 "labels": first.get("labels"),
-                "ids": first.get("ids"),
+                "keys": first.get("keys"),
+                "schema": first.get("schema"),
             }
         return {
             "features": stack_section(batch, "features") or {},
             "labels": stack_section(batch, "labels"),
-            "ids": stack_section(batch, "ids"),
+            "keys": stack_section(batch, "keys"),
+            "schema": first.get("schema"),
         }
 
     # Fallback: stack tuples/lists of tensors
@@ -102,5 +104,6 @@ def batch_to_dict(batch_data: Any, include_ids: bool = True) -> dict:
     return {
         "features": batch_data.get("features", {}),
         "labels": batch_data.get("labels"),
-        "ids": batch_data.get("ids") if include_ids else None,
+        "keys": batch_data.get("keys") if include_ids else None,
+        "schema": batch_data.get("schema"),
     }

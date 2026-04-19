@@ -31,11 +31,11 @@ LR 是 CTR/排序任务中最经典的线性基线模型。它将稠密、稀疏
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import EmbeddingLayer, LR as LinearLayer
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
-class LR(BaseModel):
+class LR(BaseRankingModel):
     @property
     def model_name(self):
         return "LR"

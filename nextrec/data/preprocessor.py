@@ -32,7 +32,7 @@ from nextrec.basic.loggers import colorize
 from nextrec.basic.session import get_save_path
 from nextrec.utils.console import progress
 from nextrec.utils.data import (
-    resolve_file_paths,
+    get_file_paths,
 )
 
 
@@ -63,7 +63,7 @@ class DataProcessor(FeatureSet):
         self.scalers = {}
         self.label_encoders = {}
         self.target_encoders = {}
-        self.set_target_id(target=[], id_columns=[])
+        self.set_target_keys(target=[], key_columns=[])
 
         # cache hash function
         self.hash_cache_size = int(hash_cache_size)
@@ -327,7 +327,7 @@ class DataProcessor(FeatureSet):
             "target_type": target_type,
             "label_map": label_map,
         }
-        self.set_target_id(list(self.target_features.keys()), [])
+        self.set_target_keys(list(self.target_features.keys()), [])
 
     @staticmethod
     def hash_string(value: str, hash_size: int) -> int:
@@ -825,7 +825,7 @@ class DataProcessor(FeatureSet):
             config.pop("_min_freq_logged", None)
         for config in self.sequence_features.values():
             config.pop("_min_freq_logged", None)
-        file_paths, file_type = resolve_file_paths(path)
+        file_paths, file_type = get_file_paths(path)
         return self.fit_from_files(file_paths=file_paths, file_type=file_type)
 
     def transform_in_memory(
@@ -905,7 +905,7 @@ class DataProcessor(FeatureSet):
     ):
         """Transform data from files under a path and save them using polars lazy pipeline."""
         logger = logging.getLogger()
-        file_paths, file_type = resolve_file_paths(input_path)
+        file_paths, file_type = get_file_paths(input_path)
         target_format = save_format or file_type
         if target_format not in {"csv", "parquet"}:
             raise ValueError(f"Format '{target_format}' is not supported by the polars-only pipeline.")

@@ -69,7 +69,7 @@ import numpy as np
 import torch
 
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-from nextrec.models.retrieval.dssm import DSSM
+from nextrec.models.matching.dssm import DSSM
 from nextrec.data.preprocessor import DataProcessor
 ```
 
@@ -279,7 +279,7 @@ import pandas as pd
 import numpy as np
 
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-from nextrec.models.retrieval.dssm import DSSM
+from nextrec.models.matching.dssm import DSSM
 from nextrec.data.preprocessor import DataProcessor
 
 # ========== 1. 数据准备 ==========
@@ -386,7 +386,7 @@ print(f"Recall@10: {metrics['recall@10']:.4f}")
 适合视频推荐的经典双塔模型：
 
 ```python
-from nextrec.models.retrieval.youtube_dnn import YoutubeDNN
+from nextrec.models.matching.youtube_dnn import YoutubeDNN
 
 model = YoutubeDNN(
     user_features=...,
@@ -401,7 +401,7 @@ model = YoutubeDNN(
 多兴趣召回模型，适合用户有多个兴趣点：
 
 ```python
-from nextrec.models.retrieval.mind import MIND
+from nextrec.models.matching.mind import MIND
 
 model = MIND(
     user_features=...,

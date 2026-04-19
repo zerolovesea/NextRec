@@ -36,7 +36,7 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-from nextrec.utils.torch_utils import as_float, normalize_string_list
+from nextrec.utils.torch_utils import to_float, to_list
 
 T = TypeVar("T")
 
@@ -240,7 +240,7 @@ def group_metrics_by_task(
     targets_by_len = sorted(target_names, key=len, reverse=True)
     grouped: dict[str, dict[str, float]] = {}
     for key, raw_value in metrics.items():
-        value = as_float(raw_value)
+        value = to_float(raw_value)
         if value is None:
             continue
 
@@ -275,13 +275,9 @@ def display_metrics_table(
     metrics: Mapping[str, Any] | None,
     target_names: list[str] | str | None,
     base_metrics: list[str] | None = None,
-    is_main_process: bool = True,
     colorize: Callable[[str], str] | None = None,
 ) -> None:
-    if not is_main_process:
-        return
-
-    target_list = normalize_string_list(target_names)
+    target_list = to_list(target_names)
     task_order, grouped = group_metrics_by_task(metrics, target_names=target_names)
 
     if isinstance(loss, np.ndarray) and target_list:
@@ -319,7 +315,7 @@ def display_metrics_table(
             if task_strs:
                 segments.append(", ".join(task_strs))
         elif metrics:
-            metric_str = ", ".join(f"{k}={float(v):.4f}" for k, v in metrics.items() if as_float(v) is not None)
+            metric_str = ", ".join(f"{k}={float(v):.4f}" for k, v in metrics.items() if to_float(v) is not None)
             if metric_str:
                 segments.append(metric_str)
         if not segments:

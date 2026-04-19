@@ -99,11 +99,11 @@ GAUC 按用户分组计算 AUC，更适合推荐系统的评估场景。
 ### 使用方法
 
 ```python
-# 需要指定 user_id_column
+# 需要指定 group_id
 metrics = model.evaluate(
     valid_df,
     metrics=["auc", "gauc"],
-    user_id_column="user_id"
+  group_id="user_id"
 )
 
 # {'auc': 0.85, 'gauc': 0.82}
@@ -117,15 +117,15 @@ train:
   metrics:
     - auc
     - gauc
-  user_id_column: user_id  # 或 id_column: user_id
+  group_id: user_id
 ```
 
 ### 注意事项
 
-如果不提供 `user_id_column`，`gauc` 会回退到普通 AUC 并打印警告：
+如果不提供 `group_id`，`gauc` 和 ranking@K 指标会直接报错：
 
 ```
-Warning: gauc requires user_id_column, falling back to AUC
+[BaseModel-evaluate Error] group_id must be specified when grouped metrics such as GAUC or ranking@K are enabled.
 ```
 
 ---
@@ -139,7 +139,7 @@ Warning: gauc requires user_id_column, falling back to AUC
 前 K 个推荐中正样本的比例：
 
 ```python
-metrics = model.evaluate(valid_df, metrics=["precision@10"], user_id_column="user_id")
+metrics = model.evaluate(valid_df, metrics=["precision@10"], group_id="user_id")
 # {'precision@10': 0.1234}
 ```
 
@@ -148,7 +148,7 @@ metrics = model.evaluate(valid_df, metrics=["precision@10"], user_id_column="use
 正样本被召回的比例：
 
 ```python
-metrics = model.evaluate(valid_df, metrics=["recall@10"], user_id_column="user_id")
+metrics = model.evaluate(valid_df, metrics=["recall@10"], group_id="user_id")
 # {'recall@10': 0.4567}
 ```
 
@@ -157,7 +157,7 @@ metrics = model.evaluate(valid_df, metrics=["recall@10"], user_id_column="user_i
 考虑排序位置的评估指标，越靠前越重要：
 
 ```python
-metrics = model.evaluate(valid_df, metrics=["ndcg@10"], user_id_column="user_id")
+metrics = model.evaluate(valid_df, metrics=["ndcg@10"], group_id="user_id")
 # {'ndcg@10': 0.5678}
 ```
 
@@ -166,7 +166,7 @@ metrics = model.evaluate(valid_df, metrics=["ndcg@10"], user_id_column="user_id"
 第一个正样本位置的倒数均值：
 
 ```python
-metrics = model.evaluate(valid_df, metrics=["mrr@10"], user_id_column="user_id")
+metrics = model.evaluate(valid_df, metrics=["mrr@10"], group_id="user_id")
 # {'mrr@10': 0.4567}
 ```
 
@@ -175,7 +175,7 @@ metrics = model.evaluate(valid_df, metrics=["mrr@10"], user_id_column="user_id")
 平均精确度的均值：
 
 ```python
-metrics = model.evaluate(valid_df, metrics=["map@10"], user_id_column="user_id")
+metrics = model.evaluate(valid_df, metrics=["map@10"], group_id="user_id")
 # {'map@10': 0.3456}
 ```
 
@@ -184,7 +184,7 @@ metrics = model.evaluate(valid_df, metrics=["map@10"], user_id_column="user_id")
 至少有一个正样本被推荐的覆盖率：
 
 ```python
-metrics = model.evaluate(valid_df, metrics=["hitrate@10"], user_id_column="user_id")
+metrics = model.evaluate(valid_df, metrics=["hitrate@10"], group_id="user_id")
 # {'hitrate@10': 0.6789}
 ```
 
@@ -195,13 +195,13 @@ metrics = model.evaluate(valid_df, metrics=["hitrate@10"], user_id_column="user_
 model.fit(train_df, metrics=["auc", "logloss"])
 
 # 带 GAUC
-model.fit(train_df, metrics=["auc", "gauc"], user_id_column="user_id")
+model.fit(train_df, metrics=["auc", "gauc"], group_id="user_id")
 
 # 完整配置
 metrics = model.evaluate(
     valid_df,
     metrics=["auc", "gauc", "logloss", "ks", "precision@10", "recall@10", "ndcg@10"],
-    user_id_column="user_id"
+  group_id="user_id"
 )
 ```
 
@@ -223,7 +223,7 @@ train:
 
 # 数据配置中指定 user_id
 data:
-  id_column: user_id
+  group_id: user_id
 ```
 
 ---
@@ -231,4 +231,3 @@ data:
 ## 下一步
 
 - [日志管理](./session-logging.md) - 完整的训练流程
-- [分布式训练](./distributed-training.md) - 实践指标配置

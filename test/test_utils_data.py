@@ -6,6 +6,7 @@ from pandas.testing import assert_frame_equal
 
 from nextrec.basic.features import DenseFeature, SparseFeature
 from nextrec.data.dataloader import RecDataLoader
+from nextrec.data.data_processing import to_column_names
 from nextrec.utils import data as data_utils
 
 
@@ -13,25 +14,25 @@ def _make_df():
     return pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
 
 
-def test_resolve_file_paths_file_and_dir(tmp_path):
+def test_get_file_paths_file_and_dir(tmp_path):
     csv_path = tmp_path / "data.csv"
     _make_df().to_csv(csv_path, index=False)
 
-    file_paths, file_type = data_utils.resolve_file_paths(str(csv_path))
+    file_paths, file_type = data_utils.get_file_paths(str(csv_path))
     assert file_paths == [str(csv_path)]
     assert file_type == "csv"
 
     (tmp_path / "a.csv").write_text("a\n1\n")
     (tmp_path / "b.csv").write_text("a\n2\n")
-    file_paths, file_type = data_utils.resolve_file_paths(str(tmp_path))
+    file_paths, file_type = data_utils.get_file_paths(str(tmp_path))
     assert file_type == "csv"
     assert file_paths == sorted(file_paths)
 
 
-def test_resolve_file_paths_parquet_and_errors(tmp_path):
+def test_get_file_paths_parquet_and_errors(tmp_path):
     parquet_path = tmp_path / "data.parquet"
     _make_df().to_parquet(parquet_path)
-    file_paths, file_type = data_utils.resolve_file_paths(str(parquet_path))
+    file_paths, file_type = data_utils.get_file_paths(str(parquet_path))
     assert file_paths == [str(parquet_path)]
     assert file_type == "parquet"
 
@@ -40,20 +41,20 @@ def test_resolve_file_paths_parquet_and_errors(tmp_path):
     (mixed_dir / "a.csv").write_text("a\n1\n")
     _make_df().to_parquet(mixed_dir / "b.parquet")
     with pytest.raises(ValueError):
-        data_utils.resolve_file_paths(str(mixed_dir))
+        data_utils.get_file_paths(str(mixed_dir))
 
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
     with pytest.raises(ValueError):
-        data_utils.resolve_file_paths(str(empty_dir))
+        data_utils.get_file_paths(str(empty_dir))
 
     with pytest.raises(ValueError):
-        data_utils.resolve_file_paths(str(tmp_path / "missing"))
+        data_utils.get_file_paths(str(tmp_path / "missing"))
 
     bad_ext = tmp_path / "data.json"
     bad_ext.write_text('{"a": 1}\n')
     with pytest.raises(ValueError):
-        data_utils.resolve_file_paths(str(bad_ext))
+        data_utils.get_file_paths(str(bad_ext))
 
 
 def test_read_table_csv_and_parquet(tmp_path):
@@ -106,6 +107,12 @@ def test_read_table_polars_engine(tmp_path):
     # Test default engine is polars
     pl_default = data_utils.read_table(csv_path, data_format="csv")
     assert isinstance(pl_default, pl.DataFrame)
+
+
+def test_to_column_names_handles_scalar_sequence_and_none():
+    assert to_column_names(None) == []
+    assert to_column_names("user_id") == ["user_id"]
+    assert to_column_names(("user_id", 2)) == ["user_id", "2"]
 
 
 def test_iter_file_chunks_csv_and_parquet(tmp_path):
@@ -223,18 +230,6 @@ def test_generate_multitask_data_shapes():
     assert {"click", "conversion", "ctcvr"}.issubset(df.columns)
 
 
-def test_generate_distributed_ranking_data():
-    df, dense, sparse, seq = data_utils.generate_distributed_ranking_data(
-        num_samples=5, num_users=10, num_items=11, seed=5
-    )
-    assert df.shape[0] == 5
-    assert len(dense) == 5
-    assert len(sparse) == 6
-    assert len(seq) == 2
-    sparse_names = {feat.name for feat in sparse}
-    assert {"gender", "age_group", "category", "city"}.issubset(sparse_names)
-
-
 def test_generate_synthetic_embeddings():
     item_ids, embeddings = data_utils.generate_synthetic_embeddings(num_samples=4, embedding_dim=3)
     assert item_ids.tolist() == [0, 1, 2, 3]
@@ -270,7 +265,7 @@ def test_streaming_single_csv_sharded_keeps_all_rows(tmp_path):
         dense_features=[DenseFeature(name="age", proj_dim=1)],
         sparse_features=[SparseFeature(name="user_id", vocab_size=500, embedding_dim=8)],
         target=["label"],
-        id_columns=["user_id"],
+        key_columns=["user_id"],
     )
 
     shard_ids = []
@@ -287,7 +282,7 @@ def test_streaming_single_csv_sharded_keeps_all_rows(tmp_path):
         )
         ids = []
         for batch in loader:
-            id_batch = batch["ids"]["user_id"]
+            id_batch = batch["keys"]["user_id"]
             ids.extend([int(x) for x in id_batch.tolist()])
         shard_ids.append(set(ids))
 

@@ -122,7 +122,7 @@ DeepFM(
       (6): Linear(in_features=128, out_features=1, bias=True)
     )
   )
-  (prediction_layer): TaskHead(
+  (head): TaskHead(
     (prediction): PredictionLayer()
   )
 )
@@ -134,7 +134,7 @@ Layer-wise Parameters:
   embedding                     : 37,040
   linear                        : 65
   mlp                           : 49,921
-  prediction_layer              : 1
+  head                          : 1
 
 Training Configuration
 --------------------------------------------------------------------------------

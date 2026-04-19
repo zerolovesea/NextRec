@@ -7,11 +7,13 @@ Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import copy
+import getpass
 import json
 import logging
 import numbers
 import os
 import re
+import socket
 import sys
 from typing import Any
 
@@ -420,19 +422,22 @@ class TrainingLogger(BasicLogger):
 
         super().__init__(session=session, log_name=log_name, backends=backends)
 
-    def init_tensorboard(self) -> None:
-        if self.tensorboard_logger and self.tensorboard_logger.enabled:
-            return
-        self.tensorboard_logger = TensorBoardLogger(session=self.session, enabled=True)
-        self.use_tensorboard = self.tensorboard_logger.enabled
-        self.tb_writer = self.tensorboard_logger.writer
-        self.tb_dir = self.tensorboard_logger.log_dir
-        if self.tensorboard_logger.enabled and self.tensorboard_logger not in self.backends:
-            self.backends.append(self.tensorboard_logger)
-
     @property
     def tensorboard_logdir(self):
         return self.tb_dir
+
+    def log_tensorboard_hint(self) -> None:
+        if not self.use_tensorboard or not self.tb_dir:
+            return
+        user = getpass.getuser()
+        host = socket.gethostname()
+        tb_cmd = f"tensorboard --logdir {self.tb_dir} --port 6006"
+        ssh_hint = f"ssh -L 6006:localhost:6006 {user}@{host}"
+        logging.info(colorize(f"TensorBoard logs saved to: {self.tb_dir}", color="cyan"))
+        logging.info(colorize("To view logs, run:", color="cyan"))
+        logging.info(colorize(f"    {tb_cmd}", color="cyan"))
+        logging.info(colorize("Then SSH port forward:", color="cyan"))
+        logging.info(colorize(f"    {ssh_hint}", color="cyan"))
 
     def close(self) -> None:
         super().close()
