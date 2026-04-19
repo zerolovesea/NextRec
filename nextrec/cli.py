@@ -16,7 +16,7 @@ Examples:
     nextrec --mode=evaluate --evaluate_config=nextrec_cli_preset/evaluate_config.yaml
 
 Date: create on 06/12/2025
-Checkpoint: edit on 22/03/2026
+Checkpoint: edit on 19/04/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -345,7 +345,7 @@ def train_model(train_config_path: str) -> None:
         optimizer_params=train_cfg.get("optimizer_params", {}),
         scheduler=train_cfg.get("scheduler"),
         scheduler_params=train_cfg.get("scheduler_params", {}),
-        warmup=train_cfg.get("warmup", train_cfg.get("warmup")),
+        warmup=train_cfg.get("warmup"),
         loss=train_cfg.get("loss"),
         loss_params=train_cfg.get("loss_params", {}),
         loss_weights=train_cfg.get("loss_weights"),
@@ -504,14 +504,12 @@ def predict_model(predict_config_path: str) -> None:
         device=device,
     )
 
-    model.load_model(model_file, map_location=device, verbose=True)
+    model.load_model(model_file, map_location=device)
 
     input_key_columns = predict_cfg.get("key_column")
     effective_key_columns = to_list(input_key_columns) if input_key_columns is not None else (model.key_columns or [])
     expand = get_expand_columns(predict_cfg.get("expand"))
     output_key_columns = list(dict.fromkeys([*effective_key_columns, *expand.keys()]))
-    if input_key_columns is not None or expand:
-        model.key_columns = output_key_columns
 
     log_cli_section("Features")
     log_kv_lines(
@@ -579,9 +577,7 @@ def predict_model(predict_config_path: str) -> None:
     effective_batch_size = chunk_size if streaming else batch_size
     effective_num_workers = num_workers_cfg
 
-    # Set default thread limits for various libraries to avoid oversubscription.
-    # in case multiple users are sharing the same machine and running multiple processes in parallel.
-    # feel bad for my shitbox, jeje
+    # Set default thread limits for libraries to avoid oversubscription in multi-process inference.
     if streaming and num_processes > 1:
         _THREAD_DEFAULTS = {
             "OMP_NUM_THREADS": "1",
@@ -855,14 +851,12 @@ def evaluate_model(evaluate_config_path: str) -> None:
         device=device,
     )
 
-    model.load_model(model_file, map_location=device, verbose=True)
+    model.load_model(model_file, map_location=device)
 
     input_key_columns = evaluate_cfg.get("key_column")
     effective_key_columns = to_list(input_key_columns) if input_key_columns is not None else (model.key_columns or [])
     group_id = evaluate_cfg.get("group_id")
     by_columns = to_list(evaluate_cfg.get("group_by"))
-    if input_key_columns is not None:
-        model.key_columns = effective_key_columns
     loader_key_columns = list(dict.fromkeys([*effective_key_columns, *([group_id] if group_id else []), *by_columns]))
 
     log_cli_section("Features")
@@ -1026,7 +1020,7 @@ Examples:
     args = parser.parse_args()
 
     if not args.mode:
-        parser.error("[NextRec CLI Error] --mode is required (train|predict)")
+        parser.error("[NextRec CLI Error] --mode is required (train|predict|evaluate)")
 
     try:
         config_path = (

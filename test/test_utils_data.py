@@ -4,14 +4,27 @@ import pytest
 import torch
 from pandas.testing import assert_frame_equal
 
-from nextrec.basic.features import DenseFeature, SparseFeature
-from nextrec.data.dataloader import RecDataLoader
+from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.data.dataloader import RecDataLoader, prepare_sequence_column
 from nextrec.data.data_processing import to_column_names
 from nextrec.utils import data as data_utils
 
 
 def _make_df():
     return pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+
+
+def test_prepare_sequence_column_parses_list_strings():
+    feature = SequenceFeature(name="sequence_0", vocab_size=100, embedding_dim=8, max_len=5, padding_idx=0)
+    column = pd.Series(["[1, 2, 3]", "[4]", "[]"])
+
+    actual = prepare_sequence_column(column, feature)
+
+    assert actual.tolist() == [
+        [1, 2, 3, 0, 0],
+        [4, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+    ]
 
 
 def test_get_file_paths_file_and_dir(tmp_path):

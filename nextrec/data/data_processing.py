@@ -6,6 +6,7 @@ Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
+import ast
 from typing import Any
 
 import numpy as np
@@ -14,7 +15,47 @@ import torch
 import polars as pl
 
 
+def parse_sequence_value(value, feature: Any | None = None, feature_name: str | None = None):
+    """Parse a sequence feature value from a string or return it directly if not a string."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return []
+
+    name = feature_name or getattr(feature, "name", None)
+    feature_label = f" '{name}'" if name is not None else ""
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError) as exc:
+        raise TypeError(
+            f"[RecDataLoader Error] Sequence feature{feature_label} expects numeric sequences or list-like strings."
+        ) from exc
+    if isinstance(parsed, str):
+        raise TypeError(
+            f"[RecDataLoader Error] Sequence feature{feature_label} expects numeric sequences or list-like strings."
+        )
+    return parsed
+
+
+def to_object_array(column) -> np.ndarray:
+    """Convert a column to a numpy array with object dtype."""
+    if isinstance(column, pd.Series):
+        column = column.tolist()
+    if isinstance(column, pl.Series):
+        column = column.to_list()
+    if isinstance(column, (list, tuple)):
+        return np.asarray(column, dtype=object)
+    if isinstance(column, np.ndarray):
+        if column.dtype == object:
+            return column
+        return np.asarray(list(column), dtype=object) if column.ndim == 1 else column.astype(object)
+    return np.asarray([column], dtype=object)
+
+
 def take_split_values(values: Any, indices: np.ndarray) -> np.ndarray:
+    """Take elements from values at the specified indices."""
     if isinstance(values, np.ndarray):
         return values[indices]
     if isinstance(values, pd.Series):
