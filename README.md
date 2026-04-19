@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.7-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.8-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 中文文档 | [English Version](README_en.md)
@@ -44,7 +44,7 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 ## NextRec近期进展
 - **03/02/2026** 在v0.5.3中，我们引入了NextRec Studio前端项目，初期作为NextRec CLI的配套辅助工具使用，并提供了相关[教程](nextrec_studio/README.md)
 - **28/01/2026** 在v0.4.39中加入了对onnx导出和加载的支持，并大大加速了数据预处理速度（最高9x加速）
-- **01/01/2026** 新年好，在v0.4.27中加入了多个多目标模型的支持：[APG](nextrec/models/multi_task/apg.py), [ESCM](nextrec/models/multi_task/escm.py), [HMoE](nextrec/models/multi_task/hmoe.py), [Cross Stitch](nextrec/models/multi_task/cross_stitch.py)
+- **01/01/2026** 新年好，在v0.4.27中加入了多个多目标模型的支持：[APG](nextrec/models/multitask/apg.py), [ESCM](nextrec/models/multitask/escm.py), [HMoE](nextrec/models/multitask/hmoe.py), [Cross Stitch](nextrec/models/multitask/cross_stitch.py)
 - **21/12/2025** 在v0.4.16中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
 - **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/pretrain/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html)和[教学代码](/nextrec_cli_preset)
@@ -90,14 +90,14 @@ pip install nextrec # or pip install -e .
 - [movielen_ranking_deepfm.py](/tutorials/movielen_ranking_deepfm.py) - movielen 100k数据集上的 DeepFM 模型训练示例
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) - 电商数据集上的DIN 深度兴趣网络训练示例
 - [example_multitask.py](/tutorials/example_multitask.py) - 电商数据集上的ESMM多任务学习训练示例
-- [movielen_retrieval_dssm.py](/tutorials/movielen_retrieval_dssm.py) - 基于movielen 100k数据集训练的 DSSM 召回模型示例
+- [movielen_matching_dssm.py](/tutorials/movielen_matching_dssm.py) - 基于movielen 100k数据集训练的 DSSM 召回模型示例
 
 - [example_onnx.py](/tutorials/example_onnx.py) - 使用NextRec训练和导出onnx模型
 - [example_distributed_training.py](/tutorials/distributed/example_distributed_training.py) - 使用NextRec进行单机多卡训练的代码示例
 
 - [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) - 快速校验所有排序模型的可用性
 - [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) - 快速校验所有多任务模型的可用性
-- [run_all_retrieval_models.py](/tutorials/run_all_retrieval_models.py) - 快速校验所有召回模型的可用性
+- [run_all_matching_models.py](/tutorials/run_all_matching_models.py) - 快速校验所有召回模型的可用性
 
 如果想了解更多NextRec框架的细节，我们还提供了Jupyter notebook来帮助你了解：
 
@@ -180,7 +180,7 @@ model.fit(
     epochs=3,
     batch_size=512,
     shuffle=True,
-    user_id_column='user_id',            # 用于计算GAUC的id列
+    group_id='user_id',                  # 用于计算 GAUC / ranking@K 的分组列
     valid_split=0.2,                     # 自动划分验证集（可选）
     num_workers=4,                       # DataLoader 并行数
     use_wandb=False,                     # 启用 Wandb（可选）
@@ -194,7 +194,7 @@ metrics = model.evaluate(
     df,
     metrics=['auc', 'gauc', 'logloss'],
     batch_size=512,
-    user_id_column='user_id'
+    group_id='user_id'
 )
 ```
 
@@ -217,11 +217,9 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
-> 截止当前版本0.6.7，NextRec CLI支持单机训练，分布式训练相关功能尚在开发中。
-
 ## 兼容平台
 
-当前最新版本为0.6.7，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.6.8，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -258,11 +256,11 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 | 模型 | 论文 | 状态 |
 | ------ | ------ | ------ |
-| [DSSM](nextrec/models/retrieval/dssm.py) | Learning deep structured semantic models for web search using clickthrough data | 已支持 |
-| [DSSM v2](nextrec/models/retrieval/dssm_v2.py) | DSSM v2 - DSSM with pairwise training using BPR loss | 已支持 |
-| [YouTube DNN](nextrec/models/retrieval/youtube_dnn.py) | Deep neural networks for youtube recommendations | 已支持 |
-| [MIND](nextrec/models/retrieval/mind.py) | Multi-interest network with dynamic routing for recommendation at Tmall | 已支持 |
-| [SDM](nextrec/models/retrieval/sdm.py) | Sequential recommender system based on hierarchical attention networks | 已支持 |
+| [DSSM](nextrec/models/matching/dssm.py) | Learning deep structured semantic models for web search using clickthrough data | 已支持 |
+| [DSSM v2](nextrec/models/matching/dssm_v2.py) | DSSM v2 - DSSM with pairwise training using BPR loss | 已支持 |
+| [YouTube DNN](nextrec/models/matching/youtube_dnn.py) | Deep neural networks for youtube recommendations | 已支持 |
+| [MIND](nextrec/models/matching/mind.py) | Multi-interest network with dynamic routing for recommendation at Tmall | 已支持 |
+| [SDM](nextrec/models/matching/sdm.py) | Sequential recommender system based on hierarchical attention networks | 已支持 |
 
 ### 序列推荐模型
 
@@ -275,25 +273,17 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 | 模型 | 论文 | 状态 |
 | ------ | ------ | ------ |
-| [MMOE](nextrec/models/multi_task/mmoe.py) | Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts | 已支持 |
-| [PLE](nextrec/models/multi_task/ple.py) | Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations | 已支持 |
-| [ESMM](nextrec/models/multi_task/esmm.py) | Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate | 已支持 |
-| [ShareBottom](nextrec/models/multi_task/share_bottom.py) | Multitask Learning | 已支持 |
-| [POSO](nextrec/models/multi_task/poso.py) | POSO: Personalized Cold Start Modules for Large-scale Recommender Systems | 已支持 |
-| [PEPNet](nextrec/models/multi_task/pepnet.py) | PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information | 已支持 |
-| [APG](nextrec/models/multi_task/apg.py) | APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction | 已支持 |
-| [CrossStitch](nextrec/models/multi_task/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | 已支持 |
-| [HMOE](nextrec/models/multi_task/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | 已支持 |
-| [SNRTrans](nextrec/models/multi_task/snr_trans.py) | SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space | 已支持 |
-| [AITM](nextrec/models/multi_task/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | 已支持 |
-
-### 树模型
-
-| 模型 | 说明 | 状态 |
-| ------ | ------ | ------ |
-| [XGBoost](nextrec/models/tree_base/xgboost.py) | XGBoost adapter (requires `xgboost`) | 已支持 |
-| [LightGBM](nextrec/models/tree_base/lightgbm.py) | LightGBM adapter (requires `lightgbm`) | 已支持 |
-| [CatBoost](nextrec/models/tree_base/catboost.py) | CatBoost adapter (requires `catboost`) | 已支持 |
+| [MMOE](nextrec/models/multitask/mmoe.py) | Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts | 已支持 |
+| [PLE](nextrec/models/multitask/ple.py) | Progressive Layered Extraction (PLE): A Novel Multi-Task Learning (MTL) Model for Personalized Recommendations | 已支持 |
+| [ESMM](nextrec/models/multitask/esmm.py) | Entire Space Multi-Task Model: An Effective Approach for Estimating Post-Click Conversion Rate | 已支持 |
+| [ShareBottom](nextrec/models/multitask/share_bottom.py) | Multitask Learning | 已支持 |
+| [POSO](nextrec/models/multitask/poso.py) | POSO: Personalized Cold Start Modules for Large-scale Recommender Systems | 已支持 |
+| [PEPNet](nextrec/models/multitask/pepnet.py) | PEPNet: Parameter and Embedding Personalized Network for Infusing with Personalized Prior Information | 已支持 |
+| [APG](nextrec/models/multitask/apg.py) | APG: Adaptive Parameter Generation Network for Click-Through Rate Prediction | 已支持 |
+| [CrossStitch](nextrec/models/multitask/cross_stitch.py) | Cross-Stitch Networks for Multi-Task Learning | 已支持 |
+| [HMOE](nextrec/models/multitask/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | 已支持 |
+| [SNRTrans](nextrec/models/multitask/snr_trans.py) | SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space | 已支持 |
+| [AITM](nextrec/models/multitask/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | 已支持 |
 
 ### 生成式模型
 

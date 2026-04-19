@@ -10,6 +10,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import time
 from typing import Any, Dict, Generator, List, Optional, Tuple
@@ -21,7 +22,16 @@ import pyarrow.parquet as pq
 import torch
 import yaml
 
-from nextrec.utils.timing import StageTimer
+
+def is_path_data(data: Any) -> bool:
+    return isinstance(data, (str, os.PathLike)) or (
+        isinstance(data, list) and bool(data) and all(isinstance(path, (str, os.PathLike)) for path in data)
+    )
+
+
+def read_yaml(path: str | Path):
+    with open(path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file) or {}
 
 
 def get_expand_columns(config: dict[str, Any] | None) -> dict[str, list[Any]]:
@@ -123,7 +133,7 @@ def expand_tabular_rows(
     raise TypeError(f"[Predict Expand Error] Unsupported tabular type: {type(data)}")
 
 
-def resolve_file_paths(path: str) -> tuple[list[str], str]:
+def get_file_paths(path: str) -> tuple[list[str], str]:
     """
     Resolve file or directory path into a sorted list of files and file type.
 
@@ -178,25 +188,52 @@ def resolve_file_paths(path: str) -> tuple[list[str], str]:
     raise ValueError(f"Invalid path: {path}")
 
 
+def split_path_files(
+    data: str | os.PathLike | list[str] | list[os.PathLike],
+    valid_split: float,
+) -> tuple[list[str], list[str]]:
+    """Split file paths from a directory into training and validation sets based on valid_split ratio."""
+
+    if not (0 < valid_split < 1):
+        raise ValueError(f"[BaseModel-validation Error] valid_split must be between 0 and 1, got {valid_split}")
+
+    if isinstance(data, (str, os.PathLike)):
+        file_paths, _ = get_file_paths(str(data))
+    else:
+        file_paths = [str(path) for path in data]
+
+    total_files = len(file_paths)
+    if total_files < 2:
+        raise ValueError(
+            "[BaseModel-validation Error] Path valid_split requires at least 2 files. "
+            "Provide valid_data for single-file path validation."
+        )
+
+    valid_count = max(1, int(round(total_files * valid_split)))
+    if valid_count >= total_files:
+        valid_count = total_files - 1
+
+    return file_paths[:-valid_count], file_paths[-valid_count:]
+
+
 def read_table(
     path: str | Path,
     data_format: str | None = None,
     engine: str = "polars",
 ) -> pd.DataFrame | pl.DataFrame:
+    """Read a table from a file path with format inference and engine selection."""
+
     data_path = Path(path)
 
     if data_format:
         fmt = data_format
     elif data_path.is_dir():
-        _, fmt = resolve_file_paths(str(data_path))
+        _, fmt = get_file_paths(str(data_path))
     else:
         raise ValueError(f"Cannot determine format for {data_path}. Please specify data_format parameter.")
 
-    if engine not in {"polars", "pandas"}:
-        raise ValueError(f"Unsupported engine: {engine}. Expected 'polars' or 'pandas'.")
-
     if data_path.is_dir():
-        file_paths, _ = resolve_file_paths(str(data_path))
+        file_paths, _ = get_file_paths(str(data_path))
         dataframes = [read_table(fp, fmt, engine=engine) for fp in file_paths]
         if not dataframes:
             raise ValueError(f"No supported data files found in directory: {data_path}")
@@ -225,7 +262,7 @@ def iter_file_chunks(
     chunk_size: int,
     shard_rank: int = 0,
     shard_count: int = 1,
-    profiler: "StageTimer | None" = None,
+    profiler=None,
 ) -> Generator[pl.DataFrame, None, None]:
     """Iterate over file in chunks for streaming reading.
 
@@ -278,7 +315,7 @@ def count_rows(
     path: str | Path,
     data_format: str | None = None,
 ) -> int | None:
-    file_paths, file_type = resolve_file_paths(str(path))
+    file_paths, file_type = get_file_paths(str(path))
     requested_format = str(data_format).lower() if data_format else "auto"
     if requested_format in {"auto", file_type}:
         format = file_type
@@ -303,11 +340,6 @@ def count_rows(
         return total
 
     return None
-
-
-def read_yaml(path: str | Path):
-    with open(path, "r", encoding="utf-8") as file:
-        return yaml.safe_load(file) or {}
 
 
 def generate_ranking_data(
@@ -495,7 +527,7 @@ def generate_match_data(
     seed: int = 42,
 ) -> Tuple[pd.DataFrame, List, List, List, List, List, List]:
     """
-    Generate synthetic data for match/retrieval tasks
+    Generate synthetic data for matching tasks
 
     Returns:
         tuple: (dataframe, user_dense_features, user_sparse_features, user_sequence_features,
@@ -772,41 +804,6 @@ def generate_multitask_data(
         )
 
     return df, dense_features, sparse_features, sequence_features
-
-
-def generate_distributed_ranking_data(
-    num_samples: int = 100000,
-    num_users: int = 10000,
-    num_items: int = 5000,
-    num_categories: int = 20,
-    num_cities: int = 100,
-    max_seq_len: int = 50,
-    embedding_dim: int = 32,
-    seed: int = 42,
-) -> Tuple[pd.DataFrame, List, List, List]:
-    """
-    Generate synthetic data for distributed training scenarios
-
-    Returns:
-        tuple: (dataframe, dense_features, sparse_features, sequence_features)
-    """
-    return generate_ranking_data(
-        n_samples=num_samples,
-        n_dense=5,
-        n_sparse=6,  # user_id, item_id + 4 custom features
-        n_sequences=2,
-        user_vocab_size=num_users + 1,
-        item_vocab_size=num_items + 1,
-        sequence_max_len=max_seq_len,
-        embedding_dim=embedding_dim,
-        seed=seed,
-        custom_sparse_features={
-            "gender": 2,
-            "age_group": 7,
-            "category": num_categories,
-            "city": num_cities,
-        },
-    )
 
 
 def generate_synthetic_embeddings(num_samples=1000, embedding_dim=768):

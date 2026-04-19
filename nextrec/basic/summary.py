@@ -68,10 +68,6 @@ class SummarySet:
         if prefetch_factor is not None:
             summary["prefetch_factor"] = prefetch_factor
 
-        sampler = getattr(data_loader, "sampler", None)
-        if sampler is not None:
-            summary["sampler"] = sampler.__class__.__name__
-
         return summary or None
 
     def build_data_summary(self, data: Any, data_loader: DataLoader | None, sample_key: str):
@@ -295,7 +291,8 @@ class SummarySet:
             logger.info(colorize("Training Configuration", color="cyan", bold=True))
             logger.info(colorize("-" * 80, color="cyan"))
 
-            logger.info(f"Task Type:               {self.task}")
+            logger.info(f"Task:                   {self.task}")
+            logger.info(f"Model Family:           {self.model_family}")
             logger.info(f"Number of Tasks:         {self.nums_task}")
             logger.info(f"Metrics:                 {self.metrics}")
             logger.info(f"Target Columns:          {self.target_columns}")
@@ -431,7 +428,6 @@ class SummarySet:
                         "num_workers",
                         "pin_memory",
                         "persistent_workers",
-                        "sampler",
                     ):
                         if key in dataloader_info:
                             field_label = key.replace("_", " ").title()

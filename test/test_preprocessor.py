@@ -3,8 +3,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
+from nextrec.basic.features import SequenceFeature, SparseFeature
 from nextrec.data.preprocessor import DataProcessor
+from nextrec.utils.config import build_feature_objects
 
 
 def _build_processor():
@@ -201,6 +204,50 @@ def test_sequence_row_filters_support_regex_match_mode():
 
     assert output["hist"].shape == (2,)
     assert set(output["hist"].tolist()) == {"a,b", "b,c"}
+
+
+def test_embedding_features_no_longer_accept_per_feature_regularization_args():
+    with pytest.raises(TypeError):
+        SparseFeature(name="user_id", vocab_size=10, l1_reg=1e-5)
+
+    with pytest.raises(TypeError):
+        SequenceFeature(name="hist", vocab_size=10, max_len=3, l2_reg=1e-5)
+
+
+def test_build_feature_objects_ignores_legacy_embedding_regularization_keys():
+    df = _sample_dataframe()
+    processor = _build_processor()
+    processor.fit(df)
+
+    feature_cfg = {
+        "sparse": {
+            "user_id": {
+                "processor_config": {"encode_method": "label"},
+                "embedding_config": {"embedding_dim": 8, "l1_reg": 1e-4, "l2_reg": 1e-3},
+            }
+        },
+        "sequence": {
+            "hist": {
+                "processor_config": {"encode_method": "label", "max_len": 3, "separator": ","},
+                "embedding_config": {"embedding_dim": 8, "l1_reg": 1e-4, "l2_reg": 1e-3},
+            }
+        },
+    }
+
+    _, sparse_features, sequence_features = build_feature_objects(
+        processor=processor,
+        feature_cfg=feature_cfg,
+        dense_names=[],
+        sparse_names=["user_id"],
+        sequence_names=["hist"],
+    )
+
+    assert len(sparse_features) == 1
+    assert len(sequence_features) == 1
+    assert not hasattr(sparse_features[0], "l1_reg")
+    assert not hasattr(sparse_features[0], "l2_reg")
+    assert not hasattr(sequence_features[0], "l1_reg")
+    assert not hasattr(sequence_features[0], "l2_reg")
 
 
 def test_keep_row_filters_across_features_use_or_semantics():

@@ -4,7 +4,7 @@ Shared type aliases for NextRec.
 Keep Literal-based public string options centralized to avoid drift.
 """
 
-from typing import Literal
+from typing import Literal, TypedDict
 
 OptimizerName = Literal["adam", "sgd", "adamw", "adagrad", "rmsprop"]
 
@@ -60,9 +60,37 @@ ActivationName = Literal[
 
 TrainingModeName = Literal["pointwise", "pairwise", "listwise"]
 
-TaskTypeName = Literal["binary", "regression", "generative", "sequential"]
+SamplingModeName = Literal["explicit", "inbatch"]
+
+TaskTypeName = Literal["binary", "regression", "generative"]
+
+ModelFamilyName = Literal["ranking", "matching", "sequential", "multitask", "pretrain"]
 
 TaskTypeInput = TaskTypeName | str
+
+FeatureScopeName = Literal["shared", "candidate"]
+
+FeatureLayoutName = Literal["flat", "candidate_list", "sequence"]
+
+LabelFormatName = Literal[
+    "none",
+    "pointwise",
+    "candidate_list",
+    "sequence",
+    "implicit_inbatch",
+]
+
+
+class BatchSchema(TypedDict, total=False):
+    model_family: ModelFamilyName
+    task: TaskTypeName | list[TaskTypeName]
+    training_mode: TrainingModeName
+    sampling_mode: SamplingModeName
+    feature_layout: FeatureLayoutName
+    label_format: LabelFormatName
+    list_size: int | None
+    feature_scopes: dict[str, FeatureScopeName]
+
 
 SequenceModeName = Literal["autoregressive", "masked"]
 

@@ -2,6 +2,7 @@
 Loss utilities for NextRec.
 
 Date: create on 28/12/2025
+Checkpoint: edit on 16/04/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -22,12 +23,13 @@ from nextrec.loss.pointwise import ClassBalancedFocalLoss, FocalLoss, WeightedBC
 from nextrec.utils.types import LossName, TrainingModeName
 
 
-def normalize_task_loss(
+def scale_task_loss(
     task_loss,
     valid_count,
     total_count,
     eps=1e-8,
 ) -> torch.Tensor:
+    """Scale task loss by the ratio of valid sample to total sample to handle missing labels."""
     if not torch.is_tensor(valid_count):
         valid_count = torch.tensor(float(valid_count), device=task_loss.device)
     if not torch.is_tensor(total_count):
@@ -36,18 +38,12 @@ def normalize_task_loss(
     return task_loss * scale
 
 
-def build_cb_focal(kw):
-    if "class_counts" not in kw:
-        raise ValueError("class_balanced_focal requires class_counts")
-    return ClassBalancedFocalLoss(**kw)
-
-
-def normalize_loss_list(
+def get_loss_list(
     loss: LossName | nn.Module | list[LossName | nn.Module] | None,
-    training_modes: list[TrainingModeName],
+    training_mode: TrainingModeName,
     num_tasks: int,
 ) -> list[LossName | nn.Module]:
-    """Normalize scalar/list loss config to one entry per task and validate ranking compatibility."""
+    """Get list of loss functions for each task."""
     if loss is None:
         raise ValueError("[Loss Error] loss must be provided explicitly.")
 
@@ -60,14 +56,10 @@ def normalize_loss_list(
     else:
         loss_list = [loss] * num_tasks
 
-    for idx, mode in enumerate(training_modes[: len(loss_list)]):
-        if (
-            mode in {"pairwise", "listwise"}
-            and isinstance(loss_list[idx], str)
-            and loss_list[idx] in {"bce", "binary_crossentropy"}
-        ):
+    for idx, _ in enumerate(loss_list):
+        if training_mode in {"pairwise", "listwise"} and isinstance(loss_list[idx], str) and loss_list[idx] in {"bce"}:
             raise ValueError(
-                f"[Loss Error] loss='{loss_list[idx]}' is not valid for training_mode='{mode}'. "
+                f"[Loss Error] loss='{loss_list[idx]}' is not valid for training_mode='{training_mode}'. "
                 "Use a ranking loss compatible with the configured training_mode."
             )
 
@@ -84,21 +76,21 @@ def get_loss_fn(
     Args:
         loss: Loss function name or nn.Module instance. Supported options:
 
-            **Pointwise Losses:**
-            - "bce", "binary_crossentropy": Binary Cross-Entropy Loss
+            Pointwise Losses:
+            - "bce": Binary Cross-Entropy Loss
             - "weighted_bce": Weighted Binary Cross-Entropy Loss
-            - "focal", "focal_loss": Focal Loss (for class imbalance)
-            - "cb_focal", "class_balanced_focal": Class-Balanced Focal Loss (requires class_counts parameter)
-            - "crossentropy", "ce": Cross-Entropy Loss for multi-class classification
+            - "focal": Focal Loss (for class imbalance)
+            - "cb_focal": Class-Balanced Focal Loss (requires class_counts parameter)
+            - "ce": Cross-Entropy Loss for multi-class classification
             - "mse": Mean Squared Error Loss
             - "mae": Mean Absolute Error Loss
 
-            **Pairwise Ranking Losses:**
+            Pairwise Ranking Losses:
             - "bpr": Bayesian Personalized Ranking Loss
             - "hinge": Hinge Loss
             - "triplet": Triplet Loss
 
-            **Listwise Ranking Losses:**
+            Listwise Ranking Losses:
             - "sampled_softmax", "softmax": Sampled Softmax Loss
             - "infonce": InfoNCE Loss
             - "listnet": ListNet Loss
@@ -121,16 +113,18 @@ def get_loss_fn(
     if isinstance(loss, nn.Module):
         return loss
     if loss is None:
-        raise ValueError("[Loss Error] loss must be provided explicitly")
-    if loss in ["bce", "binary_crossentropy"]:
+        raise ValueError("[Loss Error] loss must be provided.")
+    if loss == "bce":
         return nn.BCELoss(**kw)
     if loss == "weighted_bce":
         return WeightedBCELoss(**kw)
-    if loss in ["focal", "focal_loss"]:
+    if loss == "focal":
         return FocalLoss(**kw)
-    if loss in ["cb_focal", "class_balanced_focal"]:
-        return build_cb_focal(kw)
-    if loss in ["crossentropy", "ce"]:
+    if loss == "cb_focal":
+        if "class_counts" not in kw:
+            raise ValueError("[Loss Error] cb_focal requires class_counts.")
+        return ClassBalancedFocalLoss(**kw)
+    if loss == "ce":
         return nn.CrossEntropyLoss(**kw)
     if loss == "mse":
         return nn.MSELoss(**kw)

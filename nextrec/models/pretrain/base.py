@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 
 from nextrec.basic.adapters import PretrainAdapter
 from nextrec.basic.loggers import colorize, setup_logger
-from nextrec.basic.model import BaseModel
+from nextrec.engine.model import Model as BaseModel
 from nextrec.data.batch_utils import batch_to_dict
 from nextrec.utils.console import progress
 
@@ -26,9 +26,15 @@ class BasePretrainModel(BaseModel):
     def default_task(self):  # type: ignore[override]
         return "regression"
 
+    @property
+    def model_family(self) -> str:
+        return "pretrain"
+
     def set_adapter(self):
         self.training_adapter = PretrainAdapter()
-        self.prediction_layer = None
+
+    def set_head(self):
+        self.head = None
 
     def prepare_loader(
         self,
@@ -130,7 +136,7 @@ class BasePretrainModel(BaseModel):
             else None
         )
 
-        if not self.logger_initialized and self.is_main_process:
+        if not self.logger_initialized:
             setup_logger(session_id=self.session_id)
             self.logger_initialized = True
 
@@ -154,36 +160,34 @@ class BasePretrainModel(BaseModel):
 
         self.init_codebook(train_loader, init_batches=init_batches)
 
-        if self.is_main_process:
-            self.summary()
-            logging.info("")
-            logging.info(colorize("=" * 80, bold=True))
-            logging.info(
-                colorize(
-                    "Start streaming training" if is_streaming else "Start training",
-                    bold=True,
-                )
+        self.summary()
+        logging.info("")
+        logging.info(colorize("=" * 80, bold=True))
+        logging.info(
+            colorize(
+                "Start streaming training" if is_streaming else "Start training",
+                bold=True,
             )
-            logging.info(colorize("=" * 80, bold=True))
-            logging.info("")
-            logging.info(colorize(f"Model device: {self.device}", bold=True))
+        )
+        logging.info(colorize("=" * 80, bold=True))
+        logging.info("")
+        logging.info(colorize(f"Model device: {self.device}", bold=True))
 
         for epoch in range(epochs):
             total_loss = 0.0
             step_count = 0
-            if is_streaming and self.is_main_process:
+            if is_streaming:
                 logging.info("")
                 logging.info(colorize(f"Epoch {epoch + 1}/{epochs}", bold=True))
             if is_streaming:
                 batch_iter = enumerate(train_loader)
             else:
-                tqdm_disable = not self.is_main_process
                 batch_iter = enumerate(
                     progress(
                         train_loader,
                         description=f"Epoch {epoch + 1}/{epochs}",
                         total=steps_per_epoch,
-                        disable=tqdm_disable,
+                        disable=False,
                     )
                 )
             for _, batch in batch_iter:
@@ -215,21 +219,14 @@ class BasePretrainModel(BaseModel):
                 except TypeError:
                     val_denom = val_steps
                 val_avg = val_total / max(1, val_denom)
-                if self.is_main_process:
-                    logging.info(colorize(train_log))
-                    logging.info(
-                        colorize(
-                            f"  Epoch {epoch + 1}/{epochs} - Valid Loss: {val_avg:.4f}",
-                            color="cyan",
-                        )
-                    )
-            elif self.is_main_process:
+                logging.info(colorize(train_log))
+                logging.info(colorize(f"  Epoch {epoch + 1}/{epochs} - Valid Loss: {val_avg:.4f}", color="cyan"))
+            else:
                 logging.info(colorize(train_log))
 
-        if self.is_main_process:
-            logging.info("")
-            logging.info(colorize("Training finished.", bold=True))
-            logging.info("")
+        logging.info("")
+        logging.info(colorize("Training finished.", bold=True))
+        logging.info("")
         return self
 
     def predict(

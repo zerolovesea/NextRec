@@ -17,7 +17,7 @@ In each HSTU layer:
   (3) Aggregated context is modulated by U-gating and mapped back through an output projection
 
 Stacking layers yields an efficient causal encoder for generative
-retrieval. With a tied-embedding LM head, HSTU forms
+matching. With a tied-embedding LM head, HSTU forms
 a full generative recommendation model.
 
 Key Advantages:

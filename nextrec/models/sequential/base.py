@@ -22,7 +22,8 @@ from torch.utils.data import DataLoader
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.adapters import SequentialAdapter
-from nextrec.basic.model import BaseModel
+from nextrec.basic.heads import GenerativeMatchingHead
+from nextrec.engine.model import Model as BaseModel
 from nextrec.basic.loggers import colorize, format_kv
 from nextrec.basic.metrics import (
     compute_sequential_metric_batch,
@@ -30,7 +31,7 @@ from nextrec.basic.metrics import (
     is_sequential_ranking_metric,
 )
 from nextrec.data.batch_utils import batch_to_dict
-from nextrec.utils.types import LossName, TaskTypeInput, SequenceModeName, TrainingModeName
+from nextrec.utils.types import LossName, SequenceModeName, TaskTypeInput, TrainingModeName
 
 
 class BaseSequentialModel(BaseModel):
@@ -38,6 +39,10 @@ class BaseSequentialModel(BaseModel):
 
     @property
     def default_task(self) -> str:
+        return "generative"
+
+    @property
+    def model_family(self) -> str:
         return "sequential"
 
     def __init__(
@@ -46,7 +51,7 @@ class BaseSequentialModel(BaseModel):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | str | None = None,
-        id_columns: list[str] | str | None = None,
+        key_columns: list[str] | str | None = None,
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
         training_mode: TrainingModeName | None = None,
         embedding_l1_reg: float = 0.0,
@@ -58,11 +63,6 @@ class BaseSequentialModel(BaseModel):
         target_shift_steps: int = 1,
         device: str = "cpu",
         session_id: str | None = None,
-        distributed: bool = False,
-        rank: int | None = None,
-        world_size: int | None = None,
-        local_rank: int | None = None,
-        ddp_find_unused_parameters: bool = False,
         sampling_mode: Literal["explicit", "inbatch"] = "explicit",
         **kwargs,
     ):
@@ -74,7 +74,7 @@ class BaseSequentialModel(BaseModel):
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
-            id_columns=id_columns,
+            key_columns=key_columns,
             task=task,
             training_mode=training_mode,
             embedding_l1_reg=embedding_l1_reg,
@@ -83,11 +83,6 @@ class BaseSequentialModel(BaseModel):
             dense_l2_reg=dense_l2_reg,
             device=device,
             session_id=session_id,
-            distributed=distributed,
-            rank=rank,
-            world_size=world_size,
-            local_rank=local_rank,
-            ddp_find_unused_parameters=ddp_find_unused_parameters,
             sampling_mode=sampling_mode,
             **kwargs,
         )
@@ -137,7 +132,9 @@ class BaseSequentialModel(BaseModel):
 
     def set_adapter(self):
         self.training_adapter = SequentialAdapter()
-        self.prediction_layer = None
+
+    def set_head(self):
+        self.head = GenerativeMatchingHead(vocab_size=int(self.vocab_size), return_logits=True)
 
     def validate_sequence_mode(self) -> None:
         if self.sequence_mode not in {"autoregressive", "masked"}:
@@ -274,8 +271,7 @@ class BaseSequentialModel(BaseModel):
         filters padding / ignore labels, and computes ranking-style metrics such as
         hitrate@k, recall@k, mrr@k, ndcg@k, and the top-k percent variants.
         """
-        model = self.ddp_model if self.ddp_model is not None else self
-        model.eval()
+        self.eval()
 
         eval_metrics = metrics if metrics is not None else self.metrics
         if eval_metrics is None:
@@ -286,7 +282,7 @@ class BaseSequentialModel(BaseModel):
         metric_names = flatten_metric_names(eval_metrics)
         metric_names = [metric for metric in metric_names if is_sequential_ranking_metric(metric)]
         unsupported_metrics = [metric for metric in flatten_metric_names(eval_metrics) if metric not in metric_names]
-        if unsupported_metrics and self.is_main_process:
+        if unsupported_metrics:
             logging.warning(
                 "[BaseSequentialModel-evaluate Warning] Ignoring unsupported metrics for sequential evaluation: "
                 + ", ".join(unsupported_metrics)
@@ -336,7 +332,7 @@ class BaseSequentialModel(BaseModel):
                     continue
                 if vocab_size is None:
                     vocab_size = batch_vocab_size
-                elif vocab_size != batch_vocab_size and self.is_main_process:
+                elif vocab_size != batch_vocab_size:
                     logging.warning(
                         "[BaseSequentialModel-evaluate Warning] Vocabulary size changed across batches; using the current batch size for percentage-based metrics."
                     )
@@ -345,30 +341,18 @@ class BaseSequentialModel(BaseModel):
                 for metric_name, metric_value in batch_metric_sums.items():
                     metric_sums[metric_name] += metric_value
 
-        if self.distributed and torch.distributed.is_available() and torch.distributed.is_initialized():
-            stats = torch.tensor(
-                [float(valid_count), *[metric_sums[metric] for metric in metric_names]],
-                device=self.device,
-                dtype=torch.float64,
-            )
-            torch.distributed.all_reduce(stats, op=torch.distributed.ReduceOp.SUM)
-            valid_count = int(stats[0].item())
-            for idx, metric in enumerate(metric_names, start=1):
-                metric_sums[metric] = float(stats[idx].item())
-
         if valid_count == 0:
-            if self.is_main_process:
-                logging.info(
-                    colorize(
-                        "  Warning: No valid sequential evaluation samples were found after filtering padding / ignore labels.",
-                        color="yellow",
-                    )
+            logging.info(
+                colorize(
+                    "  Warning: No valid sequential evaluation samples were found after filtering padding / ignore labels.",
+                    color="yellow",
                 )
-            return {}
+            )
+            return {"overall": {}, "grouped": []}
 
         metrics_dict = {metric: metric_sums[metric] / float(valid_count) for metric in metric_names}
 
-        if show_data_summary and self.is_main_process:
+        if show_data_summary:
             logging.info("")
             logging.info(colorize("[Data Summary]", color="cyan", bold=True))
             logging.info(colorize("-" * 80, color="cyan"))
@@ -376,14 +360,13 @@ class BaseSequentialModel(BaseModel):
             if vocab_size is not None:
                 logging.info(format_kv("Vocabulary size", vocab_size))
 
-        if self.is_main_process:
-            logging.info("")
-            logging.info(colorize("[Metrics]", color="cyan", bold=True))
-            logging.info(colorize("-" * 80, color="cyan"))
-            for metric_name, metric_value in metrics_dict.items():
-                logging.info(format_kv(metric_name, f"{metric_value:.6g}"))
+        logging.info("")
+        logging.info(colorize("[Metrics]", color="cyan", bold=True))
+        logging.info(colorize("-" * 80, color="cyan"))
+        for metric_name, metric_value in metrics_dict.items():
+            logging.info(format_kv(metric_name, f"{metric_value:.6g}"))
 
-        return metrics_dict
+        return {"overall": metrics_dict, "grouped": []}
 
     def _sampled_softmax_loss(self, flat_logits: torch.Tensor, flat_labels: torch.Tensor) -> torch.Tensor:
         """

@@ -57,7 +57,7 @@ import torch.nn as nn
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
@@ -79,7 +79,7 @@ class CrossNetwork(nn.Module):
         return x  # [batch_size, input_dim]
 
 
-class DCN(BaseModel):
+class DCN(BaseRankingModel):
     @property
     def model_name(self):
         return "DCN"

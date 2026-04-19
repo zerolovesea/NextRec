@@ -238,7 +238,7 @@ model.fit(
     epochs=1,  # 训练轮数
     batch_size=512,  # 批次大小
     shuffle=True,  # 是否打乱训练数据
-    user_id_column="user_id",  # 指定用户ID列,用于计算 GAUC
+    group_id="user_id",  # 指定分组列,用于计算 GAUC
 )
 
 print("Training Complete!")
@@ -264,7 +264,7 @@ metrics = model.evaluate(
     valid_df,
     metrics=["auc", "gauc", "logloss"],
     batch_size=512,
-    user_id_column="user_id",
+    group_id="user_id",
 )
 
 # 打印评估指标

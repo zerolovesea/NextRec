@@ -45,16 +45,16 @@
 最后更新: 2026-01-28
 """
 
-from nextrec.models.multi_task.apg import APG
-from nextrec.models.multi_task.aitm import AITM
-from nextrec.models.multi_task.cross_stitch import CrossStitch
-from nextrec.models.multi_task.esmm import ESMM
-from nextrec.models.multi_task.hmoe import HMOE
-from nextrec.models.multi_task.mmoe import MMOE
-from nextrec.models.multi_task.pepnet import PEPNet
-from nextrec.models.multi_task.ple import PLE
-from nextrec.models.multi_task.poso import POSO
-from nextrec.models.multi_task.share_bottom import ShareBottom
+from nextrec.models.multitask.apg import APG
+from nextrec.models.multitask.aitm import AITM
+from nextrec.models.multitask.cross_stitch import CrossStitch
+from nextrec.models.multitask.esmm import ESMM
+from nextrec.models.multitask.hmoe import HMOE
+from nextrec.models.multitask.mmoe import MMOE
+from nextrec.models.multitask.pepnet import PEPNet
+from nextrec.models.multitask.ple import PLE
+from nextrec.models.multitask.poso import POSO
+from nextrec.models.multitask.share_bottom import ShareBottom
 
 from nextrec.utils.data import generate_multitask_data
 
@@ -133,7 +133,7 @@ def train_model(
             batch_size=512,
             shuffle=True,
             use_tensorboard=False,  # 不使用 TensorBoard
-            user_id_column="user_id",
+            group_id="user_id",
         )
 
         # ==============================================================================
@@ -143,7 +143,7 @@ def train_model(
         metrics = model.evaluate(
             valid_df,
             batch_size=512,
-            user_id_column="user_id",
+            group_id="user_id",
         )
 
         print(f"{model_name} completed successfully")

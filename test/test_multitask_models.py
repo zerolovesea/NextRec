@@ -25,12 +25,12 @@ from test.helpers import (
 import pytest
 import torch
 
-from nextrec.models.multi_task.esmm import ESMM
-from nextrec.models.multi_task.aitm import AITM
-from nextrec.models.multi_task.mmoe import MMOE
-from nextrec.models.multi_task.pepnet import PEPNet
-from nextrec.models.multi_task.ple import PLE
-from nextrec.models.multi_task.share_bottom import ShareBottom
+from nextrec.models.multitask.esmm import ESMM
+from nextrec.models.multitask.aitm import AITM
+from nextrec.models.multitask.mmoe import MMOE
+from nextrec.models.multitask.pepnet import PEPNet
+from nextrec.models.multitask.ple import PLE
+from nextrec.models.multitask.share_bottom import ShareBottom
 
 logger = logging.getLogger(__name__)
 

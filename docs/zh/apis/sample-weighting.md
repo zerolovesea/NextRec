@@ -16,7 +16,7 @@ description: 多任务的样本加权
 以一个简单的ESMM模型为例，拥有两个任务，我们设置`loss_weights=[0.3, 0.7]`，来让损失更侧重conversion任务。在每个epoch里，会为每个任务的loss乘以这个权重值。
 
 ```python
-from nextrec.models.multi_task.esmm import ESMM
+from nextrec.models.multitask.esmm import ESMM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 model = ESMM(

@@ -52,8 +52,8 @@ from __future__ import annotations
 
 from sklearn.model_selection import train_test_split
 
-from nextrec.models.multi_task.mmoe import MMOE
-from nextrec.models.multi_task.ple import PLE
+from nextrec.models.multitask.mmoe import MMOE
+from nextrec.models.multitask.ple import PLE
 from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.utils.data import generate_multitask_data, generate_ranking_data
 
@@ -141,11 +141,11 @@ def run_multitask_model(model_class, model_name: str, model_kwargs: dict):
     torch_pred = model.predict(sample_df, batch_size=32, return_dataframe=True)
 
     # ONNX 模型推理
-    onnx_pred = model.predict_onnx(
-        onnx_path=onnx_path,
-        data=sample_df,
+    onnx_pred = model.predict(
+        sample_df,
         batch_size=4,  # ONNX 推理批次大小
         return_dataframe=True,
+        inference_model=onnx_path,
     )
 
     # 打印推理结果
@@ -232,11 +232,11 @@ def run_deepfm():
     torch_pred = model.predict(sample_df, batch_size=32, return_dataframe=True)
 
     # ONNX 模型推理
-    onnx_pred = model.predict_onnx(
-        onnx_path=onnx_path,
-        data=sample_df,
+    onnx_pred = model.predict(
+        sample_df,
         batch_size=4,
         return_dataframe=True,
+        inference_model=onnx_path,
     )
 
     print("Torch predictions (head):")

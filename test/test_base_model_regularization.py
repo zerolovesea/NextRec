@@ -1,12 +1,16 @@
 import torch.nn as nn
 
-from nextrec.basic.model import BaseModel
+from nextrec.engine.model import Model as BaseModel
 
 
 class _DummyModel(BaseModel):
     @property
     def model_name(self) -> str:
         return "Dummy"
+
+    @property
+    def model_family(self) -> str:
+        return "ranking"
 
     @property
     def default_task(self) -> str:

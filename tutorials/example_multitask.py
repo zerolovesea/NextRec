@@ -46,7 +46,7 @@ ESMM 模型通过联合建模点击率 (CTR) 和转化率 (CVR) 两个任务,解
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
-from nextrec.models.multi_task.esmm import ESMM
+from nextrec.models.multitask.esmm import ESMM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
 # ==============================================================================
@@ -182,7 +182,7 @@ model.fit(
     epochs=2,  # 训练轮数
     batch_size=512,  # 批次大小
     shuffle=True,  # 是否打乱训练数据
-    user_id_column="user_id",  # 指定用户ID列,用于计算 GAUC
+    group_id="user_id",  # 指定分组列,用于计算 GAUC
 )
 
 print("Training Complete!")
@@ -209,7 +209,7 @@ print(f"Prediction sample: {predictions[:10]}")
 #     valid_df,
 #     metrics=["auc", "gauc", "logloss"],
 #     batch_size=512,
-#     user_id_column="user_id",
+#     group_id="user_id",
 # )
 # for name, value in metrics.items():
 #     print(f"{name}: {value:.4f}")

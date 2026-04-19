@@ -66,7 +66,7 @@ from nextrec.basic.layers import (
     AttentionPoolingLayer,
     EmbeddingLayer,
 )
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
@@ -184,7 +184,7 @@ class DynamicGRU(nn.Module):
         return output, hidden
 
 
-class DIEN(BaseModel):
+class DIEN(BaseRankingModel):
     @property
     def model_name(self):
         return "DIEN"

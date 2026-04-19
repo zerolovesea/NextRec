@@ -35,7 +35,7 @@ class PredictionLayer(nn.Module):
         Prediction layer supporting binary and regression outputs.
 
         Args:
-            task_type: A string or list of strings specifying the type of each task. supported types are "binary" and "regression".
+            task_type: A string or list of strings specifying the type of each task.
             task_dims: An integer or list of integers specifying the output dimension for each task.
                 If None, defaults to 1 for each task. If a single integer is provided, it is shared across all tasks.
             use_bias: Whether to include a bias term in the prediction layer.
@@ -96,6 +96,8 @@ class PredictionLayer(nn.Module):
                 outputs.append(torch.sigmoid(task_logits))
             elif task_type == "regression":
                 outputs.append(task_logits)
+            elif task_type == "generative":
+                raise ValueError("[PredictionLayer Error]: task_type 'generative' must use GenerativeMatchingHead.")
             else:
                 raise ValueError(f"[PredictionLayer Error]: Unsupported task_type '{task_type}'.")
         result = torch.cat(outputs, dim=-1)  # single: (N,1), multi-task/multi-class: (N,total_dim)

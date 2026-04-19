@@ -5,13 +5,17 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from nextrec.basic.callback import CheckpointSaver, EarlyStopper
-from nextrec.basic.model import BaseModel
+from nextrec.engine.model import Model as BaseModel
 
 
 class _DummyMultiTaskFitModel(BaseModel):  # type: ignore[misc]
     @property
     def model_name(self) -> str:
         return "DummyMultiTaskFit"
+
+    @property
+    def model_family(self) -> str:
+        return "multitask"
 
     @property
     def default_task(self) -> list[str]:
@@ -35,10 +39,8 @@ def test_fit_without_validation_monitors_loss_for_early_stop(monkeypatch, caplog
     model = _DummyMultiTaskFitModel()
     model.compile(loss="bce")
 
-    monkeypatch.setattr("nextrec.basic.model.init_process_group", lambda *args, **kwargs: None)
-    monkeypatch.setattr(model, "prepare_data_loader", lambda *args, **kwargs: (DataLoader([0], batch_size=1), [0]))
-    monkeypatch.setattr(model, "prepare_validation_data", lambda *args, **kwargs: (None, None))
-    monkeypatch.setattr(model, "train_epoch", lambda *args, **kwargs: 0.25)
+    monkeypatch.setattr(model, "prepare_data_loader", lambda *args, **kwargs: DataLoader([0], batch_size=1))
+    monkeypatch.setattr(model, "train_epoch", lambda *args, **kwargs: (0.25, None))
     monkeypatch.setattr(model, "summary", lambda *args, **kwargs: None)
     monkeypatch.setattr(model, "build_train_data_summary", lambda *args, **kwargs: None)
     monkeypatch.setattr(model, "load_model", lambda *args, **kwargs: None)
@@ -69,10 +71,8 @@ def test_fit_with_valid_group_by_uses_overall_metrics_for_callbacks(monkeypatch,
     model = _DummyMultiTaskFitModel()
     model.compile(loss="bce")
 
-    monkeypatch.setattr("nextrec.basic.model.init_process_group", lambda *args, **kwargs: None)
-    monkeypatch.setattr(model, "prepare_data_loader", lambda *args, **kwargs: (DataLoader([0], batch_size=1), [0]))
-    monkeypatch.setattr(model, "prepare_validation_data", lambda *args, **kwargs: (DataLoader([0], batch_size=1), None))
-    monkeypatch.setattr(model, "train_epoch", lambda *args, **kwargs: 0.25)
+    monkeypatch.setattr(model, "prepare_data_loader", lambda *args, **kwargs: DataLoader([0], batch_size=1))
+    monkeypatch.setattr(model, "train_epoch", lambda *args, **kwargs: (0.25, None))
     monkeypatch.setattr(
         model,
         "evaluate",

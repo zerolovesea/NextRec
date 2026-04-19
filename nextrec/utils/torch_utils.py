@@ -1,8 +1,8 @@
 """
 PyTorch-related utilities for NextRec.
 
-This module groups device setup, distributed helpers, optimizers/schedulers,
-initialization, and tensor helpers.
+This module groups device setup, optimizers/schedulers, initialization,
+and tensor helpers.
 
 Date: create on 27/10/2025
 Checkpoint: edit on 13/03/2026
@@ -11,18 +11,15 @@ Author: Yang Zhou, zyaztec@gmail.com
 
 from __future__ import annotations
 
+import functools
 import logging
 import numbers
 from typing import Any, Dict, Iterable
 
 import numpy as np
 import torch
-import torch.distributed as dist
 import torch.nn as nn
-from torch.utils.data import DataLoader, IterableDataset
-from torch.utils.data.distributed import DistributedSampler
 
-from nextrec.basic.loggers import colorize
 from nextrec.utils.types import (
     EmbeddingInitType,
     InitializerActivationType,
@@ -31,7 +28,28 @@ from nextrec.utils.types import (
 )
 
 
-def normalize_string_list(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
+def smart_inference_mode():
+    """Return an inference decorator that prefers torch.inference_mode over torch.no_grad.
+
+    The decorated function executes under torch.inference_mode when available. If the
+    current call site is already inside inference mode, the wrapper becomes a pass-through.
+    """
+
+    def decorate(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            if hasattr(torch, "is_inference_mode_enabled") and torch.is_inference_mode_enabled():
+                return fn(*args, **kwargs)
+
+            context_decorator = torch.inference_mode if hasattr(torch, "inference_mode") else torch.no_grad
+            return context_decorator()(fn)(*args, **kwargs)
+
+        return wrapper
+
+    return decorate
+
+
+def to_list(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
@@ -39,7 +57,7 @@ def normalize_string_list(value: str | list[str] | tuple[str, ...] | None) -> li
     return list(value)
 
 
-def as_float(value: Any) -> float | None:
+def to_float(value: Any) -> float | None:
     if isinstance(value, numbers.Number):
         return float(value)
     if hasattr(value, "item"):
@@ -50,10 +68,14 @@ def as_float(value: Any) -> float | None:
     return None
 
 
-def to_numpy(values: Any) -> np.ndarray:
+def to_numpy(values: Any, as_2d: bool = False) -> np.ndarray:
     if isinstance(values, torch.Tensor):
-        return values.detach().cpu().numpy()
-    return np.asarray(values)
+        arr = values.detach().cpu().numpy()
+    else:
+        arr = np.asarray(values)
+    if as_2d and arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    return arr
 
 
 def to_tensor(value: Any, dtype: torch.dtype, device: torch.device | str | None = None) -> torch.Tensor:
@@ -75,7 +97,7 @@ def to_tensor(value: Any, dtype: torch.dtype, device: torch.device | str | None 
     return tensor
 
 
-def resolve_nonlinearity(activation: str) -> str:
+def get_nonlinearity(activation: str) -> str:
     if activation in [
         "linear",
         "conv1d",
@@ -95,10 +117,10 @@ def resolve_nonlinearity(activation: str) -> str:
     return "linear"
 
 
-def resolve_gain(activation: str, param: Dict[str, Any]) -> float:
+def get_gain(activation: str, param: Dict[str, Any]) -> float:
     if "gain" in param:
         return param["gain"]
-    nonlinearity = resolve_nonlinearity(activation)
+    nonlinearity = get_nonlinearity(activation)
     try:
         return nn.init.calculate_gain(nonlinearity, param.get("param"))  # type: ignore
     except ValueError:
@@ -111,8 +133,8 @@ def get_initializer(
     param: Dict[str, Any] | None = None,
 ):
     param = param or {}
-    nonlinearity = resolve_nonlinearity(activation)
-    gain = resolve_gain(activation, param)
+    nonlinearity = get_nonlinearity(activation)
+    gain = get_gain(activation, param)
 
     def initializer_fn(tensor):
         if init_type == "xavier_uniform":
@@ -136,32 +158,43 @@ def get_initializer(
     return initializer_fn
 
 
-def get_device(distributed: bool, local_rank: int, base_device: torch.device | str = "cpu") -> torch.device:
+def get_device(base_device: torch.device | str | list[str] | tuple[str, ...] | None = "cpu") -> torch.device:
+    if isinstance(base_device, (list, tuple)):
+        device_tokens = [str(item).strip() for item in base_device if str(item).strip()]
+    elif base_device is None:
+        device_tokens = []
+    else:
+        device_tokens = [part.strip() for part in str(base_device).split(",") if part.strip()]
+
+    if len(device_tokens) > 1:
+        raise ValueError("[Device Error] Multi-GPU training is no longer supported. Please specify a single device.")
+
+    raw_device = device_tokens[0].lower() if device_tokens else "cpu"
+    if raw_device.isdigit():
+        raw_device = f"cuda:{raw_device}"
+
     try:
-        device = torch.device(base_device)
+        device = torch.device(raw_device)
     except Exception:
         logging.warning("[get_device Warning] Invalid base_device, falling back to CPU.")
         return torch.device("cpu")
 
-    if distributed:
-        if device.type == "cuda":
-            if not torch.cuda.is_available():
-                logging.warning("[Distributed Warning] CUDA requested but unavailable. Falling back to CPU.")
-                return torch.device("cpu")
-            if not (0 <= local_rank < torch.cuda.device_count()):
-                logging.warning(
-                    f"[Distributed Warning] local_rank {local_rank} is invalid for available CUDA devices. Falling back to CPU."
-                )
-                return torch.device("cpu")
+    if device.type == "cuda":
+        if not torch.cuda.is_available():
+            logging.warning("[get_device Warning] CUDA requested but unavailable. Falling back to CPU.")
+            return torch.device("cpu")
+        if device.index is not None and not (0 <= device.index < torch.cuda.device_count()):
+            logging.warning(f"[get_device Warning] CUDA device index {device.index} is invalid. Falling back to CPU.")
+            return torch.device("cpu")
+        if device.index is not None:
             try:
-                torch.cuda.set_device(local_rank)
-                return torch.device(f"cuda:{local_rank}")
+                torch.cuda.set_device(device.index)
             except Exception as exc:
                 logging.warning(
-                    f"[Distributed Warning] Failed to set CUDA device for local_rank {local_rank}: {exc}. Falling back to CPU."
+                    f"[get_device Warning] Failed to set CUDA device {device.index}: {exc}. Falling back to CPU."
                 )
                 return torch.device("cpu")
-        return torch.device("cpu")
+
     return device
 
 
@@ -268,120 +301,3 @@ def get_warmup(
         "start_factor": start_factor,
         "end_factor": end_factor,
     }
-
-
-def init_process_group(distributed: bool, rank: int, world_size: int, device_id: int | None = None) -> None:
-    """
-    initialize distributed process group for multi-GPU training.
-
-    Args:
-        distributed: whether to enable distributed training
-        rank: global rank of the current process
-        world_size: total number of processes
-    """
-    if (not distributed) or (not dist.is_available()) or dist.is_initialized():
-        return
-    backend = "nccl" if device_id is not None else "gloo"
-    if backend == "nccl":
-        torch.cuda.set_device(device_id)
-    dist.init_process_group(backend=backend, init_method="env://", rank=rank, world_size=world_size)
-
-
-def gather_numpy(self, array: np.ndarray | None) -> np.ndarray | None:
-    """
-    Gather numpy arrays (or None) across ranks. Uses all_gather_object to avoid
-    shape mismatches and ensures every rank participates even when local data is empty.
-    """
-    if not (self.distributed and dist.is_available() and dist.is_initialized()):
-        return array
-
-    world_size = dist.get_world_size()
-    gathered: list[np.ndarray | None] = [None for _ in range(world_size)]
-    dist.all_gather_object(gathered, array)
-    pieces: list[np.ndarray] = []
-    for item in gathered:
-        if item is None:
-            continue
-        item_np = np.asarray(item)
-        if item_np.size > 0:
-            pieces.append(item_np)
-    if not pieces:
-        return None
-    return np.concatenate(pieces, axis=0)
-
-
-def add_distributed_sampler(
-    loader: DataLoader,
-    distributed: bool,
-    world_size: int,
-    rank: int,
-    shuffle: bool,
-    drop_last: bool,
-    default_batch_size: int,
-    is_main_process: bool = False,
-) -> tuple[DataLoader, DistributedSampler | None]:
-    """
-    add distributedsampler to a dataloader, this for distributed training
-    when each device has its own dataloader
-    """
-    # early return if not distributed
-    if not (distributed and dist.is_available() and dist.is_initialized()):
-        return loader, None
-    # return if already has DistributedSampler
-    if isinstance(loader.sampler, DistributedSampler):
-        return loader, loader.sampler
-    dataset = loader.dataset
-    if dataset is None:
-        return loader, None
-    if isinstance(dataset, IterableDataset):
-        if is_main_process:
-            logging.info(
-                colorize(
-                    "[Distributed Info] Iterable/streaming DataLoader provided; DistributedSampler is skipped. Ensure dataset handles sharding per rank.",
-                    color="yellow",
-                )
-            )
-        return loader, None
-    sampler = DistributedSampler(
-        dataset,
-        num_replicas=world_size,
-        rank=rank,
-        shuffle=shuffle,
-        drop_last=drop_last,
-    )
-    loader_kwargs = {
-        "batch_size": (loader.batch_size if loader.batch_size is not None else default_batch_size),
-        "shuffle": False,
-        "sampler": sampler,
-        "num_workers": loader.num_workers,
-        "collate_fn": loader.collate_fn,
-        "drop_last": drop_last,
-    }
-    if loader.pin_memory:
-        loader_kwargs["pin_memory"] = True
-    pin_memory_device = loader.pin_memory_device
-    if pin_memory_device:
-        loader_kwargs["pin_memory_device"] = pin_memory_device
-    timeout = loader.timeout
-    if timeout:
-        loader_kwargs["timeout"] = timeout
-    worker_init_fn = loader.worker_init_fn
-    if worker_init_fn is not None:
-        loader_kwargs["worker_init_fn"] = worker_init_fn
-    generator = loader.generator
-    if generator is not None:
-        loader_kwargs["generator"] = generator
-    if loader.num_workers > 0:
-        loader_kwargs["persistent_workers"] = loader.persistent_workers
-        prefetch_factor = loader.prefetch_factor
-        if prefetch_factor is not None:
-            loader_kwargs["prefetch_factor"] = prefetch_factor
-    distributed_loader = DataLoader(dataset, **loader_kwargs)
-    if is_main_process:
-        logging.info(
-            colorize(
-                "[Distributed Info] Attached DistributedSampler to provided DataLoader",
-                color="cyan",
-            )
-        )
-    return distributed_loader, sampler

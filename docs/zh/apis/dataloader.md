@@ -29,7 +29,7 @@ rec_loader = RecDataLoader(
     sparse_features=sparse_features,
     sequence_features=sequence_features,
     target=["label"],
-    id_columns=['user_id'],
+    key_columns=['user_id'],
     processor=fitted_processor    # 支持加载已经拟合过的DataProcessor，在训练同时对数据做预处理变换
 )
 
@@ -56,7 +56,7 @@ rec_loader = RecDataLoader(
     sparse_features=sparse_features,
     sequence_features=sequence_features,
     target=["label"],
-    id_columns=['user_id'],
+    key_columns=['user_id'],
     processor=fitted_processor    # 支持加载已经拟合过的DataProcessor，在训练同时对数据做预处理变换
 )
 
@@ -84,7 +84,7 @@ loader = rec_loader.create_dataloader(
 | `sparse_features` | 稀疏特征列表 List[SparseFeature] |
 | `sequence_features` | 序列特征列表 List[SequenceFeature] |
 | `target` | 目标列名，如 `"click"` 或 `["click", "buy"]`（多任务） |
-| `id_columns` | 数据中的id列 |
+| `key_columns` | 数据中需要透传的 key 列 |
 | `processor` | **[可选]** fit后的DataProcessor，有值时会在加载数据同时进行数据预处理 |
 
 ### 构造方法

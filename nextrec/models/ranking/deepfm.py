@@ -31,11 +31,11 @@ embedding，无需手工构造交叉特征即可端到端训练，常用于 CTR/
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FM, LR, MLP, EmbeddingLayer
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
-class DeepFM(BaseModel):
+class DeepFM(BaseRankingModel):
     @property
     def model_name(self):
         return "DeepFM"

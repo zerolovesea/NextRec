@@ -61,7 +61,7 @@ import torch.nn.functional as F
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import LR, MLP, EmbeddingLayer
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
@@ -122,7 +122,7 @@ class CIN(nn.Module):
         return self.fc(torch.sum(torch.cat(xs, dim=1), 2))
 
 
-class xDeepFM(BaseModel):
+class xDeepFM(BaseRankingModel):
     @property
     def model_name(self):
         return "xDeepFM"

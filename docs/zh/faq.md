@@ -15,8 +15,8 @@ description: NextRec 常见问题解答（GAUC、streaming、DataProcessor、ONN
 
 这类指标需要分组 ID（通常是 `user_id`）。
 
-- Python API：在 `fit/evaluate` 里传 `user_id_column="user_id"`。
-- CLI：在 `data` 段配置 `id_column: user_id`（或使用别名 `user_id_column`）。
+- Python API：在 `fit/evaluate` 里传 `group_id="user_id"`。
+- CLI：在 `data` 段配置 `group_id: user_id`。
 
 ## 3. 如何在大数据上训练（避免一次性读入内存）？
 
@@ -46,6 +46,6 @@ description: NextRec 常见问题解答（GAUC、streaming、DataProcessor、ONN
 ## 6. 如何导出并用 ONNX 推理？
 
 - 训练后调用 `export_onnx(...)` 导出
-- 使用 `predict_onnx(...)` 对文件/数据进行推理
+- 使用 `predict(..., inference_model=...)` 传入 ONNX 文件路径进行推理
 
 参考：[API 文档 / ONNX](apis/base-model.md)

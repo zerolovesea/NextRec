@@ -5,7 +5,7 @@ import math
 import pytest
 
 from nextrec.basic.features import DenseFeature
-from nextrec.basic.model import BaseModel
+from nextrec.engine.model import Model as BaseModel
 from nextrec.utils.data import expand_tabular_rows, get_expand_columns
 
 
@@ -13,6 +13,10 @@ class _DummyPredictExpandModel(BaseModel):  # type: ignore[misc]
     @property
     def model_name(self) -> str:
         return "DummyPredictExpand"
+
+    @property
+    def model_family(self) -> str:
+        return "ranking"
 
     @property
     def default_task(self) -> str:
@@ -28,7 +32,7 @@ class _DummyPredictExpandModel(BaseModel):  # type: ignore[misc]
             sequence_features=[],
             target=[],
             task="binary",
-            id_columns=["uid"],
+            key_columns=["uid"],
         )
         self.bias = nn.Parameter(torch.zeros(1))
 
@@ -121,3 +125,28 @@ def test_predict_single_expand_candidate_still_injects_column():
     assert result["product"].tolist() == ["7", "7"]
     expected = [7.0, 7.0]
     assert result["pred_0"].tolist() == pytest.approx([1 / (1 + math.exp(-x)) for x in expected])
+
+
+def test_predict_uses_configured_onnx_backend(tmp_path):
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("onnxscript")
+
+    model = _DummyPredictExpandModel()
+    data = pd.DataFrame({"uid": ["u1", "u2"]})
+    onnx_path = model.export_onnx(save_path=tmp_path / "dummy_predict_expand.onnx", batch_size=2)
+
+    torch_result = model.predict(
+        data=data,
+        batch_size=2,
+        return_dataframe=True,
+        expand={"product": [1, 2]},
+    )
+    model.set_inference_backend(onnx_path)
+    onnx_result = model.predict(
+        data=data,
+        batch_size=2,
+        return_dataframe=True,
+        expand={"product": [1, 2]},
+    )
+
+    pd.testing.assert_frame_equal(torch_result, onnx_result)

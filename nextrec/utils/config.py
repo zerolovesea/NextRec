@@ -33,8 +33,6 @@ _EMBEDDING_CFG_KEYS = {
     "padding_idx",
     "init_type",
     "init_params",
-    "l1_reg",
-    "l2_reg",
     "trainable",
     "combiner",
     "max_len",
@@ -121,7 +119,7 @@ def _resolve_embedding_cfg(
     return {}
 
 
-def resolve_path(path_str: str | Path | None = None, base_dir: Path | None = None) -> Path:
+def get_path(path_str: str | Path | None = None, base_dir: Path | None = None) -> Path:
     if path_str is None:
         return Path.cwd()
     path = Path(path_str).expanduser()
@@ -298,8 +296,6 @@ def build_feature_objects(
                     padding_idx=embed_cfg.get("padding_idx"),
                     init_type=embed_cfg.get("init_type", "xavier_uniform"),
                     init_params=embed_cfg.get("init_params"),
-                    l1_reg=embed_cfg.get("l1_reg", 0.0),
-                    l2_reg=embed_cfg.get("l2_reg", 1e-5),
                     trainable=embed_cfg.get("trainable", True),
                 )
             )
@@ -331,8 +327,6 @@ def build_feature_objects(
                     combiner=embed_cfg.get("combiner", "mean"),
                     init_type=embed_cfg.get("init_type", "xavier_uniform"),
                     init_params=embed_cfg.get("init_params"),
-                    l1_reg=embed_cfg.get("l1_reg", 0.0),
-                    l2_reg=embed_cfg.get("l2_reg", 1e-5),
                     trainable=embed_cfg.get("trainable", True),
                 )
             )
@@ -360,7 +354,7 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
 
     # Case 1: Custom file path
     if module_path:
-        resolved = resolve_path(module_path, base_dir)
+        resolved = get_path(module_path, base_dir)
         if not resolved.exists():
             raise FileNotFoundError(f"Custom model file not found: {resolved}")
 
@@ -375,7 +369,7 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
             return getattr(module, class_name)
 
         # Auto-pick first BaseModel subclass
-        from nextrec.basic.model import BaseModel
+        from nextrec.engine.model import Model as BaseModel
 
         for attr in module.__dict__.values():
             if (
@@ -390,15 +384,14 @@ def load_model_class(model_cfg: Dict[str, Any], base_dir: Path) -> type:
 
     # Case 2: Builtin model by short name
     if name and not module_name:
-        from nextrec.basic.model import BaseModel
+        from nextrec.engine.model import Model as BaseModel
 
         candidates = [
             f"nextrec.models.{name.lower()}",
             f"nextrec.models.ranking.{name.lower()}",
-            f"nextrec.models.retrieval.{name.lower()}",
-            f"nextrec.models.multi_task.{name.lower()}",
-            f"nextrec.models.generative.{name.lower()}",
-            f"nextrec.models.tree_base.{name.lower()}",
+            f"nextrec.models.matching.{name.lower()}",
+            f"nextrec.models.sequential.{name.lower()}",
+            f"nextrec.models.multitask.{name.lower()}",
         ]
         errors = []
 
@@ -445,7 +438,7 @@ def build_model_instance(
     sparse_features: List["SparseFeature"],
     sequence_features: List["SequenceFeature"],
     target: List[str],
-    id_columns: list[str] | str | None,
+    key_columns: list[str] | str | None,
     device: str,
 ) -> Any:
     """
@@ -458,7 +451,7 @@ def build_model_instance(
         sparse_features: List of sparse feature objects
         sequence_features: List of sequence feature objects
         target: List of target column names
-        id_columns: Identifier column name(s) for GAUC or ID passthrough
+        key_columns: Key column name(s) for grouping metrics, reporting, or output passthrough
         device: Device string (e.g., 'cpu', 'cuda:0')
     """
     model_cls = load_model_class(model_cfg, model_cfg_path.parent)
@@ -485,8 +478,8 @@ def build_model_instance(
 
     if accepts("target"):
         init_kwargs.setdefault("target", target)
-    if accepts("id_columns") or accepts_var_kwargs:
-        init_kwargs.setdefault("id_columns", id_columns)
+    if accepts("key_columns") or accepts_var_kwargs:
+        init_kwargs.setdefault("key_columns", key_columns)
     if accepts("device"):
         init_kwargs.setdefault("device", device)
 
@@ -506,7 +499,7 @@ def build_user_histories(
     seq_len: int = 6,
 ) -> tuple[torch.Tensor, torch.Tensor, int]:
     """
-    Build autoregressive generative-retrieval training pairs per user using
+    Build autoregressive generative-matching training pairs per user using
     log_time ordering.
     """
     df_with_ids = df.copy().reset_index(drop=True)

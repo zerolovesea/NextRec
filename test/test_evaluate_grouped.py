@@ -2,14 +2,19 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+from nextrec.basic.metrics import get_thresholds
 from nextrec.basic.features import DenseFeature
-from nextrec.basic.model import BaseModel
+from nextrec.engine.model import Model as BaseModel
 
 
 class _DummyGroupedEvalModel(BaseModel):  # type: ignore[misc]
     @property
     def model_name(self) -> str:
         return "DummyGroupedEval"
+
+    @property
+    def model_family(self) -> str:
+        return "multitask"
 
     @property
     def default_task(self) -> list[str]:
@@ -26,7 +31,7 @@ class _DummyGroupedEvalModel(BaseModel):  # type: ignore[misc]
             sequence_features=[],
             target=["task1", "task2"],
             task=["binary", "binary"],
-            id_columns=["uid"],
+            key_columns=["uid"],
         )
         self.bias = nn.Parameter(torch.zeros(1))
 
@@ -46,7 +51,7 @@ def test_evaluate_grouped_by_column(tmp_path):
         data=data,
         metrics=["precision", "recall"],
         batch_size=2,
-        user_id_column="uid",
+        group_id="uid",
         group_by="product",
         thresholds=0.5,
     )
@@ -60,3 +65,12 @@ def test_evaluate_grouped_by_column(tmp_path):
     assert grouped_rows[0]["samples"] == 2
     assert grouped_rows[0]["precision_task1"] == 0.5
     assert grouped_rows[1]["product"] == "p2"
+
+
+def test_get_thresholds_accepts_scalar_list_and_dict():
+    target_names = ["task1", "task2"]
+
+    assert get_thresholds(None, target_names) == {"task1": 0.5, "task2": 0.5}
+    assert get_thresholds(0.7, target_names) == {"task1": 0.7, "task2": 0.7}
+    assert get_thresholds([0.3], target_names) == {"task1": 0.3, "task2": 0.5}
+    assert get_thresholds({"task2": 0.8}, target_names) == {"task1": 0.5, "task2": 0.8}

@@ -64,7 +64,7 @@ import torch.nn as nn
 from typing import Literal
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import MLP, EmbeddingLayer
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
@@ -165,7 +165,7 @@ class CrossNetMix(nn.Module):
         return x_l.squeeze(-1)  # (Batch, in_features)
 
 
-class DCNv2(BaseModel):
+class DCNv2(BaseRankingModel):
     @property
     def model_name(self) -> str:
         return "DCNv2"

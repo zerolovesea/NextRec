@@ -26,16 +26,25 @@ from nextrec.basic.features import (
     SparseFeature,
 )
 from nextrec.data.batch_utils import collate_fn
-from nextrec.data.data_processing import get_column_data, has_column, normalize_column_names
+from nextrec.data.data_processing import get_column_data, has_column, to_column_names
 from nextrec.data.preprocessor import DataProcessor
 from nextrec.utils.data import (
     expand_tabular_rows,
+    get_file_paths,
+    is_path_data,
     iter_file_chunks,
     read_table,
-    resolve_file_paths,
 )
 from nextrec.utils.timing import StageTimer
 from nextrec.utils.torch_utils import to_tensor
+from nextrec.utils.types import (
+    BatchSchema,
+    FeatureScopeName,
+    ModelFamilyName,
+    SamplingModeName,
+    TaskTypeName,
+    TrainingModeName,
+)
 
 
 class TensorDictDataset(Dataset):
@@ -44,7 +53,8 @@ class TensorDictDataset(Dataset):
     def __init__(self, tensors: dict):
         self.features = tensors.get("features", {})
         self.labels = tensors.get("labels")
-        self.ids = tensors.get("ids")
+        self.keys = tensors.get("keys")
+        self.schema = tensors.get("schema")
         if not self.features:
             raise ValueError("[TensorDictDataset Error] Dataset requires at least one feature tensor.")
         lengths = [tensor.shape[0] for tensor in self.features.values()]
@@ -61,8 +71,8 @@ class TensorDictDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         sample_features = {name: tensor[idx] for name, tensor in self.features.items()}
         sample_labels = {name: tensor[idx] for name, tensor in self.labels.items()} if self.labels else None
-        sample_ids = {name: tensor[idx] for name, tensor in self.ids.items()} if self.ids else None
-        return {"features": sample_features, "labels": sample_labels, "ids": sample_ids}
+        sample_keys = {name: tensor[idx] for name, tensor in self.keys.items()} if self.keys else None
+        return {"features": sample_features, "labels": sample_labels, "keys": sample_keys, "schema": self.schema}
 
 
 class FileDataset(FeatureSet, IterableDataset):
@@ -73,7 +83,7 @@ class FileDataset(FeatureSet, IterableDataset):
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
         target_columns: list[str],
-        id_columns: list[str] | None = None,
+        key_columns: list[str] | None = None,
         target_source: (
             str | None
         ) = None,  # source column for generating next-item labels in sequence modeling; must be a SequenceFeature if specified
@@ -85,6 +95,7 @@ class FileDataset(FeatureSet, IterableDataset):
         shard_count: int = 1,
         profiler: StageTimer | None = None,
         expand: dict[str, list] | None = None,
+        schema: BatchSchema | None = None,
     ):
         """Streaming dataset for reading files in chunks.
 
@@ -94,7 +105,7 @@ class FileDataset(FeatureSet, IterableDataset):
             sparse_features: Sparse feature definitions
             sequence_features: Sequence feature definitions
             target_columns: Target column names
-            id_columns: ID columns to carry through
+            key_columns: Key columns to carry through
             chunk_size: Number of rows per chunk
             file_type: Format type (csv, parquet, etc.)
             processor: Optional DataProcessor for transformation
@@ -109,13 +120,14 @@ class FileDataset(FeatureSet, IterableDataset):
         self.shard_count = int(shard_count)
         self.profiler = profiler
         self.expand = expand or {}
+        self.schema = dict(schema or {})
 
         self.set_all_features(
             dense_features,
             sparse_features,
             sequence_features,
             target_columns,
-            id_columns,
+            key_columns,
         )
         self.total_files = len(file_paths)
 
@@ -192,7 +204,7 @@ class FileDataset(FeatureSet, IterableDataset):
                     raw_data=chunk,
                     features=self.all_features,
                     target_columns=self.target_columns,
-                    id_columns=self.id_columns,
+                    key_columns=self.key_columns,
                     target_source=self.target_source,
                     target_shift_steps=self.target_shift_steps,
                 )
@@ -211,11 +223,16 @@ class RecDataLoader(FeatureSet):
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
         target: list[str] | None | str = None,
-        id_columns: str | list[str] | None = None,
+        key_columns: str | list[str] | None = None,
         target_source: str | None = None,
         target_shift_steps: int = 1,
         processor: DataProcessor | None = None,
         expand: dict[str, list] | None = None,
+        task: TaskTypeName | list[TaskTypeName] = "binary",
+        model_family: ModelFamilyName = "ranking",
+        training_mode: TrainingModeName = "pointwise",
+        sampling_mode: SamplingModeName = "explicit",
+        feature_scopes: dict[str, FeatureScopeName] | None = None,
     ):
         """
         RecDataLoader is a unified dataloader for supporting in-memory and streaming data.
@@ -226,14 +243,20 @@ class RecDataLoader(FeatureSet):
             sparse_features: list of SparseFeature definitions
             sequence_features: list of SequenceFeature definitions
             target: target column name(s), e.g. 'label' or ['ctr', 'ctcvr']
-            id_columns: id column name(s) to carry through (not used for model inputs), e.g. 'user_id' or ['user_id', 'item_id']
+            key_columns: key column name(s) to carry through (not used for model inputs), e.g. 'user_id' or ['user_id', 'item_id']
             processor: an instance of DataProcessor, if provided, will be used to transform data before creating tensors.
         """
         self.processor = processor
         self.expand = expand or {}
         self.target_source = target_source
         self.target_shift_steps = target_shift_steps
-        self.set_all_features(dense_features, sparse_features, sequence_features, target, id_columns)
+        self.task = task
+        self.model_family = model_family
+        self.training_mode = training_mode
+        self.sampling_mode = sampling_mode
+        self.set_all_features(dense_features, sparse_features, sequence_features, target, key_columns)
+        if feature_scopes is not None:
+            self.feature_scopes = dict(feature_scopes)
 
     def create_dataloader(
         self,
@@ -248,7 +271,6 @@ class RecDataLoader(FeatureSet):
         prefetch_factor: int | None = None,
         shard_rank: int = 0,
         shard_count: int = 1,
-        sampler=None,
         profiler: StageTimer | None = None,
     ) -> DataLoader:
         """
@@ -262,7 +284,6 @@ class RecDataLoader(FeatureSet):
             chunk_size: Chunk size for streaming mode (number of rows per chunk).
             num_workers: Number of worker processes for data loading.
             prefetch_factor: Number of batches loaded in advance by each worker.
-            sampler: Optional sampler for DataLoader, only used for distributed training.
         Returns:
             DataLoader instance.
         """
@@ -270,8 +291,7 @@ class RecDataLoader(FeatureSet):
         if isinstance(data, DataLoader):
             return data
 
-        is_path_list = isinstance(data, list) and data and all(isinstance(p, (str, os.PathLike)) for p in data)
-        if isinstance(data, (str, os.PathLike)) or is_path_list:
+        if is_path_data(data):
             return self.create_from_path(
                 path=data,
                 batch_size=batch_size,
@@ -292,7 +312,6 @@ class RecDataLoader(FeatureSet):
                 shuffle=shuffle,
                 num_workers=num_workers,
                 prefetch_factor=prefetch_factor,
-                sampler=sampler,
             )
 
         raise ValueError(f"[RecDataLoader Error] Unsupported data type: {type(data)}")
@@ -304,7 +323,6 @@ class RecDataLoader(FeatureSet):
         shuffle: bool,
         num_workers: int = 0,
         prefetch_factor: int | None = None,
-        sampler=None,
     ) -> DataLoader:
         """
         Create a DataLoader from in-memory data. It builds a TensorDictDataset
@@ -312,7 +330,7 @@ class RecDataLoader(FeatureSet):
         assign data to each worker.
         """
 
-        # keep a copy of raw data for id columns
+        # Keep a copy of raw data for key columns.
         raw_data = data
         if self.expand:
             raw_data = expand_tabular_rows(raw_data, self.expand)
@@ -330,17 +348,21 @@ class RecDataLoader(FeatureSet):
             raw_data=raw_data,
             features=self.all_features,
             target_columns=self.target_columns,
-            id_columns=self.id_columns,
+            key_columns=self.key_columns,
             target_source=self.target_source,
             target_shift_steps=self.target_shift_steps,
+            task=self.task,
+            model_family=self.model_family,
+            training_mode=self.training_mode,
+            sampling_mode=self.sampling_mode,
+            feature_scopes=self.feature_scopes,
         )
         dataset = TensorDictDataset(tensors)
 
         return DataLoader(
             dataset,
             batch_size=batch_size,
-            shuffle=False if sampler is not None else shuffle,
-            sampler=sampler,
+            shuffle=shuffle,
             collate_fn=collate_fn,
             num_workers=num_workers,
             pin_memory=torch.cuda.is_available(),
@@ -368,7 +390,7 @@ class RecDataLoader(FeatureSet):
         """
 
         if isinstance(path, (str, os.PathLike)):
-            file_paths, file_type = resolve_file_paths(str(Path(path)))
+            file_paths, file_type = get_file_paths(str(Path(path)))
         else:
             file_paths = [str(Path(p)) for p in path]
             if not file_paths:
@@ -453,7 +475,7 @@ class RecDataLoader(FeatureSet):
             sparse_features=self.sparse_features,
             sequence_features=self.sequence_features,
             target_columns=self.target_columns,
-            id_columns=self.id_columns,
+            key_columns=self.key_columns,
             target_source=self.target_source,
             target_shift_steps=self.target_shift_steps,
             chunk_size=chunk_size,
@@ -463,6 +485,16 @@ class RecDataLoader(FeatureSet):
             shard_count=shard_count,
             profiler=profiler,
             expand=self.expand,
+            schema=build_batch_schema(
+                features=self.all_features,
+                target_columns=self.target_columns,
+                task=self.task,
+                model_family=self.model_family,
+                training_mode=self.training_mode,
+                sampling_mode=self.sampling_mode,
+                feature_scopes=self.feature_scopes,
+                data=None,
+            ),
         )
         return DataLoader(
             dataset,
@@ -519,6 +551,143 @@ def prepare_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
     return np.asarray(column, dtype=np.int64)
 
 
+def _to_object_array(column) -> np.ndarray:
+    if isinstance(column, pd.Series):
+        column = column.tolist()
+    if isinstance(column, pl.Series):
+        column = column.to_list()
+    if isinstance(column, (list, tuple)):
+        return np.asarray(column, dtype=object)
+    if isinstance(column, np.ndarray):
+        if column.dtype == object:
+            return column
+        return np.asarray(list(column), dtype=object) if column.ndim == 1 else column.astype(object)
+    return np.asarray([column], dtype=object)
+
+
+def prepare_candidate_feature_column(
+    column,
+    feature: DenseFeature | SparseFeature | SequenceFeature,
+) -> np.ndarray:
+    values = _to_object_array(column)
+    if values.size == 0:
+        raise ValueError(f"[RecDataLoader Error] Candidate feature '{feature.name}' is empty.")
+    if not isinstance(values[0], (list, tuple, np.ndarray)):
+        raise ValueError(
+            f"[RecDataLoader Error] Explicit candidate feature '{feature.name}' must be provided as per-row candidate lists."
+        )
+
+    if isinstance(feature, SequenceFeature):
+        candidate_rows = []
+        list_size = None
+        for row in values:
+            row_candidates = list(row)
+            if list_size is None:
+                list_size = len(row_candidates)
+            elif len(row_candidates) != list_size:
+                raise ValueError(
+                    f"[RecDataLoader Error] Candidate feature '{feature.name}' must use a consistent list_size per row."
+                )
+            candidate_rows.append(prepare_sequence_column(row_candidates, feature))
+        return np.stack(candidate_rows, axis=0)
+
+    rows = []
+    list_size = None
+    for row in values:
+        row_array = np.asarray(row, dtype=np.float32 if isinstance(feature, DenseFeature) else np.int64)
+        if row_array.ndim == 0:
+            row_array = row_array.reshape(1)
+        if list_size is None:
+            list_size = row_array.shape[0]
+        elif row_array.shape[0] != list_size:
+            raise ValueError(
+                f"[RecDataLoader Error] Candidate feature '{feature.name}' must use a consistent list_size per row."
+            )
+        rows.append(row_array)
+    return np.stack(rows, axis=0)
+
+
+def prepare_candidate_label_column(column) -> np.ndarray:
+    values = _to_object_array(column)
+    if values.size == 0:
+        raise ValueError("[RecDataLoader Error] Candidate labels are empty.")
+    if not isinstance(values[0], (list, tuple, np.ndarray)):
+        raise ValueError(
+            "[RecDataLoader Error] Explicit pairwise/listwise labels must be provided as per-row candidate lists."
+        )
+    rows = []
+    list_size = None
+    for row in values:
+        row_array = np.asarray(row)
+        if row_array.ndim == 0:
+            row_array = row_array.reshape(1)
+        if list_size is None:
+            list_size = row_array.shape[0]
+        elif row_array.shape[0] != list_size:
+            raise ValueError("[RecDataLoader Error] Candidate labels must use a consistent list_size per row.")
+        rows.append(row_array)
+    return np.stack(rows, axis=0)
+
+
+def build_batch_schema(
+    features: list,
+    target_columns: list[str],
+    task: TaskTypeName | list[TaskTypeName],
+    model_family: ModelFamilyName,
+    training_mode: TrainingModeName,
+    sampling_mode: SamplingModeName,
+    feature_scopes: dict[str, FeatureScopeName] | None,
+    data,
+) -> BatchSchema:
+    schema: BatchSchema = {
+        "model_family": model_family,
+        "task": task,
+        "training_mode": training_mode,
+        "sampling_mode": sampling_mode,
+        "feature_scopes": dict(feature_scopes or {}),
+        "feature_layout": "flat",
+        "label_format": "none" if not target_columns else "pointwise",
+        "list_size": None,
+    }
+
+    if model_family == "sequential":
+        schema["feature_layout"] = "sequence"
+        if target_columns:
+            schema["label_format"] = "sequence"
+
+    if training_mode in {"pairwise", "listwise"} and sampling_mode == "inbatch":
+        schema["label_format"] = "implicit_inbatch"
+        return schema
+
+    if training_mode in {"pairwise", "listwise"} and sampling_mode == "explicit":
+        schema["feature_layout"] = "candidate_list"
+        schema["label_format"] = "candidate_list"
+        if not schema["feature_scopes"]:
+            default_scope = "candidate"
+            schema["feature_scopes"] = {feature.name: default_scope for feature in features}
+        if data is not None:
+            candidate_list_size = None
+            for feature in features:
+                if schema["feature_scopes"].get(feature.name, "shared") != "candidate":
+                    continue
+                column = get_column_data(data, feature.name)
+                if column is None:
+                    continue
+                values = _to_object_array(column)
+                if values.size == 0 or not isinstance(values[0], (list, tuple, np.ndarray)):
+                    raise ValueError(
+                        f"[RecDataLoader Error] Explicit {training_mode} data requires candidate feature '{feature.name}' to be nested per row."
+                    )
+                row_list_size = len(values[0])
+                candidate_list_size = row_list_size if candidate_list_size is None else candidate_list_size
+                if candidate_list_size != row_list_size:
+                    raise ValueError("[RecDataLoader Error] Candidate features must share the same list_size.")
+            schema["list_size"] = candidate_list_size
+        return schema
+
+    return schema
+
+
 def build_shifted_sequence_column(
     column,
     feature: SequenceFeature,
@@ -549,23 +718,43 @@ def build_tensors_from_data(
     raw_data: dict | pd.DataFrame | "pl.DataFrame",
     features: list,
     target_columns: list[str],
-    id_columns: str | list[str] | None,
+    key_columns: str | list[str] | None,
     target_source: str | None = None,
     target_shift_steps: int = 1,
+    task: TaskTypeName | list[TaskTypeName] = "binary",
+    model_family: ModelFamilyName = "ranking",
+    training_mode: TrainingModeName = "pointwise",
+    sampling_mode: SamplingModeName = "explicit",
+    feature_scopes: dict[str, FeatureScopeName] | None = None,
 ) -> dict:
     """
-    Build feature, label, and ID tensors from raw input using feature definitions.
+    Build feature, label, and key tensors from raw input using feature definitions.
     This is used by RecDataLoader to construct model-ready batches.
     """
 
-    effective_id_columns = normalize_column_names(id_columns)
+    effective_key_columns = to_column_names(key_columns)
 
+    schema = build_batch_schema(
+        features=features,
+        target_columns=target_columns,
+        task=task,
+        model_family=model_family,
+        training_mode=training_mode,
+        sampling_mode=sampling_mode,
+        feature_scopes=feature_scopes,
+        data=data,
+    )
     feature_tensors = {}
     for feature in features:
         column = get_column_data(data, feature.name)
         if column is None:
             raise ValueError(f"[RecDataLoader Error] Feature column '{feature.name}' not found in data")
-        if isinstance(feature, SequenceFeature):
+        feature_scope = schema.get("feature_scopes", {}).get(feature.name, "shared")
+        if feature_scope == "candidate" and training_mode in {"pairwise", "listwise"} and sampling_mode == "explicit":
+            arr = prepare_candidate_feature_column(column, feature)
+            tensor_dtype = torch.float32 if isinstance(feature, DenseFeature) else torch.long
+            tensor = to_tensor(arr, dtype=tensor_dtype)
+        elif isinstance(feature, SequenceFeature):
             arr = prepare_sequence_column(column, feature)
             tensor = to_tensor(arr, dtype=torch.long)
         elif isinstance(feature, DenseFeature):
@@ -603,29 +792,38 @@ def build_tensors_from_data(
                 continue
             if column is None:
                 continue
-            if len(column) > 0 and isinstance(column[0], (list, tuple, np.ndarray)):
-                label_array = np.stack([np.asarray(item) for item in column]).astype(np.float32)
+            target_task = (
+                task[target_columns.index(target_name)]
+                if isinstance(task, list) and target_columns.index(target_name) < len(task)
+                else (task[0] if isinstance(task, list) else task)
+            )
+            label_format = schema.get("label_format", "pointwise")
+            if label_format == "candidate_list":
+                label_array = prepare_candidate_label_column(column)
+            elif len(column) > 0 and isinstance(column[0], (list, tuple, np.ndarray)):
+                label_array = np.stack([np.asarray(item) for item in column])
             else:
-                label_array = np.asarray(column, dtype=np.float32)
-            label_tensor = to_tensor(label_array, dtype=torch.float32)
+                label_array = np.asarray(column)
+            label_dtype = torch.long if target_task == "generative" else torch.float32
+            label_tensor = to_tensor(label_array, dtype=label_dtype)
             if label_tensor.dim() == 2 and label_tensor.shape[0] == 1 and label_tensor.shape[1] > 1:
                 label_tensor = label_tensor.t()
-            if label_tensor.shape[1:] == (1,):
+            if label_format == "pointwise" and label_tensor.shape[1:] == (1,):
                 label_tensor = label_tensor.squeeze(1)
             label_tensors[target_name] = label_tensor
         if not label_tensors:
             label_tensors = None
-    id_tensors = None
-    if effective_id_columns:
-        id_tensors = {}
-        for id_col in effective_id_columns:
-            column = get_column_data(raw_data, id_col)
+    key_tensors = None
+    if effective_key_columns:
+        key_tensors = {}
+        for key_col in effective_key_columns:
+            column = get_column_data(raw_data, key_col)
             if column is None:
-                column = get_column_data(data, id_col)
+                column = get_column_data(data, key_col)
             if column is None:
-                raise KeyError(f"[RecDataLoader Error] ID column '{id_col}' not found in provided data.")
-            # Normalize all id columns to strings for consistent downstream handling.
-            id_tensors[id_col] = np.asarray(column, dtype=str)
+                raise KeyError(f"[RecDataLoader Error] key column '{key_col}' not found in provided data.")
+            # Normalize all key columns to strings for consistent downstream handling.
+            key_tensors[key_col] = np.asarray(column, dtype=str)
     if not feature_tensors:
         raise ValueError("[RecDataLoader Error] No valid tensors could be built from the provided data.")
-    return {"features": feature_tensors, "labels": label_tensors, "ids": id_tensors}
+    return {"features": feature_tensors, "labels": label_tensors, "keys": key_tensors, "schema": schema}

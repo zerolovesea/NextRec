@@ -20,7 +20,7 @@ def run_tests(test_type="all", verbose=True, coverage=False, markers=None):
     Run tests with specified options
 
     Args:
-        test_type: Type of tests to run ('all', 'retrieval', 'ranking', 'multitask')
+        test_type: Type of tests to run ('all', 'matching', 'ranking', 'multitask')
         verbose: Enable verbose output
         coverage: Enable coverage reporting
         markers: Pytest markers to filter tests
@@ -33,8 +33,8 @@ def run_tests(test_type="all", verbose=True, coverage=False, markers=None):
     # Determine which tests to run
     if test_type == "all":
         cmd.append("test/")
-    elif test_type == "retrieval":
-        cmd.append("test/test_retrieval_models.py")
+    elif test_type == "matching":
+        cmd.append("test/test_matching_models.py")
     elif test_type == "ranking":
         cmd.append("test/test_ranking_models.py")
     elif test_type == "multitask":
@@ -82,8 +82,8 @@ Examples:
   # Run all tests
   python run_tests.py
   
-  # Run retrieval model tests only
-  python run_tests.py --type retrieval
+    # Run matching model tests only
+    python run_tests.py --type matching
   
   # Run with coverage
   python run_tests.py --coverage
@@ -99,7 +99,7 @@ Examples:
     parser.add_argument(
         "--type",
         "-t",
-        choices=["all", "retrieval", "ranking", "multitask"],
+        choices=["all", "matching", "ranking", "multitask"],
         default="all",
         help="Type of tests to run (default: all)",
     )

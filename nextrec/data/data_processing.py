@@ -35,8 +35,8 @@ def get_column_data(data: dict | pd.DataFrame | pl.DataFrame, name: str):
     raise KeyError(f"Only dict or DataFrame supported, got {type(data)}")
 
 
-def normalize_column_names(columns: str | list[str] | tuple[str, ...] | None) -> list[str]:
-    """Normalize optional column name inputs to a list of strings."""
+def to_column_names(columns: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    """Convert optional column name inputs to a list of strings."""
     if columns is None:
         return []
     if isinstance(columns, str):
@@ -95,6 +95,101 @@ def get_data_length(data: Any) -> int | None:
         sample_key = next(iter(data))
         return len(data[sample_key])
     return None
+
+
+def split_train_valid(
+    train_data: dict | pd.DataFrame | pl.DataFrame,
+    valid_split: float,
+    split_stratify_by: str | None = None,
+    split_group_by: str | None = None,
+    random_state: int = 42,
+) -> tuple[dict | pd.DataFrame | pl.DataFrame, dict | pd.DataFrame | pl.DataFrame]:
+    if not (0 < valid_split < 1):
+        raise ValueError(f"[BaseModel-validation Error] valid_split must be between 0 and 1, got {valid_split}")
+
+    rng = np.random.default_rng(random_state)
+
+    if isinstance(train_data, pd.DataFrame):
+        total_length = len(train_data)
+    elif isinstance(train_data, pl.DataFrame):
+        total_length = train_data.height
+    elif isinstance(train_data, dict):
+        if not train_data:
+            raise ValueError("[BaseModel-validation Error] train_data dict is empty.")
+        sample_key = next(iter(train_data))
+        total_length = len(train_data[sample_key])
+        for key, values in train_data.items():
+            if len(values) != total_length:
+                raise ValueError(f"[BaseModel-validation Error] Length mismatch: {key} != {sample_key}")
+    else:
+        raise TypeError(f"[BaseModel-validation Error] Unsupported data type: {type(train_data)}")
+
+    if split_group_by is not None:
+        group_values = get_col_numpy(train_data, split_group_by)
+        unique_groups, inverse_group_idx = np.unique(group_values, return_inverse=True)
+        group_indices = np.arange(len(unique_groups))
+
+        if split_stratify_by is None:
+            shuffled = rng.permutation(group_indices)
+            split_idx = int(len(shuffled) * (1 - valid_split))
+            train_group_idx = shuffled[:split_idx]
+            valid_group_idx = shuffled[split_idx:]
+        else:
+            stratify_values = get_col_numpy(train_data, split_stratify_by)
+            group_labels = []
+            for group_idx in group_indices:
+                mask = inverse_group_idx == group_idx
+                labels = np.unique(stratify_values[mask])
+                if len(labels) == 1:
+                    group_labels.append(str(labels[0]))
+                else:
+                    group_labels.append("|".join(sorted(map(str, labels))))
+            group_labels = np.asarray(group_labels)
+
+            train_parts, valid_parts = [], []
+            for label in np.unique(group_labels):
+                idxs = group_indices[group_labels == label]
+                shuffled = rng.permutation(idxs)
+                split_idx = int(len(shuffled) * (1 - valid_split))
+                train_parts.append(shuffled[:split_idx])
+                valid_parts.append(shuffled[split_idx:])
+
+            train_group_idx = np.concatenate(train_parts) if train_parts else np.array([], dtype=int)
+            valid_group_idx = np.concatenate(valid_parts) if valid_parts else np.array([], dtype=int)
+
+        train_indices = np.flatnonzero(np.isin(inverse_group_idx, train_group_idx))
+        valid_indices = np.flatnonzero(np.isin(inverse_group_idx, valid_group_idx))
+
+    elif split_stratify_by is not None:
+        stratify_values = get_col_numpy(train_data, split_stratify_by)
+        all_indices = np.arange(total_length)
+        train_parts, valid_parts = [], []
+
+        for label in np.unique(stratify_values):
+            idxs = all_indices[stratify_values == label]
+            shuffled = rng.permutation(idxs)
+            split_idx = int(len(shuffled) * (1 - valid_split))
+            train_parts.append(shuffled[:split_idx])
+            valid_parts.append(shuffled[split_idx:])
+
+        train_indices = np.concatenate(train_parts)
+        valid_indices = np.concatenate(valid_parts)
+
+    else:
+        indices = rng.permutation(total_length)
+        split_idx = int(total_length * (1 - valid_split))
+        train_indices = indices[:split_idx]
+        valid_indices = indices[split_idx:]
+
+    if len(train_indices) == 0 or len(valid_indices) == 0:
+        raise ValueError("Split produced empty train or valid set")
+
+    train_indices = rng.permutation(train_indices)
+    valid_indices = rng.permutation(valid_indices)
+
+    train_split_data = slice_data_by_indices(train_data, train_indices)
+    valid_split_data = slice_data_by_indices(train_data, valid_indices)
+    return train_split_data, valid_split_data
 
 
 def split_dict_random(data_dict, test_size=0.2, random_state=None):
@@ -174,39 +269,36 @@ def build_eval_candidates(
     return eval_df
 
 
-def get_user_ids(data: Any, id_columns: list[str] | str | None = None) -> np.ndarray | None:
+def get_group_ids(data: Any, group_id: str | None = None) -> np.ndarray | None:
     """
-    Extract user IDs from various data structures.
+    Extract group IDs from various data structures.
 
     Args:
         data: Data source (DataFrame, dict, or batch dict)
-        id_columns: List or single ID column name(s) (default: None)
+        group_id: Key column name used as the group id.
 
     Returns:
-        np.ndarray | None: User IDs as numpy array, or None if not found
+        np.ndarray | None: Group IDs as numpy array, or None if not found
     """
-    id_columns = normalize_column_names(id_columns)
-    if not id_columns:
+    if not group_id:
         return None
 
-    main_id = id_columns[0]
-
-    if isinstance(data, pd.DataFrame) and main_id in data.columns:
-        arr = np.asarray(data[main_id].values)
+    if isinstance(data, pd.DataFrame) and group_id in data.columns:
+        arr = np.asarray(data[group_id].values)
         return arr.reshape(arr.shape[0])
 
-    if isinstance(data, pl.DataFrame) and main_id in data.columns:
-        arr = data.get_column(main_id).to_numpy()
+    if isinstance(data, pl.DataFrame) and group_id in data.columns:
+        arr = data.get_column(group_id).to_numpy()
         return arr.reshape(arr.shape[0])
 
     if isinstance(data, dict):
-        ids_container = data.get("ids")
-        if isinstance(ids_container, dict) and main_id in ids_container:
-            val = ids_container[main_id]
+        keys_container = data.get("keys")
+        if isinstance(keys_container, dict) and group_id in keys_container:
+            val = keys_container[group_id]
             val = val.detach().cpu().numpy() if isinstance(val, torch.Tensor) else np.asarray(val)
             return val.reshape(val.shape[0])
-        if main_id in data:
-            arr = np.asarray(data[main_id])
+        if group_id in data:
+            arr = np.asarray(data[group_id])
             return arr.reshape(arr.shape[0])
 
     return None

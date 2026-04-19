@@ -31,7 +31,7 @@ class OnnxModelWrapper(torch.nn.Module):
         if len(inputs) != len(self.feature_names):
             raise ValueError("[OnnxWrapper Error] Number of inputs does not match feature names.")
         x = {name: tensor for name, tensor in zip(self.feature_names, inputs)}
-        output = self.model(x)
+        output = self.model.training_adapter.forward(self.model, x)
         if isinstance(output, list):
             return tuple(output)
         return output
@@ -62,7 +62,7 @@ def create_dummy_inputs(
     return tensors
 
 
-def normalize_dense(feature: DenseFeature, array: object) -> np.ndarray:
+def to_dense_array(feature: DenseFeature, array: object) -> np.ndarray:
     arr = np.asarray(array, dtype=np.float32)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
@@ -76,7 +76,7 @@ def normalize_dense(feature: DenseFeature, array: object) -> np.ndarray:
     return arr
 
 
-def normalize_sparse(feature: SparseFeature, array: object) -> np.ndarray:
+def to_sparse_array(feature: SparseFeature, array: object) -> np.ndarray:
     arr = np.asarray(array, dtype=np.int64)
     if arr.ndim == 2 and arr.shape[1] == 1:
         arr = arr.reshape(-1)
@@ -88,7 +88,7 @@ def normalize_sparse(feature: SparseFeature, array: object) -> np.ndarray:
     return arr
 
 
-def normalize_sequence(feature: SequenceFeature, array: object) -> np.ndarray:
+def to_sequence_array(feature: SequenceFeature, array: object) -> np.ndarray:
     arr = np.asarray(array, dtype=np.int64)
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
@@ -118,11 +118,11 @@ def build_onnx_input_feed(
             raise KeyError(f"[ONNX Input Error] Feature '{feature.name}' missing from batch data.")
         value = to_numpy(feature_batch[feature.name])
         if isinstance(feature, DenseFeature):
-            value = normalize_dense(feature, value)
+            value = to_dense_array(feature, value)
         elif isinstance(feature, SequenceFeature):
-            value = normalize_sequence(feature, value)
+            value = to_sequence_array(feature, value)
         else:
-            value = normalize_sparse(feature, value)
+            value = to_sparse_array(feature, value)
         feed[feature.name] = value
     return feed
 

@@ -43,7 +43,6 @@ from __future__ import annotations
 from typing import Iterable
 
 import torch
-import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -211,19 +210,3 @@ class GradNormLossWeighting:
             self.weights.copy_(w)
 
         self.pending_grad = None
-
-    def sync(self) -> None:
-        """
-        Synchronize GradNorm buffers across DDP ranks.
-
-        - pending_grad: averaged so all ranks update weights consistently
-        - initial_losses: averaged so the baseline loss is consistent
-        """
-
-        world_size = dist.get_world_size()
-        if self.pending_grad is not None:
-            dist.all_reduce(self.pending_grad, op=dist.ReduceOp.SUM)
-            self.pending_grad /= world_size
-        if self.initial_losses is not None:
-            dist.all_reduce(self.initial_losses, op=dist.ReduceOp.SUM)
-            self.initial_losses /= world_size

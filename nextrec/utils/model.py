@@ -54,9 +54,7 @@ def compute_pair_scores(model, data, batch_size: int = 512):
         user_tensor = torch.as_tensor(user_emb, device=model.device)
         item_tensor = torch.as_tensor(item_emb, device=model.device)
         scores = model.compute_similarity(user_tensor, item_tensor)
-        mode = model.training_modes
-        if isinstance(mode, list):
-            mode = mode[0] if mode else "pointwise"
+        mode = model.training_mode
         if mode == "pointwise":
             scores = torch.sigmoid(scores)
     return scores.detach().cpu().numpy()

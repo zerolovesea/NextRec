@@ -47,9 +47,9 @@ jobs:
         python -c "import nextrec; print('NextRec imported successfully')"
 
 
-    - name: Run retrieval model tests
+    - name: Run matching model tests
       run: |
-        pytest test/test_retrieval_models.py -v --cov=nextrec/models/retrieval --cov-report=xml
+        pytest test/test_matching_models.py -v --cov=nextrec/models/matching --cov-report=xml
         
     - name: Run ranking model tests
       run: |
@@ -57,7 +57,7 @@ jobs:
         
     - name: Run multi-task model tests
       run: |
-        pytest test/test_multitask_models.py -v --cov=nextrec/models/multi_task --cov-report=xml --cov-append
+        pytest test/test_multitask_models.py -v --cov=nextrec/models/multitask --cov-report=xml --cov-append
         
     - name: Generate coverage report
       run: |
@@ -89,6 +89,6 @@ jobs:
         echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "All unit tests completed for NextRec models:" >> $GITHUB_STEP_SUMMARY
-        echo "- Retrieval Models (DSSM, YoutubeDNN)" >> $GITHUB_STEP_SUMMARY
+        echo "- Matching Models (DSSM, YoutubeDNN)" >> $GITHUB_STEP_SUMMARY
         echo "- Ranking Models (DeepFM, DIN)" >> $GITHUB_STEP_SUMMARY
         echo "- Multi-Task Models (MMOE, PLE, ESMM, ShareBottom)" >> $GITHUB_STEP_SUMMARY

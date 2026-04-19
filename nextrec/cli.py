@@ -30,7 +30,7 @@ import resource
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -43,22 +43,23 @@ from nextrec.data.preprocessor import DataProcessor
 from nextrec.utils.config import (
     build_feature_objects,
     build_model_instance,
+    get_path,
     register_processor_features,
-    resolve_path,
     select_feature_names,
 )
 from nextrec.utils.console import get_nextrec_version
 from nextrec.utils.data import (
     count_rows,
     get_expand_factor,
-    iter_file_chunks,
     get_expand_columns,
+    get_file_paths,
+    iter_file_chunks,
     read_table,
     read_yaml,
-    resolve_file_paths,
+    split_path_files,
 )
 from nextrec.utils.timing import StageTimer
-from nextrec.utils.torch_utils import normalize_string_list
+from nextrec.utils.torch_utils import to_list
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +129,8 @@ def train_model(train_config_path: str) -> None:
     dataloader_cfg = cfg.get("dataloader", {}) or {}
     train_cfg = cfg.get("train", {}) or {}
 
-    feature_cfg_path = resolve_path(cfg.get("feature_config", "feature_config.yaml"), config_dir)
-    model_cfg_path = resolve_path(cfg.get("model_config", "model_config.yaml"), config_dir)
+    feature_cfg_path = get_path(cfg.get("feature_config", "feature_config.yaml"), config_dir)
+    model_cfg_path = get_path(cfg.get("model_config", "model_config.yaml"), config_dir)
 
     log_cli_section("Config")
     log_kv_lines(
@@ -157,20 +158,20 @@ def train_model(train_config_path: str) -> None:
     )
 
     # train data basics
-    data_path = resolve_path(data_cfg["path"], config_dir)
-    target = normalize_string_list(data_cfg["target"])
+    data_path = get_path(data_cfg["path"], config_dir)
+    target = to_list(data_cfg["target"])
     val_data_path = data_cfg.get("valid_path")
     split_stratify_by = data_cfg.get("split_stratify_by")
     split_group_by = data_cfg.get("split_group_by")
-    valid_group_by = normalize_string_list(train_cfg.get("valid_group_by"))
+    valid_group_by = to_list(train_cfg.get("valid_group_by"))
 
     feature_cfg = read_yaml(feature_cfg_path)
     model_cfg = read_yaml(model_cfg_path)
 
-    # Extract id_column from data config for GAUC metrics
-    id_column = data_cfg.get("id_column")
-    id_columns = [id_column] if id_column else []
-    loader_id_columns = list(dict.fromkeys([*id_columns, *valid_group_by]))
+    # Extract group_id from data config for grouped metrics such as GAUC and ranking@K.
+    group_id = data_cfg.get("group_id")
+    key_columns = [group_id] if group_id else []
+    loader_key_columns = list(dict.fromkeys([*key_columns, *valid_group_by]))
 
     log_cli_section("Data")
     log_kv_lines(
@@ -179,7 +180,7 @@ def train_model(train_config_path: str) -> None:
             ("Format", data_cfg.get("format", "auto")),
             ("Streaming", streaming),
             ("Target", target),
-            ("ID column", id_column or "(not set)"),
+            ("Group ID", group_id or "(not set)"),
             ("Valid group by", ", ".join(valid_group_by) if valid_group_by else "disabled"),
             ("Split stratify by", split_stratify_by or "(disabled)"),
             ("Split group by", split_group_by or "(disabled)"),
@@ -191,7 +192,7 @@ def train_model(train_config_path: str) -> None:
         logger.info(
             format_kv(
                 "Validation path",
-                resolve_path(val_data_path, config_dir),
+                get_path(val_data_path, config_dir),
             )
         )
 
@@ -201,7 +202,7 @@ def train_model(train_config_path: str) -> None:
     streaming_valid_files = None
 
     if streaming:
-        file_paths, file_type = resolve_file_paths(str(data_path))
+        file_paths, file_type = get_file_paths(str(data_path))
         log_kv_lines(
             [
                 ("File type", file_type),
@@ -218,30 +219,15 @@ def train_model(train_config_path: str) -> None:
             raise ValueError(f"Data file is empty: {first_file}") from exc
         df_columns = list(first_chunk.columns)
 
-        # Decide training/validation file lists before fitting processor, to avoid
-        # leaking validation statistics into preprocessing (scalers/encoders).
         streaming_train_files = file_paths
-        streaming_valid_ratio = data_cfg.get("valid_ratio")
         if val_data_path:
             streaming_valid_files = None
-        elif streaming_valid_ratio is not None:
-            ratio = float(streaming_valid_ratio)
-            if not (0 < ratio < 1):
-                raise ValueError(
-                    f"[NextRec CLI Error] Valid_ratio must be between 0 and 1, current value is {streaming_valid_ratio}"
-                )
-            total_files = len(file_paths)
-            if total_files < 2:
-                raise ValueError(
-                    "[NextRec CLI Error] Must provide valid_path or increase the number of data files. At least 2 files are required for streaming validation split."
-                )
-            val_count = max(1, int(round(total_files * ratio)))
-            if val_count >= total_files:
-                val_count = total_files - 1
-            streaming_valid_files = file_paths[-val_count:]
-            streaming_train_files = file_paths[:-val_count]
+        elif data_cfg.get("valid_ratio") is not None:
+            ratio = float(data_cfg["valid_ratio"])
+            streaming_train_files, streaming_valid_files = split_path_files(file_paths, ratio)
             logger.info(
-                f"Split files for streaming training and validation using valid_ratio={ratio:.3f}: training {len(streaming_train_files)} files, validation {len(streaming_valid_files)} files"
+                f"Split files for streaming training and validation using valid_ratio={ratio:.3f}: "
+                f"training {len(streaming_train_files)} files, validation {len(streaming_valid_files)} files"
             )
         else:
             streaming_valid_files = None
@@ -261,7 +247,7 @@ def train_model(train_config_path: str) -> None:
 
     split_columns = [col for col in [split_stratify_by, split_group_by] if col]
     active_split_columns = split_columns if (not streaming and not val_data_path) else []
-    used_columns = dense_names + sparse_names + sequence_names + target + loader_id_columns + active_split_columns
+    used_columns = dense_names + sparse_names + sequence_names + target + loader_key_columns + active_split_columns
 
     # keep order but drop duplicates
     unique_used_columns = list(dict.fromkeys(used_columns))
@@ -288,12 +274,10 @@ def train_model(train_config_path: str) -> None:
             file_paths=streaming_train_files or file_paths,
             file_type=file_type,
         )
-        processed = None
         df = None  # type: ignore[assignment]
     else:
         df = df[unique_used_columns]
         processor.fit(df)
-        processed = processor.transform(df, return_dict=True)
 
     processor.save(processor_path)
     dense_features, sparse_features, sequence_features = build_feature_objects(
@@ -304,111 +288,34 @@ def train_model(train_config_path: str) -> None:
         sequence_names,
     )
 
-    train_data: Dict[str, Any]
-    valid_data: Dict[str, Any] | None
-    fit_train_data: Dict[str, Any] | Any
-    fit_valid_data: Dict[str, Any] | Any
+    fit_train_data: Any
+    fit_valid_data: Any
     fit_valid_split = None
 
     if val_data_path and not streaming:
-        # Use specified validation dataset path
         logger.info(f"Validation using specified validation dataset path: {val_data_path}")
-        val_data_resolved = resolve_path(val_data_path, config_dir)
+        val_data_resolved = get_path(val_data_path, config_dir)
         val_df = read_table(val_data_resolved, data_cfg.get("format"))
-        val_df = val_df[unique_used_columns]
-        if not isinstance(processed, dict):
-            raise TypeError("Processed data must be a dictionary")
-        train_data = processed
-        valid_data_result = processor.transform(val_df, return_dict=True)
-        if not isinstance(valid_data_result, dict):
-            raise TypeError("Validation data must be a dictionary")
-        valid_data = valid_data_result
-        train_size = len(list(train_data.values())[0])
-        valid_size = len(list(valid_data.values())[0])
+        fit_train_data = df
+        fit_valid_data = val_df[unique_used_columns]
+        train_size = len(df)
+        valid_size = len(fit_valid_data)
         logger.info(f"Sample count - Training set: {train_size}, Validation set: {valid_size}")
-        fit_train_data = train_data
-        fit_valid_data = valid_data
     elif streaming:
-        train_data = None  # type: ignore[assignment]
-        valid_data = None
         if not val_data_path and not streaming_valid_files:
             logger.info(
                 "Streaming training mode: No validation dataset path specified and valid_ratio not configured, skipping validation dataset creation"
             )
-        fit_train_data = None
-        fit_valid_data = None
+        fit_train_data = streaming_train_files or file_paths
+        fit_valid_data = str(get_path(val_data_path, config_dir)) if val_data_path else streaming_valid_files
     else:
-        if not isinstance(processed, dict):
-            raise TypeError("Processed data must be a dictionary for splitting")
-        passthrough_split_columns = [col for col in active_split_columns if col not in processed]
-        if passthrough_split_columns:
-            if df is None:
-                raise ValueError("[NextRec CLI Error] Raw dataframe is required to attach split control columns.")
-            for col in passthrough_split_columns:
-                if col not in df.columns:
-                    raise KeyError(f"[NextRec CLI Error] Split control column '{col}' not found in input data.")
-                processed[col] = np.asarray(df[col])
-        train_data = processed
-        valid_data = None
-        fit_train_data = train_data
+        fit_train_data = df
         fit_valid_data = None
         fit_valid_split = data_cfg.get("valid_ratio", 0.2)
         logger.info(
             f"Validation will be split inside model.fit using valid_ratio={fit_valid_split}, "
             f"split_stratify_by={split_stratify_by}, split_group_by={split_group_by}"
         )
-
-    dataloader = RecDataLoader(
-        dense_features=dense_features,
-        sparse_features=sparse_features,
-        sequence_features=sequence_features,
-        target=target,
-        id_columns=loader_id_columns,
-        processor=processor if streaming else None,
-    )
-    loader_base_kwargs = {
-        "batch_size": batch_size,
-        "num_workers": dataloader_cfg.get("num_workers", 0),
-        "prefetch_factor": dataloader_cfg.get("prefetch_factor"),
-    }
-    if streaming:
-        train_stream_source = streaming_train_files or file_paths
-        train_loader = dataloader.create_dataloader(
-            data=train_stream_source,
-            shuffle=shuffle,
-            streaming=True,
-            chunk_size=dataloader_chunk_size,
-            **loader_base_kwargs,
-        )
-        valid_loader = None
-        valid_stream_source = str(resolve_path(val_data_path, config_dir)) if val_data_path else streaming_valid_files
-        if valid_stream_source:
-            valid_loader = dataloader.create_dataloader(
-                data=valid_stream_source,
-                shuffle=False,
-                streaming=True,
-                chunk_size=dataloader_chunk_size,
-                **loader_base_kwargs,
-            )
-        fit_train_data = train_loader
-        fit_valid_data = valid_loader
-    else:
-        if fit_valid_data is not None:
-            train_loader = dataloader.create_dataloader(
-                data=train_data,
-                shuffle=shuffle,
-                **loader_base_kwargs,
-            )
-            valid_loader = dataloader.create_dataloader(
-                data=valid_data,
-                shuffle=False,
-                **loader_base_kwargs,
-            )
-            fit_train_data = train_loader
-            fit_valid_data = valid_loader
-        else:
-            train_loader = None
-            valid_loader = None
 
     model_cfg.setdefault("session_id", str(session_dir.resolve()))
     device = train_cfg.get("device", model_cfg.get("device", "cpu"))
@@ -419,7 +326,7 @@ def train_model(train_config_path: str) -> None:
         sparse_features,
         sequence_features,
         target,
-        id_columns,
+        loader_key_columns,
         device,
     )
 
@@ -428,6 +335,7 @@ def train_model(train_config_path: str) -> None:
         [
             ("Model", model.__class__.__name__),
             ("Device", device),
+            ("Runtime device", model.device),
             ("Session ID", session_id),
         ]
     )
@@ -451,8 +359,12 @@ def train_model(train_config_path: str) -> None:
         epochs=train_cfg.get("epochs", 1),
         batch_size=batch_size,
         shuffle=train_cfg.get("shuffle", True),
+        streaming=streaming,
+        chunk_size=dataloader_chunk_size,
         num_workers=dataloader_cfg.get("num_workers", 0),
-        user_id_column=id_column,
+        prefetch_factor=dataloader_cfg.get("prefetch_factor"),
+        processor=processor,
+        group_id=group_id,
         valid_split=fit_valid_split,
         split_stratify_by=split_stratify_by,
         split_group_by=split_group_by,
@@ -486,11 +398,13 @@ def train_model(train_config_path: str) -> None:
                 ("Batch size", onnx_batch_size),
             ]
         )
-        model.export_onnx(
+        model.export(
+            format="onnx",
             save_path=onnx_best_path,
             batch_size=onnx_batch_size,
         )
-        model.export_onnx(
+        model.export(
+            format="onnx",
             save_path=onnx_ckpt_path,
             batch_size=onnx_batch_size,
         )
@@ -534,7 +448,7 @@ def predict_model(predict_config_path: str) -> None:
     device = predict_cfg.get("device", "cpu")
 
     # Model config
-    model_cfg_path = resolve_path(cfg["model_config"], config_dir)
+    model_cfg_path = get_path(cfg["model_config"], config_dir)
 
     model_cfg = read_yaml(model_cfg_path)
     model_cfg.setdefault("session_id", str(session_dir.resolve()))
@@ -572,8 +486,7 @@ def predict_model(predict_config_path: str) -> None:
 
     all_features = features_config.get("all_features", [])
     target_cols = features_config.get("target", [])
-    # Read id_columns from saved config.
-    id_columns = features_config.get("id_columns", [])
+    key_columns = features_config.get("key_columns", [])
 
     dense_features = [f for f in all_features if isinstance(f, DenseFeature)]
     sparse_features = [f for f in all_features if isinstance(f, SparseFeature)]
@@ -587,21 +500,18 @@ def predict_model(predict_config_path: str) -> None:
         sparse_features=sparse_features,
         sequence_features=sequence_features,
         target=target_cols,
-        id_columns=id_columns,
+        key_columns=key_columns,
         device=device,
     )
 
     model.load_model(model_file, map_location=device, verbose=True)
 
-    # Load id_columns override from predict config
-    input_id_columns = predict_cfg.get("id_column")
-    effective_id_columns = (
-        normalize_string_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
-    )
+    input_key_columns = predict_cfg.get("key_column")
+    effective_key_columns = to_list(input_key_columns) if input_key_columns is not None else (model.key_columns or [])
     expand = get_expand_columns(predict_cfg.get("expand"))
-    output_id_columns = list(dict.fromkeys([*effective_id_columns, *expand.keys()]))
-    if input_id_columns is not None or expand:
-        model.id_columns = output_id_columns
+    output_key_columns = list(dict.fromkeys([*effective_key_columns, *expand.keys()]))
+    if input_key_columns is not None or expand:
+        model.key_columns = output_key_columns
 
     log_cli_section("Features")
     log_kv_lines(
@@ -610,7 +520,7 @@ def predict_model(predict_config_path: str) -> None:
             ("Sparse features", len(sparse_features)),
             ("Sequence features", len(sequence_features)),
             ("Targets", len(target_cols)),
-            ("ID columns", len(output_id_columns)),
+            ("Key columns", len(output_key_columns)),
         ]
     )
 
@@ -619,7 +529,7 @@ def predict_model(predict_config_path: str) -> None:
     use_onnx = bool(predict_cfg.get("use_onnx"))
     onnx_path = predict_cfg.get("onnx_path")
     if onnx_path:
-        onnx_path = resolve_path(onnx_path, config_dir)
+        onnx_path = get_path(onnx_path, config_dir)
     if use_onnx and onnx_path is None:
         search_dir = checkpoint_base if checkpoint_base.is_dir() else checkpoint_base.parent
         best_candidates = sorted(search_dir.glob("*_best.onnx"))
@@ -630,6 +540,7 @@ def predict_model(predict_config_path: str) -> None:
             if not candidates:
                 raise FileNotFoundError(f"[NextRec CLI Error]: Unable to find ONNX model in {search_dir}")
             onnx_path = candidates[-1]
+    model.set_inference_backend(onnx_path if use_onnx else None)
 
     log_kv_lines(
         [
@@ -637,19 +548,19 @@ def predict_model(predict_config_path: str) -> None:
             ("Checkpoint", model_file),
             ("Device", device),
             ("Use ONNX", use_onnx),
-            ("ONNX path", onnx_path if use_onnx else "disabled"),
+            ("Inference model", onnx_path if use_onnx else "current PyTorch model"),
         ]
     )
 
     # Data & parallelism
-    data_path = resolve_path(predict_cfg["data_path"], config_dir)
+    data_path = get_path(predict_cfg["data_path"], config_dir)
     streaming = bool(predict_cfg.get("streaming", True))
     chunk_size = int(predict_cfg.get("chunk_size", 20000))
     batch_size = int(predict_cfg.get("batch_size", 512))
     num_workers_cfg = int(predict_cfg.get("num_workers", 0))
     prefetch_factor = predict_cfg.get("prefetch_factor")
     data_format = predict_cfg.get("source_data_format", predict_cfg.get("data_format", "auto"))
-    data_format_effective = resolve_file_paths(str(data_path))[1] if data_format == "auto" else data_format
+    data_format_effective = get_file_paths(str(data_path))[1] if data_format == "auto" else data_format
     num_processes_cfg = predict_cfg.get("num_processes")
     num_processes_auto = None
     if num_processes_cfg is None:
@@ -742,7 +653,7 @@ def predict_model(predict_config_path: str) -> None:
         sparse_features=model.sparse_features,
         sequence_features=model.sequence_features,
         target=None,
-        id_columns=output_id_columns,
+        key_columns=output_key_columns,
         processor=processor,
         expand=expand,
     )
@@ -764,7 +675,6 @@ def predict_model(predict_config_path: str) -> None:
             profiler=profiler,
         )
 
-    # Output path
     save_format = predict_cfg.get("save_data_format", predict_cfg.get("save_format", "csv"))
     pred_name = predict_cfg.get("name", "pred")
     pred_name_path = Path(pred_name)
@@ -773,38 +683,21 @@ def predict_model(predict_config_path: str) -> None:
     else:
         save_path = checkpoint_base / "predictions" / f"{pred_name}.{save_format}"
 
-    # Predict
     start = time.time()
     logger.info("")
-    if use_onnx:
-        result = model.predict_onnx(
-            onnx_path=onnx_path,
-            data=pred_data,
-            batch_size=effective_batch_size,
-            include_ids=bool(output_id_columns),
-            id_columns=output_id_columns,
-            return_dataframe=False,
-            save_path=str(save_path),
-            save_format=save_format,
-            num_workers=effective_num_workers,
-            num_processes=num_processes,
-            profiler=profiler,
-            processor=processor,
-            expand=expand,
-        )
-    else:
-        result = model.predict(
-            data=pred_data,
-            batch_size=effective_batch_size,
-            return_dataframe=False,
-            save_path=str(save_path),
-            save_format=save_format,
-            num_workers=effective_num_workers,
-            num_processes=num_processes,
-            processor=processor,
-            profiler=profiler,
-            expand=expand,
-        )
+    result = model.predict(
+        data=pred_data,
+        batch_size=effective_batch_size,
+        return_dataframe=False,
+        save_path=str(save_path),
+        save_format=save_format,
+        num_workers=effective_num_workers,
+        num_processes=num_processes,
+        processor=processor,
+        profiler=profiler,
+        key_columns=output_key_columns,
+        expand=expand,
+    )
     duration = time.time() - start
     # When return_dataframe=False, result is the actual file path
     if isinstance(result, (str, Path)):
@@ -892,13 +785,13 @@ def evaluate_model(evaluate_config_path: str) -> None:
 
     # Model config
     if "model_config" in cfg:
-        model_cfg_path = resolve_path(cfg["model_config"], config_dir)
+        model_cfg_path = get_path(cfg["model_config"], config_dir)
     else:
         auto_model_cfg = session_dir / "model_config.yaml"
         if auto_model_cfg.exists():
             model_cfg_path = auto_model_cfg
         else:
-            model_cfg_path = resolve_path("model_config.yaml", config_dir)
+            model_cfg_path = get_path("model_config.yaml", config_dir)
 
     model_cfg = read_yaml(model_cfg_path)
     model_cfg.setdefault("session_id", str(session_dir.resolve()))
@@ -936,7 +829,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
 
     all_features = features_config.get("all_features", [])
     target_cols = features_config.get("target", [])
-    id_columns = features_config.get("id_columns", [])
+    key_columns = features_config.get("key_columns", [])
 
     dense_features = [f for f in all_features if isinstance(f, DenseFeature)]
     sparse_features = [f for f in all_features if isinstance(f, SparseFeature)]
@@ -944,7 +837,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
 
     input_targets = evaluate_cfg.get("target")
     if input_targets is not None:
-        input_targets = normalize_string_list(input_targets)
+        input_targets = to_list(input_targets)
         if list(input_targets) != list(target_cols):
             logger.warning(
                 "[NextRec CLI Warning] evaluate.target does not match trained targets; "
@@ -958,20 +851,19 @@ def evaluate_model(evaluate_config_path: str) -> None:
         sparse_features=sparse_features,
         sequence_features=sequence_features,
         target=target_cols,
-        id_columns=id_columns,
+        key_columns=key_columns,
         device=device,
     )
 
     model.load_model(model_file, map_location=device, verbose=True)
 
-    input_id_columns = evaluate_cfg.get("id_column")
-    effective_id_columns = (
-        normalize_string_list(input_id_columns) if input_id_columns is not None else (model.id_columns or [])
-    )
-    by_columns = normalize_string_list(evaluate_cfg.get("group_by"))
-    if input_id_columns is not None:
-        model.id_columns = effective_id_columns
-    loader_id_columns = list(dict.fromkeys([*effective_id_columns, *by_columns]))
+    input_key_columns = evaluate_cfg.get("key_column")
+    effective_key_columns = to_list(input_key_columns) if input_key_columns is not None else (model.key_columns or [])
+    group_id = evaluate_cfg.get("group_id")
+    by_columns = to_list(evaluate_cfg.get("group_by"))
+    if input_key_columns is not None:
+        model.key_columns = effective_key_columns
+    loader_key_columns = list(dict.fromkeys([*effective_key_columns, *([group_id] if group_id else []), *by_columns]))
 
     log_cli_section("Features")
     log_kv_lines(
@@ -980,7 +872,8 @@ def evaluate_model(evaluate_config_path: str) -> None:
             ("Sparse features", len(sparse_features)),
             ("Sequence features", len(sequence_features)),
             ("Targets", len(target_cols)),
-            ("ID columns", len(effective_id_columns)),
+            ("Key columns", len(effective_key_columns)),
+            ("Group ID", group_id or "(not set)"),
             ("Group by", ", ".join(by_columns) if by_columns else "disabled"),
         ]
     )
@@ -995,14 +888,14 @@ def evaluate_model(evaluate_config_path: str) -> None:
     )
 
     # Data
-    data_path = resolve_path(evaluate_cfg["data_path"], config_dir)
+    data_path = get_path(evaluate_cfg["data_path"], config_dir)
     streaming = bool(evaluate_cfg.get("streaming", True))
     chunk_size = int(evaluate_cfg.get("chunk_size", 20000))
     batch_size = int(evaluate_cfg.get("batch_size", 512))
     num_workers = int(evaluate_cfg.get("num_workers", 0))
     prefetch_factor = evaluate_cfg.get("prefetch_factor")
     data_format = evaluate_cfg.get("source_data_format", evaluate_cfg.get("data_format", "auto"))
-    data_format_effective = resolve_file_paths(str(data_path))[1] if data_format == "auto" else data_format
+    data_format_effective = get_file_paths(str(data_path))[1] if data_format == "auto" else data_format
     effective_batch_size = chunk_size if streaming else batch_size
 
     log_cli_section("Data")
@@ -1023,7 +916,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
         sparse_features=model.sparse_features,
         sequence_features=model.sequence_features,
         target=target_cols,
-        id_columns=loader_id_columns,
+        key_columns=loader_key_columns,
         processor=processor,
     )
     data_loader = rec_dataloader.create_dataloader(
@@ -1042,6 +935,7 @@ def evaluate_model(evaluate_config_path: str) -> None:
 
     metrics_list, task_specific_metrics, _ = configure_metrics(
         task=model.task,
+        model_family=model.model_family,
         metrics=eval_metrics_cfg,
         target_names=model.target_columns,
     )
@@ -1055,15 +949,15 @@ def evaluate_model(evaluate_config_path: str) -> None:
     metrics_result = model.evaluate(
         data_loader,
         metrics=None,
-        user_id_column=effective_id_columns[0] if effective_id_columns else "user_id",
+        group_id=group_id,
         group_by=by_columns or None,
         num_workers=num_workers,
         thresholds=thresholds_cfg,
         show_data_summary=not by_columns,
         show_confusion_matrix=confusion_enabled and not by_columns,
     )
+    metrics_dict = to_builtin_metrics(metrics_result.get("overall", {}))
     if by_columns:
-        metrics_dict = to_builtin_metrics(metrics_result.get("overall", {}))
         grouped_rows = [
             {key: (value.item() if isinstance(value, np.generic) else value) for key, value in row.items()}
             for row in metrics_result.get("grouped", [])
@@ -1078,8 +972,6 @@ def evaluate_model(evaluate_config_path: str) -> None:
             encoding="utf-8",
         )
         logger.info(format_kv("Grouped metrics", evaluate_dir / "metrics_by.csv"))
-    else:
-        metrics_dict = metrics_result
     if not metrics_dict:
         raise ValueError("[NextRec CLI Error] Not enough evaluation data to compute metrics.")
 

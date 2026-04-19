@@ -31,11 +31,11 @@ FM 是一种通过分解二阶特征交互矩阵、以线性复杂度建模特�
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.layers import FM as FMInteraction
 from nextrec.basic.layers import LR, EmbeddingLayer
-from nextrec.basic.model import BaseModel
+from nextrec.models.ranking.base import BaseRankingModel
 from nextrec.utils.types import TaskTypeInput
 
 
-class FM(BaseModel):
+class FM(BaseRankingModel):
     @property
     def model_name(self):
         return "FM"

@@ -309,7 +309,7 @@ class TestHSTUModel:
             use_temporal_bias=False,
             tie_embeddings=True,
             target=["next_item"],
-            task="sequential",
+            task="generative",
             device="cpu",
             session_id="hstu_test",
         )

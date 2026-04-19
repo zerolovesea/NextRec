@@ -22,10 +22,7 @@ class Callback:
     """
     Base callback.
 
-    Notes for DDP training:
-    In distributed training, the training loop runs on every rank.
-    For callbacks with side effects (saving, logging, etc.), set
-    ``run_on_main_process_only=True`` to avoid multi-rank duplication.
+    Callback hooks are executed directly by the single-process training loop.
     """
 
     run_on_main_process_only: bool = False
@@ -61,10 +58,7 @@ class Callback:
         self.params = params
 
     def should_run(self) -> bool:
-        if not self.run_on_main_process_only:
-            return True
-        model = self.model
-        return bool(model.is_main_process)
+        return True
 
 
 class CallbackList:
@@ -307,11 +301,7 @@ class CheckpointSaver(Callback):
                         logging.info("")
 
     def save_checkpoint(self, path: Path, epoch: int, logs: dict):
-
-        if hasattr(self.model, "ddp_model") and self.model.ddp_model is not None:
-            model_to_save = self.model.ddp_model.module
-        else:
-            model_to_save = self.model
+        model_to_save = self.model
 
         # Save only state_dict to match BaseModel.save_model() format
         torch.save(model_to_save.state_dict(), path)
@@ -322,7 +312,7 @@ class CheckpointSaver(Callback):
             features_config = {
                 "all_features": self.model.all_features,
                 "target": self.model.target_columns,
-                "id_columns": self.model.id_columns,
+                "key_columns": self.model.key_columns,
                 "version": __version__,
             }
             with open(config_path, "wb") as f:

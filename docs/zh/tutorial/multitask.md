@@ -84,7 +84,7 @@ import torch
 
 # 导入 NextRec 组件
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-from nextrec.models.multi_task.esmm import ESMM
+from nextrec.models.multitask.esmm import ESMM
 from nextrec.data.preprocessor import DataProcessor
 
 # 检查设备
@@ -252,7 +252,7 @@ model.fit(
     epochs=10,
     batch_size=512,
     shuffle=True,
-    user_id_column="user_id",  # 用于计算 GAUC
+    group_id="user_id",  # 用于计算 GAUC
 )
 
 print("训练完成!")
@@ -265,7 +265,7 @@ print("训练完成!")
 | `train_data` | 训练数据 |
 | `valid_data` | 验证数据 |
 | `metrics` | 评估指标列表 |
-| `user_id_column` | 用户 ID 列名，用于 GAUC 计算 |
+| `group_id` | 分组列名，用于 GAUC / ranking@K 计算 |
 
 ## 5. 模型评估
 
@@ -276,7 +276,7 @@ metrics = model.evaluate(
     valid_df,
     metrics=["auc", "gauc", "logloss"],
     batch_size=512,
-    user_id_column="user_id",
+    group_id="user_id",
 )
 
 print("=== 验证集评估结果 ===")
@@ -316,7 +316,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
-from nextrec.models.multi_task.esmm import ESMM
+from nextrec.models.multitask.esmm import ESMM
 
 # ========== 1. 数据准备 ==========
 df = pd.read_csv("dataset/multitask_task.csv")
@@ -385,7 +385,7 @@ model.fit(
     epochs=10,
     batch_size=512,
     shuffle=True,
-    user_id_column="user_id",
+    group_id="user_id",
 )
 
 # ========== 7. 评估 ==========
@@ -399,4 +399,3 @@ print(predictions.head())
 ## 下一步
 
 - [训练召回模型](./retrieval.md)
-- [分布式训练](../apis/distributed-training.md)

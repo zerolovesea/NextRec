@@ -6,7 +6,7 @@ and various model architectures and loss functions, enabling support for
 pointwise, pairwise, listwise, pretrain, and two-tower models with in-batch negatives.
 
 Date: create on 22/03/2026
-Checkpoint: edit on 22/03/2026
+Checkpoint: edit on 19/04/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -16,8 +16,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.basic.heads import GenerativeRetrievalHead, TaskHead
+from nextrec.basic.features import SequenceFeature
 from nextrec.data.data_processing import get_column_data
 from nextrec.data.dataloader import build_shifted_sequence_column
 from nextrec.loss.listwise import InfoNCELoss, SampledSoftmaxLoss
@@ -40,23 +39,11 @@ class TrainingAdapter:
         return None, 1
 
     def forward(self, model, X_input: dict[str, torch.Tensor]):
-        raw_output = model.call_model(X_input)
-        return self.format_model_output(model, raw_output)
+        model_output = model.call_model(X_input)
+        return self.adapt_output(model, model_output)
 
-    def build_prediction_layer(self, model) -> nn.Module | None:
-        if model.training_modes[0] != "pointwise":
-            return None
-        task_type = model.task[0] if isinstance(model.task, list) else model.task
-        if task_type == "generative":
-            return GenerativeRetrievalHead(vocab_size=int(model.vocab_size), return_logits=True)
-        return TaskHead(task_type=model.task)
-
-    def format_model_output(self, model, raw_output: Any):
-        if model.training_modes[0] != "pointwise":
-            return raw_output
-        if isinstance(raw_output, torch.Tensor) and model.prediction_layer is not None:
-            return model.prediction_layer(raw_output)
-        return raw_output
+    def adapt_output(self, model, model_output: Any):
+        return model_output
 
     def compute_loss(
         self,
@@ -85,8 +72,19 @@ class TrainingAdapter:
                 raise ValueError(f"[BaseModel-input Error] Target column '{target_name}' contains no data.")
             return None
 
-        target_tensor = to_tensor(target_data, dtype=torch.float32, device=model.device)
+        problem_type = self.resolve_problem_type(model, target_name)
+        target_dtype = torch.long if problem_type == "generative" else torch.float32
+        target_tensor = to_tensor(target_data, dtype=target_dtype, device=model.device)
         return target_tensor.reshape(target_tensor.size(0), -1)
+
+    def resolve_problem_type(self, model, target_name: str) -> str:
+        if isinstance(model.task, list):
+            if target_name in getattr(model, "target_columns", []):
+                target_index = model.target_columns.index(target_name)
+                if target_index < len(model.task):
+                    return model.task[target_index]
+            return model.task[0]
+        return model.task
 
 
 class PretrainAdapter(TrainingAdapter):
@@ -103,25 +101,17 @@ class PretrainAdapter(TrainingAdapter):
     def forward(self, model, X_input: dict[str, torch.Tensor]):
         return model.call_model(X_input)
 
-    def build_prediction_layer(self, model) -> nn.Module | None:
-        return None
 
-    def format_model_output(self, model, raw_output: Any):
-        return raw_output
-class RetrievalAdapter(TrainingAdapter):
+class MatchingAdapter(TrainingAdapter):
     """
-    Adapter for retrieval models that emit user/item embeddings and use a
-    RetrievalHead to convert them into final scores.
+    Adapter for matching models that emit user/item embeddings and use a
+    MatchingHead to convert them into final scores.
     """
 
-    def build_prediction_layer(self, model) -> nn.Module | None:
-        return None
-
-    def format_model_output(self, model, raw_output: Any):
-        if not isinstance(raw_output, (tuple, list)) or len(raw_output) != 2:
-            return super().format_model_output(model, raw_output)
-        user_emb, item_emb = raw_output
-        return model.head(user_emb, item_emb, similarity_fn=model.compute_similarity)
+    def adapt_output(self, model, model_output: Any):
+        if isinstance(model_output, dict) and "scores" in model_output:
+            return model_output["scores"]
+        return model_output
 
 
 class SequentialAdapter(TrainingAdapter):
@@ -183,12 +173,6 @@ class SequentialAdapter(TrainingAdapter):
         target_tensor = to_tensor(target_data, dtype=torch.long, device=model.device)
         return target_tensor.reshape(target_tensor.size(0), -1)
 
-    def build_prediction_layer(self, model) -> nn.Module | None:
-        return None
-
-    def format_model_output(self, model, raw_output: Any):
-        return raw_output
-
 
 class MaskedSequentialAdapter(SequentialAdapter):
     """
@@ -212,68 +196,41 @@ class CandidateListAdapter(TrainingAdapter):
     and can compute appropriate losses based on the model's configured loss function and similarity metric.
     """
 
-    def feature_has_candidate_axis(
-        self,
-        feature: DenseFeature | SparseFeature | SequenceFeature,
-        tensor: torch.Tensor,
-    ) -> bool:
-        if isinstance(feature, SparseFeature):
-            return tensor.dim() >= 2
-        if isinstance(feature, SequenceFeature):
-            return tensor.dim() >= 3
-        if isinstance(feature, DenseFeature):
-            return tensor.dim() >= 3
-        return False
-
-    def list_size(
-        self,
-        model,
-        X_input: dict[str, torch.Tensor],
-    ) -> int:
-        list_sizes = set()
-        for feature in model.all_features:
-            tensor = X_input.get(feature.name)
-            if tensor is None or not isinstance(tensor, torch.Tensor):
-                continue
-            if self.feature_has_candidate_axis(feature, tensor):
-                list_sizes.add(int(tensor.shape[1]))
-        if not list_sizes:
+    def get_batch_schema(self, model) -> dict[str, Any]:
+        schema = getattr(model, "current_batch_schema", None)
+        if not isinstance(schema, dict):
             raise ValueError(
-                "[CandidateListAdapter-input Error] sampling_mode='explicit' requires candidate-list features with a shared list axis."
+                "[CandidateListAdapter-input Error] Explicit candidate-list training requires batch schema."
             )
-        if len(list_sizes) != 1:
-            raise ValueError(
-                f"[CandidateListAdapter-input Error] Candidate list sizes must be consistent across features, got {sorted(list_sizes)}."
-            )
-        list_size = next(iter(list_sizes))
-        if list_size <= 1:
-            raise ValueError(
-                f"[CandidateListAdapter-input Error] sampling_mode='explicit' requires list_size >= 2, got {list_size}."
-            )
-        return list_size
+        return schema
 
     def prepare_list_input(
         self,
         model,
         X_input: dict[str, torch.Tensor],
     ) -> tuple[int, int, dict[str, torch.Tensor]]:
-        list_size = self.list_size(model, X_input)
+        schema = self.get_batch_schema(model)
+        list_size = int(schema.get("list_size") or 0)
+        if list_size < 2:
+            raise ValueError(
+                f"[CandidateListAdapter-input Error] sampling_mode='explicit' requires schema.list_size >= 2, got {list_size}."
+            )
         batch_size = next(iter(X_input.values())).shape[0]
+        feature_scopes = schema.get("feature_scopes", {})
 
         flat_input = {}
         for feature in model.all_features:
             tensor = X_input[feature.name]
-            has_candidate_axis = self.feature_has_candidate_axis(feature, tensor)
+            feature_scope = feature_scopes.get(feature.name, "shared")
+            has_candidate_axis = feature_scope == "candidate"
 
             if has_candidate_axis:
-                # Explicit candidate lists arrive as [B, L, ...]. Flatten them to
-                # [B*L, ...] so downstream models can keep their usual single-pair
-                # forward logic without knowing about the list axis.
+                if tensor.shape[1] != list_size:
+                    raise ValueError(
+                        f"[CandidateListAdapter-input Error] Feature '{feature.name}' expected candidate axis size {list_size}, got shape {tuple(tensor.shape)}."
+                    )
                 flat_input[feature.name] = tensor.reshape(batch_size * list_size, *tensor.shape[2:])
             else:
-                # Features without a list axis (for example user features shaped
-                # [B, ...]) are shared by all candidates in the row, so expand them
-                # to [B, L, ...] first and then flatten to [B*L, ...].
                 expanded = tensor.unsqueeze(1).expand(batch_size, list_size, *tensor.shape[1:])
                 flat_input[feature.name] = expanded.reshape(batch_size * list_size, *tensor.shape[1:])
         return list_size, batch_size, flat_input
@@ -283,25 +240,26 @@ class CandidateListAdapter(TrainingAdapter):
             if output.dim() == 1:
                 return output.reshape(batch_size, list_size)
             return output.reshape(batch_size, list_size, *output.shape[1:])
+        if isinstance(output, dict):
+            return {key: self.reshape_list_output(value, batch_size, list_size) for key, value in output.items()}
         if isinstance(output, tuple):
             return tuple(self.reshape_list_output(item, batch_size, list_size) for item in output)
         if isinstance(output, list):
             return [self.reshape_list_output(item, batch_size, list_size) for item in output]
         return output
 
-    def format_model_output(self, model, raw_output: Any):
-        if not isinstance(raw_output, (tuple, list)) or len(raw_output) != 2:
-            return super().format_model_output(model, raw_output)
-        user_emb, item_emb = raw_output
-        return model.head(user_emb, item_emb, similarity_fn=model.compute_similarity)
+    def adapt_output(self, model, model_output: Any):
+        if isinstance(model_output, dict) and "scores" in model_output:
+            return model_output["scores"]
+        return model_output
 
     def forward(self, model, X_input: dict[str, torch.Tensor]):
         list_size, batch_size, flat_input = self.prepare_list_input(model, X_input)
-        raw_output = model.call_model(flat_input)
+        model_output = model.call_model(flat_input)
         # Restore the candidate-list axis after the model scores each flattened
         # user-candidate pair independently, e.g. [B*L] -> [B, L].
-        raw_output = self.reshape_list_output(raw_output, batch_size=batch_size, list_size=list_size)
-        return self.format_model_output(model, raw_output)
+        model_output = self.reshape_list_output(model_output, batch_size=batch_size, list_size=list_size)
+        return self.adapt_output(model, model_output)
 
 
 class TwoTowerAdapter(CandidateListAdapter):
@@ -344,16 +302,16 @@ class TwoTowerAdapter(CandidateListAdapter):
         return negatives.gather(1, expanded_indices)
 
     def forward(self, model, X_input: dict[str, torch.Tensor]):
-        for feature in model.all_features:
-            tensor = X_input.get(feature.name)
-            if tensor is None or not isinstance(tensor, torch.Tensor):
-                continue
-            if self.feature_has_candidate_axis(feature, tensor):
-                raise ValueError(
-                    "[TwoTowerAdapter-input Error] sampling_mode='inbatch' expects flat batch features without an explicit candidate-list axis."
-                )
+        schema = getattr(model, "current_batch_schema", None) or {}
+        if schema.get("label_format") != "implicit_inbatch":
+            raise ValueError(
+                "[TwoTowerAdapter-input Error] sampling_mode='inbatch' requires batch schema label_format='implicit_inbatch'."
+            )
         raw_output = model.call_model(X_input)
-        return self.format_model_output(model, raw_output)
+        return self.adapt_output(model, raw_output)
+
+    def adapt_output(self, model, model_output: Any):
+        return model_output
 
     def compute_loss(
         self,
@@ -361,10 +319,12 @@ class TwoTowerAdapter(CandidateListAdapter):
         y_pred: Any,
         y_true: torch.Tensor | None,
     ) -> torch.Tensor | None:
-        if not isinstance(y_pred, (tuple, list)) or len(y_pred) != 2:
+        if not isinstance(y_pred, dict):
             return None
-
-        user_emb, item_emb = y_pred
+        user_emb = y_pred.get("user_emb")
+        item_emb = y_pred.get("item_emb")
+        if not isinstance(user_emb, torch.Tensor) or not isinstance(item_emb, torch.Tensor):
+            return None
         batch_size = user_emb.size(0)
         if batch_size < 2:
             return torch.tensor(0.0, device=user_emb.device)
@@ -410,6 +370,3 @@ class TwoTowerAdapter(CandidateListAdapter):
         if model.loss_weights is not None:
             loss *= float(model.loss_weights[0])
         return loss
-
-    def build_prediction_layer(self, model) -> nn.Module | None:
-        return None
