@@ -1,4 +1,20 @@
+import logging
+import sys
+
 from nextrec.__version__ import __version__
+
+
+def init_default_logging() -> None:
+    root = logging.getLogger()
+    if root.level > logging.INFO:
+        root.setLevel(logging.INFO)
+    if not root.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        root.addHandler(handler)
+
+
+init_default_logging()
 
 __all__ = [
     "__version__",

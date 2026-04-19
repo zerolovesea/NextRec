@@ -172,7 +172,7 @@ def train_model(
         model.compile(
             optimizer="adam",
             optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
-            loss="binary_crossentropy",  # 二元交叉熵损失
+            loss="bce",  # 二元交叉熵损失
         )
 
         # ==============================================================================

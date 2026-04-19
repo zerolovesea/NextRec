@@ -85,6 +85,8 @@ def train_model(
     print("=" * 80)
 
     try:
+        loss = kwargs.pop("loss")
+
         # ==============================================================================
         # 1. 创建模型
         # ==============================================================================
@@ -108,6 +110,7 @@ def train_model(
         model.compile(
             optimizer="adam",
             optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
+            loss=loss,
         )
 
         # ==============================================================================
@@ -219,6 +222,7 @@ def main():
                 "embedding_dim": 64,  # 用户和物品向量维度
                 "similarity_metric": "cosine",  # 相似度度量:余弦相似度
                 "training_mode": "pointwise",  # 训练模式:pointwise
+                "loss": "bce",
             },
         ),
         (
@@ -236,8 +240,8 @@ def main():
                     "dropout": 0.2,
                 },
                 "embedding_dim": 64,
-                "training_mode": "listwise",  # 训练模式:listwise
-                "num_negative_samples": 100,  # 负采样数量
+                "training_mode": "pointwise",  # 训练模式:pointwise
+                "loss": "bce",
             },
         ),
         (
@@ -255,6 +259,7 @@ def main():
                 "routing_times": 3,  # 动态路由迭代次数
                 "training_mode": "pointwise",
                 "similarity_metric": "dot",  # 相似度度量:内积
+                "loss": "bce",
             },
         ),
     ]

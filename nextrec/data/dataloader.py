@@ -26,7 +26,13 @@ from nextrec.basic.features import (
     SparseFeature,
 )
 from nextrec.data.batch_utils import collate_fn
-from nextrec.data.data_processing import get_column_data, has_column, to_column_names
+from nextrec.data.data_processing import (
+    get_column_data,
+    has_column,
+    parse_sequence_value,
+    to_column_names,
+    to_object_array,
+)
 from nextrec.data.preprocessor import DataProcessor
 from nextrec.utils.data import (
     expand_tabular_rows,
@@ -522,17 +528,11 @@ def prepare_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
         column = np.array([column], dtype=object)
     if column.ndim == 0:
         column = column.reshape(1)
-    if column.dtype == object and any(isinstance(v, str) for v in column.ravel()):
-        raise TypeError(
-            f"[RecDataLoader Error] Sequence feature '{feature.name}' expects numeric sequences; found string values."
-        )
-    if column.dtype == object and len(column) > 0 and isinstance(column[0], (list, tuple, np.ndarray)):
+    # transform object dtype to sequences
+    if column.dtype == object:
+        column = np.array([parse_sequence_value(v, feature) for v in column], dtype=object)
         sequences = []
         for seq in column:
-            if isinstance(seq, str):
-                raise TypeError(
-                    f"[RecDataLoader Error] Sequence feature '{feature.name}' expects numeric sequences; found string values."
-                )
             if isinstance(seq, (list, tuple, np.ndarray)):
                 sequences.append(np.asarray(seq, dtype=np.int64))
             else:
@@ -551,25 +551,11 @@ def prepare_sequence_column(column, feature: SequenceFeature) -> np.ndarray:
     return np.asarray(column, dtype=np.int64)
 
 
-def _to_object_array(column) -> np.ndarray:
-    if isinstance(column, pd.Series):
-        column = column.tolist()
-    if isinstance(column, pl.Series):
-        column = column.to_list()
-    if isinstance(column, (list, tuple)):
-        return np.asarray(column, dtype=object)
-    if isinstance(column, np.ndarray):
-        if column.dtype == object:
-            return column
-        return np.asarray(list(column), dtype=object) if column.ndim == 1 else column.astype(object)
-    return np.asarray([column], dtype=object)
-
-
 def prepare_candidate_feature_column(
     column,
     feature: DenseFeature | SparseFeature | SequenceFeature,
 ) -> np.ndarray:
-    values = _to_object_array(column)
+    values = to_object_array(column)
     if values.size == 0:
         raise ValueError(f"[RecDataLoader Error] Candidate feature '{feature.name}' is empty.")
     if not isinstance(values[0], (list, tuple, np.ndarray)):
@@ -608,7 +594,7 @@ def prepare_candidate_feature_column(
 
 
 def prepare_candidate_label_column(column) -> np.ndarray:
-    values = _to_object_array(column)
+    values = to_object_array(column)
     if values.size == 0:
         raise ValueError("[RecDataLoader Error] Candidate labels are empty.")
     if not isinstance(values[0], (list, tuple, np.ndarray)):
@@ -673,7 +659,7 @@ def build_batch_schema(
                 column = get_column_data(data, feature.name)
                 if column is None:
                     continue
-                values = _to_object_array(column)
+                values = to_object_array(column)
                 if values.size == 0 or not isinstance(values[0], (list, tuple, np.ndarray)):
                     raise ValueError(
                         f"[RecDataLoader Error] Explicit {training_mode} data requires candidate feature '{feature.name}' to be nested per row."

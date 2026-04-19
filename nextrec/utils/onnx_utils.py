@@ -179,33 +179,6 @@ def pad_onnx_inputs(
     return padded, orig_batch
 
 
-def pad_id_batch(
-    id_batch: dict[str, object],
-    target_batch: int,
-    pad_value: int | float = 0,
-) -> tuple[dict[str, object], int]:
-    if target_batch <= 0:
-        return id_batch, 0
-    padded: dict[str, object] = {}
-    orig_batch = None
-    for name, value in id_batch.items():
-        if isinstance(value, torch.Tensor):
-            batch = value.shape[0] if value.dim() > 0 else 1
-        else:
-            arr = np.asarray(value)
-            batch = arr.shape[0] if arr.ndim > 0 else 1
-        if orig_batch is None:
-            orig_batch = int(batch)
-        pad_rows = max(int(target_batch) - int(batch), 0)
-        if isinstance(value, torch.Tensor):
-            padded[name] = pad_tensor(value, pad_rows, pad_value)
-        else:
-            padded[name] = pad_array(np.asarray(value), pad_rows, pad_value)
-    if orig_batch is None:
-        orig_batch = 0
-    return padded, orig_batch
-
-
 def merge_onnx_outputs(outputs: Sequence[np.ndarray]) -> np.ndarray:
     if not outputs:
         raise ValueError("[ONNX Output Error] Empty ONNX output list.")

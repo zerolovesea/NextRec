@@ -13,8 +13,10 @@ from nextrec.data.data_processing import (
     get_column_data,
     get_group_ids,
     has_column,
+    parse_sequence_value,
     split_dict_random,
     to_column_names,
+    to_object_array,
 )
 from nextrec.utils.data import (
     get_file_paths,
@@ -30,6 +32,8 @@ __all__ = [
     # Data processing
     "get_column_data",
     "to_column_names",
+    "to_object_array",
+    "parse_sequence_value",
     "has_column",
     "split_dict_random",
     "build_eval_candidates",

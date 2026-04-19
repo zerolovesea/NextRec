@@ -799,7 +799,7 @@ class BaseTrainer:
         if has_validation:
             logging.info(format_kv("Load best model from", self.best_checkpoint_path))
             if os.path.exists(self.best_checkpoint_path):
-                self.load_model(self.best_checkpoint_path, map_location=self.device, verbose=False)
+                self.load_model(self.best_checkpoint_path, map_location=self.device)
             else:
                 logging.info(
                     colorize(
