@@ -26,7 +26,6 @@ import torch.nn as nn
 import numpy as np
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
-from nextrec.data.batch_utils import batch_to_dict
 from nextrec.models.matching.dssm import DSSM
 from nextrec.models.matching.mind import MIND
 from nextrec.models.matching.sdm import SDM
@@ -43,8 +42,8 @@ def run_model_batch(model, data, batch_size: int | None = None, require_labels: 
         shuffle=False,
         num_workers=0,
     )
-    batch_dict = batch_to_dict(next(iter(data_loader)))
-    X_input, y_true = model.get_input(batch_dict, require_labels=require_labels)
+    batch_data = next(iter(data_loader))
+    X_input, y_true = model.get_input(batch_data, require_labels=require_labels)
     y_pred = model.training_adapter.forward(model, X_input)
     return y_pred, y_true
 
@@ -1079,7 +1078,9 @@ class TestSamplingModeValidation:
         }
 
         with pytest.raises(ValueError, match="requires candidate feature 'item_id' to be nested per row"):
-            model.prepare_data_loader(flat_data, batch_size=4, shuffle=False, num_workers=0)
+            data_loader = model.prepare_data_loader(flat_data, batch_size=4, shuffle=False, num_workers=0)
+            batch_data = next(iter(data_loader))
+            model.get_input(batch_data, require_labels=False)
 
     def test_explicit_candidate_lists_accept_list_axis(self, device):
         user_sparse = [SparseFeature(name="user_id", vocab_size=100, embedding_dim=8)]

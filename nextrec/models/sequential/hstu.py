@@ -407,8 +407,6 @@ class HSTU(BaseSequentialModel):
             target=target,
             task=task or self.default_task,
             sequence_mode=sequence_mode,
-            target_source=self.item_history_feature.name,
-            target_shift_steps=1,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,

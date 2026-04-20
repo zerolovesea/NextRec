@@ -82,10 +82,6 @@ LabelFormatName = Literal[
 
 
 class BatchSchema(TypedDict, total=False):
-    model_family: ModelFamilyName
-    task: TaskTypeName | list[TaskTypeName]
-    training_mode: TrainingModeName
-    sampling_mode: SamplingModeName
     feature_layout: FeatureLayoutName
     label_format: LabelFormatName
     list_size: int | None

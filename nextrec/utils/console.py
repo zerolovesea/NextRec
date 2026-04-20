@@ -41,6 +41,20 @@ from nextrec.utils.torch_utils import to_float, to_list
 T = TypeVar("T")
 
 
+def is_jupyter_runtime() -> bool:
+    """Return True when running inside a Jupyter-like IPython kernel."""
+    try:
+        get_ipython = __import__("IPython").get_ipython
+    except Exception:
+        return False
+
+    shell = get_ipython()
+    if shell is None:
+        return False
+    shell_name = shell.__class__.__name__
+    return shell_name == "ZMQInteractiveShell" or "google.colab" in sys.modules
+
+
 def get_nextrec_version() -> str:
     """
     Best-effort version resolver for NextRec.
@@ -140,8 +154,9 @@ def progress(iterable, *, description=None, total=None, disable=False):
             resolved_total = None
 
     stream = sys.stderr
+    is_jupyter = is_jupyter_runtime()
 
-    if not stream.isatty():
+    if not stream.isatty() and not is_jupyter:
         start_time = time.monotonic()
         last_tick = start_time
         min_interval_seconds = 10.0
@@ -193,8 +208,12 @@ def progress(iterable, *, description=None, total=None, disable=False):
             stream.flush()
         return
 
-    # TTY: rich
-    console = Console(file=stream, force_terminal=True)
+    # Interactive environments: rich terminal progress or rich Jupyter progress.
+    console = Console(
+        file=stream,
+        force_terminal=stream.isatty() and not is_jupyter,
+        force_jupyter=is_jupyter,
+    )
     progress_bar = Progress(
         SpinnerColumn(),
         TextColumn("{task.description}"),

@@ -117,20 +117,6 @@
             <option :value="false">false</option>
           </select>
         </div>
-        <div class="field">
-          <label>
-            {{ t('性能分析', 'Profile') }}
-            <span
-              class="help-icon"
-              :data-tip="t('开启后统计各阶段耗时（读取、预处理、推理、写入）。', 'Enable profiling to report stage timings (read, preprocess, inference, write).')"
-              >?</span
-            >
-          </label>
-          <select v-model="form.predict.profile">
-            <option :value="false">false</option>
-            <option :value="true">true</option>
-          </select>
-        </div>
         <div class="field" v-if="form.predict.streaming">
           <label>{{ t('分块大小', 'Chunk Size') }}</label>
           <input v-model.number="form.predict.chunk_size" type="number" />
@@ -171,9 +157,6 @@ const yamlText = computed(() => {
     Number.isNaN(predict.num_processes)
   ) {
     delete predict.num_processes;
-  }
-  if (predict.profile === false) {
-    delete predict.profile;
   }
   const output = {
     checkpoint_path: form.checkpoint_path,

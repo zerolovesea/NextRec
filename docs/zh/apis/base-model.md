@@ -340,7 +340,6 @@ predictions = model.predict(test_df, return_dataframe=False)
 | `num_processes` | 流式文件推理的进程数，用于多进程推理 |
 | `processor` | 可选的 DataProcessor 用于转换输入数据 |
 | `expand` | **[多场景任务]** 推理时，对多场景列赋值的特征，推理样本时，将会根据所有选项依次推理。例如设置`{"country": ["US", "CA"]}`，将会对一个样本里，依次读 `country` 列赋值 `"US"`,` "CA"` 推理两次|
-| `profiler` | **[Bool]** 可选的管道阶段性能分析器，设置为True时会输出推理流程中各环节计算时间 |
 
 
 ## ONNX 导出与推理

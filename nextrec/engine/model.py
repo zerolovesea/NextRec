@@ -281,6 +281,55 @@ class Model(BaseTrainer, BaseValidator, BasePredictor, Exporter, SummarySet, Fea
             reg_loss += self.dense_l2_reg * sum((param**2).sum() for param in self.regularization_weights)
         return reg_loss
 
+    def get_runtime_batch_schema(
+        self,
+        batch_schema: dict | None,
+        X_input: dict[str, torch.Tensor],
+    ) -> dict:
+        schema = dict(batch_schema or {})
+        feature_scopes = {
+            **dict(getattr(self, "feature_scopes", {}) or {}),
+            **dict(schema.get("feature_scopes", {}) or {}),
+        }
+        schema["feature_scopes"] = feature_scopes
+
+        if self.training_mode in {"pairwise", "listwise"} and self.sampling_mode == "inbatch":
+            schema["feature_layout"] = "flat"
+            schema["label_format"] = "implicit_inbatch"
+            schema["list_size"] = None
+            return schema
+
+        if self.training_mode in {"pairwise", "listwise"} and self.sampling_mode == "explicit":
+            schema["feature_layout"] = "candidate_list"
+            schema["label_format"] = "candidate_list"
+            if schema.get("list_size") is None:
+                for feature in self.all_features:
+                    if feature_scopes.get(feature.name, "shared") != "candidate":
+                        continue
+                    tensor = X_input.get(feature.name)
+                    if tensor is not None and tensor.dim() < 2:
+                        raise ValueError(
+                            f"[BaseModel-input Error] explicit candidate-list training requires candidate feature '{feature.name}' to be nested per row."
+                        )
+                    if tensor is not None:
+                        schema["list_size"] = int(tensor.shape[1])
+                        break
+            return schema
+
+        if self.model_family == "sequential":
+            schema["feature_layout"] = "sequence"
+            if self.target_columns:
+                schema["label_format"] = "sequence"
+            else:
+                schema.setdefault("label_format", "none")
+            schema.setdefault("list_size", None)
+            return schema
+
+        schema.setdefault("feature_layout", "flat")
+        schema.setdefault("label_format", "pointwise" if self.target_columns else "none")
+        schema.setdefault("list_size", None)
+        return schema
+
     def get_input(self, input_data: dict, require_labels: bool = True):
         """
         Prepare unified input features and labels from the given input data.
@@ -295,7 +344,6 @@ class Model(BaseTrainer, BaseValidator, BasePredictor, Exporter, SummarySet, Fea
         feature_source = input_data.get("features", {})
         label_source = input_data.get("labels")
         batch_schema = input_data.get("schema")
-        self.current_batch_schema = batch_schema
 
         X_input = {}
         for feature in self.all_features:
@@ -307,6 +355,9 @@ class Model(BaseTrainer, BaseValidator, BasePredictor, Exporter, SummarySet, Fea
                 dtype=(torch.float32 if isinstance(feature, DenseFeature) else torch.long),
                 device=self.device,
             )
+
+        batch_schema = self.get_runtime_batch_schema(batch_schema, X_input)
+        self.current_batch_schema = batch_schema
 
         # if labels are not required or not found in the input, return None for y to indicate no labels
         needs_labels = bool(self.target_columns) and (

@@ -48,7 +48,7 @@
 
 作者: Yang Zhou, zyaztec@gmail.com
 创建日期: 2025-12-06
-最后更新: 2026-01-28
+最后更新: 2026-04-20
 """
 
 from nextrec.models.ranking.fm import FM
@@ -207,9 +207,8 @@ def main():
     """
     主函数: 批量运行所有排序模型
     """
-    print("=" * 80)
+    print("-" * 80)
     print("Training all supported ranking models with synthetic data")
-    print("=" * 80)
 
     device = "cpu"
 

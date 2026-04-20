@@ -43,7 +43,6 @@ from nextrec.basic.metrics import (
     is_sequential_ranking_metric,
     needs_group_ids,
 )
-from nextrec.data.batch_utils import batch_to_dict
 from nextrec.data.data_processing import get_group_ids, split_train_valid
 from nextrec.data.dataloader import RecDataLoader
 from nextrec.loss.grad_norm import GradNormLossWeighting, get_grad_norm_shared_params
@@ -264,6 +263,13 @@ class BaseTrainer:
             task_losses = [task_loss * self.loss_weights[i] for i, task_loss in enumerate(task_losses)]
         return torch.stack(task_losses).sum()
 
+    def get_profiler(self) -> StageTimer:
+        profiler = getattr(self, "profiler", None)
+        if not isinstance(profiler, StageTimer):
+            profiler = StageTimer(enabled=True)
+            self.profiler = profiler
+        return profiler
+
     def prepare_data_loader(
         self,
         data: Any,
@@ -278,7 +284,6 @@ class BaseTrainer:
         processor: Any | None = None,
         key_columns: str | list[str] | None = None,
         expand: dict[str, list[Any]] | None = None,
-        profiler: StageTimer | None = None,
     ) -> DataLoader:
         """
         Prepare a DataLoader from input data.
@@ -296,7 +301,6 @@ class BaseTrainer:
             processor: Optional fitted DataProcessor used by RecDataLoader.
             key_columns: Column name(s) to carry through when building tensors from data.
             expand: Optional prediction-time row expansion config passed through to RecDataLoader.
-            profiler: Optional StageTimer used for streaming data loading profile collection.
 
         Returns:
             DataLoader instance.
@@ -306,22 +310,12 @@ class BaseTrainer:
         if isinstance(data, DataLoader):
             return data
 
-        # target_source and target_shift_steps are used by RecDataLoader
-        # to determine how to shift labels for next-item prediction tasks
-        target_source, target_shift_steps = self.training_adapter.get_target_shift_config(self)
         rec_loader = RecDataLoader(
             dense_features=self.dense_features,
             sparse_features=self.sparse_features,
             sequence_features=self.sequence_features,
             target=self.target_columns,
             key_columns=key_columns if key_columns is not None else self.key_columns,
-            target_source=target_source,
-            target_shift_steps=target_shift_steps,
-            task=self.task,
-            model_family=self.model_family,
-            training_mode=self.training_mode,
-            sampling_mode=self.sampling_mode,
-            feature_scopes=self.feature_scopes,
             processor=processor,
             expand=expand,
         )
@@ -336,7 +330,7 @@ class BaseTrainer:
             prefetch_factor=prefetch_factor,
             shard_rank=shard_rank,
             shard_count=shard_count,
-            profiler=profiler,
+            profiler=self.get_profiler(),
         )
         return loader
 
@@ -848,11 +842,9 @@ class BaseTrainer:
             batch_iter = enumerate(progress(train_loader, description=desc, disable=False))
 
         for _, batch_data in batch_iter:
-            batch_dict = batch_to_dict(batch_data)
-
             # get explict labels if model needs
             require_labels = self.training_adapter.needs_labels(self)
-            X_input, y_true = self.get_input(batch_dict, require_labels=require_labels)
+            X_input, y_true = self.get_input(batch_data, require_labels=require_labels)
             y_pred = self.training_adapter.forward(self, X_input)
 
             task_loss = self.compute_loss(y_pred, y_true)

@@ -13,7 +13,6 @@ from typing import Iterable, Sequence
 
 import torch
 import numpy as np
-import onnxruntime as ort
 
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.utils.torch_utils import to_numpy
@@ -201,6 +200,14 @@ def merge_onnx_outputs(outputs: Sequence[np.ndarray]) -> np.ndarray:
 def load_onnx_session(
     onnx_path: str | Path,
 ):
+    try:
+        import onnxruntime as ort
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "[ONNX Runtime Error] onnxruntime is required only for ONNX inference. "
+            "Install it with `pip install nextrec[onnx]` or `pip install onnxruntime`."
+        ) from exc
+
     available = ort.get_available_providers()
     preferred = ["CUDAExecutionProvider", "CPUExecutionProvider"]
     selected = [p for p in preferred if p in available]
