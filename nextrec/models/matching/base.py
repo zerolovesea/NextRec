@@ -18,7 +18,7 @@ from nextrec.basic.adapters import CandidateListAdapter, MatchingAdapter, TwoTow
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.basic.heads import MatchingHead
 from nextrec.engine.model import Model as BaseModel
-from nextrec.data.batch_utils import batch_to_dict, collate_fn
+from nextrec.data.batch_utils import collate_fn
 from nextrec.data.dataloader import RecDataLoader, TensorDictDataset, build_tensors_from_data
 from nextrec.data.data_processing import get_column_data
 from nextrec.utils.console import progress
@@ -272,11 +272,6 @@ class BaseMatchModel(BaseModel):
                 sequence_features=sequence_features,
                 target=[],
                 key_columns=[],
-                task=self.task,
-                model_family=self.model_family,
-                training_mode=self.training_mode,
-                sampling_mode=self.sampling_mode,
-                feature_scopes={feature.name: self.feature_scopes.get(feature.name, "shared") for feature in features},
             )
             return rec_loader.create_dataloader(
                 data=data,
@@ -292,11 +287,6 @@ class BaseMatchModel(BaseModel):
             features=features,
             target_columns=[],
             key_columns=[],
-            task=self.task,
-            model_family=self.model_family,
-            training_mode=self.training_mode,
-            sampling_mode=self.sampling_mode,
-            feature_scopes={feature.name: self.feature_scopes.get(feature.name, "shared") for feature in features},
         )
         if tensors is None:
             raise ValueError("[BaseMatchModel-prepare_feature_data Error] No data available to create DataLoader.")
@@ -341,8 +331,7 @@ class BaseMatchModel(BaseModel):
         embeddings_list = []
         with torch.no_grad():
             for batch_data in progress(data_loader, description="Encoding users"):
-                batch_dict = batch_to_dict(batch_data, include_ids=False)
-                user_input = self.build_feature_tensors(batch_dict["features"], self.user_features_all)
+                user_input = self.build_feature_tensors(batch_data["features"], self.user_features_all)
                 user_emb = self.user_tower(user_input)
                 embeddings_list.append(user_emb.cpu().numpy())
         return np.concatenate(embeddings_list, axis=0)
@@ -366,8 +355,7 @@ class BaseMatchModel(BaseModel):
         embeddings_list = []
         with torch.no_grad():
             for batch_data in progress(data_loader, description="Encoding items"):
-                batch_dict = batch_to_dict(batch_data, include_ids=False)
-                item_input = self.build_feature_tensors(batch_dict["features"], self.item_features_all)
+                item_input = self.build_feature_tensors(batch_data["features"], self.item_features_all)
                 item_emb = self.item_tower(item_input)
                 embeddings_list.append(item_emb.cpu().numpy())
         return np.concatenate(embeddings_list, axis=0)

@@ -74,7 +74,6 @@ predict:
   chunk_size: 20000                        # Chunk size for streaming mode (when streaming=true)
                                            # Adjust based on available memory
   # prefetch_factor: 2                     # DataLoader prefetch factor (only when num_workers>0)
-  # profile: false                         # Enable timing profiler for prediction stages
 
 # ===== Usage Example =====
 # Run prediction with this config:

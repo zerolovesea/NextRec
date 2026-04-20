@@ -27,6 +27,8 @@ import logging
 import math
 import pickle
 import resource
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -62,6 +64,73 @@ from nextrec.utils.timing import StageTimer
 from nextrec.utils.torch_utils import to_list
 
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+STUDIO_DEFAULT_PORT = 15123
+DOCS_DEFAULT_PORT = 15124
+
+
+def get_workspace_app_dir(app_name: str) -> Path:
+    app_dirs = {
+        "studio": PROJECT_ROOT / "nextrec_studio",
+        "docs": PROJECT_ROOT / "docs",
+    }
+    try:
+        app_dir = app_dirs[app_name]
+    except KeyError as exc:
+        raise ValueError(f"[NextRec CLI Error] Unsupported app: {app_name}") from exc
+
+    if not app_dir.exists():
+        raise FileNotFoundError(
+            f"[NextRec CLI Error] Cannot find '{app_name}' app directory under project root: {app_dir}"
+        )
+    return app_dir
+
+
+def run_frontend_app(app_name: str, script_name: str, host: str | None = None, port: int | None = None) -> None:
+    app_dir = get_workspace_app_dir(app_name)
+    package_json = app_dir / "package.json"
+    if not package_json.exists():
+        raise FileNotFoundError(f"[NextRec CLI Error] package.json not found for '{app_name}' app: {package_json}")
+
+    npm_path = shutil.which("npm")
+    if npm_path is None:
+        raise FileNotFoundError("[NextRec CLI Error] npm is not installed or not available in PATH.")
+
+    node_modules_dir = app_dir / "node_modules"
+    if not node_modules_dir.exists():
+        logger.info(f"Installing frontend dependencies for '{app_name}'...")
+        subprocess.run([npm_path, "install"], cwd=app_dir, check=True)
+
+    command = [npm_path, "run", script_name]
+    extra_args = []
+    if host:
+        extra_args.extend(["--host", host])
+    if port is not None:
+        extra_args.extend(["--port", str(port)])
+    if extra_args:
+        command.extend(["--", *extra_args])
+
+    logger.info(f"Starting {app_name} app from: {app_dir}")
+    subprocess.run(command, cwd=app_dir, check=True)
+
+
+def run_studio_app(host: str | None = None, port: int | None = None) -> None:
+    run_frontend_app("studio", "dev", host=host, port=port or STUDIO_DEFAULT_PORT)
+
+
+def run_docs_app(host: str | None = None, port: int | None = None) -> None:
+    run_frontend_app("docs", "docs:dev", host=host, port=port or DOCS_DEFAULT_PORT)
+
+
+def build_frontend_parser(command_name: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=f"nextrec {command_name}",
+        description=f"Start the NextRec {command_name} development server.",
+    )
+    parser.add_argument("--host", help="Dev server host")
+    parser.add_argument("--port", type=int, help="Dev server port")
+    return parser
 
 
 def log_cli_section(title: str) -> None:
@@ -573,7 +642,6 @@ def predict_model(predict_config_path: str) -> None:
         num_processes = suggested if streaming else 1
     else:
         num_processes = int(num_processes_cfg)
-    profile_enabled = bool(predict_cfg.get("profile", False))
     effective_batch_size = chunk_size if streaming else batch_size
     effective_num_workers = num_workers_cfg
 
@@ -615,7 +683,7 @@ def predict_model(predict_config_path: str) -> None:
                     else num_processes
                 ),
             ),
-            ("Profile", profile_enabled),
+            ("Profile", "enabled"),
             ("Expand columns", ", ".join(expand.keys()) if expand else "disabled"),
             ("Expand factor", get_expand_factor(expand)),
         ]
@@ -642,7 +710,8 @@ def predict_model(predict_config_path: str) -> None:
         logger.info("[NextRec CLI Info] Multi-process streaming enforces num_workers=0 for each shard.")
         effective_num_workers = 0
     logger.info("")
-    profiler = StageTimer(enabled=profile_enabled) if profile_enabled else None
+    profiler = StageTimer(enabled=True)
+    model.profiler = profiler
 
     rec_dataloader = RecDataLoader(
         dense_features=model.dense_features,
@@ -690,7 +759,6 @@ def predict_model(predict_config_path: str) -> None:
         num_workers=effective_num_workers,
         num_processes=num_processes,
         processor=processor,
-        profiler=profiler,
         key_columns=output_key_columns,
         expand=expand,
     )
@@ -703,7 +771,7 @@ def predict_model(predict_config_path: str) -> None:
     # logger.info(f"Prediction completed, results saved to: {output_path}")
     logger.info(f"Total time: {duration:.2f} seconds")
     logger.info("")
-    if profiler is not None and profiler.stats:
+    if profiler.stats:
         log_cli_section("Profile")
         logger.info(format_kv("Wall time", f"{duration:.2f}s"))
         prof_total = sum(stat.total for _, stat in profiler.summary_rows())
@@ -993,6 +1061,19 @@ def main() -> None:
         handler.setFormatter(logging.Formatter("%(message)s"))
         root.addHandler(handler)
 
+    if len(sys.argv) > 1 and sys.argv[1] in {"studio", "docs"}:
+        command_name = sys.argv[1]
+        frontend_args = build_frontend_parser(command_name).parse_args(sys.argv[2:])
+        try:
+            if command_name == "studio":
+                run_studio_app(host=frontend_args.host, port=frontend_args.port)
+            else:
+                run_docs_app(host=frontend_args.host, port=frontend_args.port)
+        except Exception:
+            logging.getLogger(__name__).exception("[NextRec CLI Error] Failed to start frontend app")
+            raise
+        return
+
     parser = argparse.ArgumentParser(
         description="NextRec: Training, Prediction, and Evaluation Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1000,6 +1081,12 @@ def main() -> None:
 Examples:
   # Train a model
   nextrec --mode=train --train_config=configs/train_config.yaml
+
+  # Start NextRec Studio
+  nextrec studio
+
+  # Start docs site
+  nextrec docs
 
   # Run prediction
   nextrec --mode=predict --predict_config=configs/predict_config.yaml

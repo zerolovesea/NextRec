@@ -17,7 +17,6 @@ from torch.utils.data import DataLoader
 from nextrec.basic.adapters import PretrainAdapter
 from nextrec.basic.loggers import colorize, setup_logger
 from nextrec.engine.model import Model as BaseModel
-from nextrec.data.batch_utils import batch_to_dict
 from nextrec.utils.console import progress
 
 
@@ -58,8 +57,7 @@ class BasePretrainModel(BaseModel):
         return cast(DataLoader, loader)
 
     def extract_embeddings(self, batch_data: Any) -> torch.Tensor:
-        batch_dict = batch_to_dict(batch_data)
-        X_input, _ = self.get_input(batch_dict, require_labels=False)
+        X_input, _ = self.get_input(batch_data, require_labels=False)
 
         if not self.all_features:
             raise ValueError("[BasePretrainModel] dense_features are required to use fit/predict helpers.")

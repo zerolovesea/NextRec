@@ -2,11 +2,11 @@
 Batch collation utilities for NextRec
 
 Date: create on 03/12/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 20/04/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
-from typing import Any, Mapping, Literal
+from typing import Literal
 
 import numpy as np
 import torch
@@ -59,51 +59,17 @@ def collate_fn(batch):
         return {"features": {}, "labels": None, "keys": None, "schema": None}
 
     first = batch[0]
-    if isinstance(first, dict) and "features" in first:
-        # Streaming dataset yields already-batched chunks; avoid adding an extra dim.
-        if first.get("stream_mode") and len(batch) == 1:
-            return {
-                "features": first.get("features", {}),
-                "labels": first.get("labels"),
-                "keys": first.get("keys"),
-                "schema": first.get("schema"),
-            }
+    # Streaming dataset yields already-batched chunks; avoid adding an extra dim.
+    if first.get("stream_mode") and len(batch) == 1:
         return {
-            "features": stack_section(batch, "features") or {},
-            "labels": stack_section(batch, "labels"),
-            "keys": stack_section(batch, "keys"),
-            "schema": first.get("schema"),
+            "features": first["features"],
+            "labels": first["labels"],
+            "keys": first["keys"],
+            "schema": first["schema"],
         }
-
-    # Fallback: stack tuples/lists of tensors
-    num_tensors = len(first)
-    result = []
-    for i in range(num_tensors):
-        tensor_list = [item[i] for item in batch]
-        first_item = tensor_list[0]
-        if isinstance(first_item, torch.Tensor):
-            stacked = torch.cat(tensor_list, dim=0)
-        elif isinstance(first_item, np.ndarray):
-            stacked = np.concatenate(tensor_list, axis=0)
-        elif isinstance(first_item, list):
-            combined = []
-            for entry in tensor_list:
-                combined.extend(entry)
-            stacked = combined
-        else:
-            stacked = tensor_list
-        result.append(stacked)
-    return tuple(result)
-
-
-def batch_to_dict(batch_data: Any, include_ids: bool = True) -> dict:
-    if not (isinstance(batch_data, Mapping) and "features" in batch_data):
-        raise TypeError(
-            "[BaseModel-batch_to_dict Error] Batch data must be a dict with 'features' produced by the current DataLoader."
-        )
     return {
-        "features": batch_data.get("features", {}),
-        "labels": batch_data.get("labels"),
-        "keys": batch_data.get("keys") if include_ids else None,
-        "schema": batch_data.get("schema"),
+        "features": stack_section(batch, "features") or {},
+        "labels": stack_section(batch, "labels"),
+        "keys": stack_section(batch, "keys"),
+        "schema": first["schema"],
     }

@@ -16,9 +16,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from nextrec.basic.features import SequenceFeature
 from nextrec.data.data_processing import get_column_data
-from nextrec.data.dataloader import build_shifted_sequence_column
 from nextrec.loss.listwise import InfoNCELoss, SampledSoftmaxLoss
 from nextrec.loss.pairwise import BPRLoss, HingeLoss, TripletLoss
 from nextrec.utils.torch_utils import to_tensor
@@ -28,15 +26,6 @@ class TrainingAdapter:
     # if the adapter requires labels for loss computation
     def needs_labels(self, model) -> bool:
         return True
-
-    def get_target_shift_config(self, model) -> tuple[str | None, int]:
-        """
-        Return the optional target source and shift used when labels are not
-        provided explicitly in the batch.
-
-        Non-sequential adapters default to no shift-based label synthesis.
-        """
-        return None, 1
 
     def forward(self, model, X_input: dict[str, torch.Tensor]):
         model_output = model.call_model(X_input)
@@ -122,11 +111,6 @@ class SequentialAdapter(TrainingAdapter):
     routing, while sequence-specific batch utilities live in BaseSequentialModel.
     """
 
-    def get_target_shift_config(self, model) -> tuple[str | None, int]:
-        target_source = getattr(model, "target_source", None)
-        target_shift_steps = int(getattr(model, "target_shift_steps", 1))
-        return target_source, target_shift_steps
-
     def build_target_tensor(
         self,
         model,
@@ -134,44 +118,13 @@ class SequentialAdapter(TrainingAdapter):
         target_name: str,
         require_labels: bool,
     ) -> torch.Tensor | None:
-        # SequentialAdapter support given explicit labels
-        # or create labels by shifting a source sequence feature.
-        # if explicit labels are provided, use them directly.
-        # Otherwise, fall back to shift-based label with target_source and target_shift_steps.
         target_tensor = super().build_target_tensor(
             model=model,
             input_data=input_data,
             target_name=target_name,
-            require_labels=False,
+            require_labels=require_labels,
         )
-        if target_tensor is not None:
-            return target_tensor
-
-        target_source, target_shift_steps = self.get_target_shift_config(model)
-        if target_source is None:
-            if require_labels:
-                raise KeyError(f"[BaseModel-input Error] Target column '{target_name}' not found in input data.")
-            return None
-
-        feature_source = input_data.get("features", {})
-        feature_by_name = {feature.name: feature for feature in model.all_features}
-        source_feature = feature_by_name.get(target_source)
-        if source_feature is None or not isinstance(source_feature, SequenceFeature):
-            raise KeyError(
-                f"[BaseModel-input Error] target_source='{target_source}' requires a matching SequenceFeature."
-            )
-
-        source_data = get_column_data(feature_source, target_source)
-        if source_data is None:
-            raise KeyError(f"[BaseModel-input Error] target_source column '{target_source}' not found in input data.")
-
-        target_data = build_shifted_sequence_column(
-            source_data,
-            source_feature,
-            shift=target_shift_steps,
-        )
-        target_tensor = to_tensor(target_data, dtype=torch.long, device=model.device)
-        return target_tensor.reshape(target_tensor.size(0), -1)
+        return target_tensor.reshape(target_tensor.size(0), -1) if target_tensor is not None else None
 
 
 class MaskedSequentialAdapter(SequentialAdapter):
@@ -192,6 +145,7 @@ class CandidateListAdapter(TrainingAdapter):
 
     These models expect input features to include a shared candidate-list axis,
     and the adapter handles reshaping between flat batch features and candidate-list inputs.
+    
     It also supports in-batch negative sampling for two-tower models when sampling_mode='inbatch',
     and can compute appropriate losses based on the model's configured loss function and similarity metric.
     """

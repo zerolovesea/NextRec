@@ -5,7 +5,7 @@ import io
 import logging
 from contextlib import redirect_stdout
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 
@@ -14,15 +14,12 @@ from nextrec.basic.session import get_save_path
 from nextrec.utils.onnx_utils import OnnxModelWrapper, create_dummy_inputs
 from nextrec.utils.torch_utils import smart_inference_mode
 
-if TYPE_CHECKING:
-    from nextrec.engine.model import Model
-
 
 class Exporter:
     supported_export_formats = {"pt", "onnx", "openvino"}
 
     def export(
-        self: "Model",
+        self,
         format: str = "pt",
         save_path: str | Path | None = None,
         batch_size: int = 1,
@@ -46,7 +43,7 @@ class Exporter:
 
     @smart_inference_mode()
     def export_onnx(
-        self: "Model",
+        self,
         save_path: str | Path | None = None,
         batch_size: int = 1,
     ) -> Path:

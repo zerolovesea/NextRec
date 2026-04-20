@@ -30,7 +30,6 @@ from nextrec.basic.metrics import (
     flatten_metric_names,
     is_sequential_ranking_metric,
 )
-from nextrec.data.batch_utils import batch_to_dict
 from nextrec.utils.types import LossName, SequenceModeName, TaskTypeInput, TrainingModeName
 
 
@@ -59,16 +58,12 @@ class BaseSequentialModel(BaseModel):
         embedding_l2_reg: float = 0.0,
         dense_l2_reg: float = 0.0,
         sequence_mode: SequenceModeName = "autoregressive",
-        target_source: str | None = None,
-        target_shift_steps: int = 1,
         device: str = "cpu",
         session_id: str | None = None,
         sampling_mode: Literal["explicit", "inbatch"] = "explicit",
         **kwargs,
     ):
         self.sequence_mode = sequence_mode
-        self.target_source = target_source
-        self.target_shift_steps = int(target_shift_steps)
         super().__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
@@ -310,8 +305,7 @@ class BaseSequentialModel(BaseModel):
 
         with torch.no_grad():
             for batch_data in data_loader:
-                batch_dict = batch_to_dict(batch_data)
-                X_input, y_true = self.get_input(batch_dict, require_labels=True)
+                X_input, y_true = self.get_input(batch_data, require_labels=True)
                 y_pred = self.training_adapter.forward(self, X_input)
 
                 if not isinstance(y_pred, torch.Tensor):

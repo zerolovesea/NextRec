@@ -9,7 +9,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8nextrec.ipynb)
-![Version](https://img.shields.io/badge/Version-0.6.9-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.10-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 
@@ -24,9 +24,10 @@
 - [简介](#简介)
 - [NextRec进展](#NextRec进展)
 - [安装](#安装)
+- [文档与可视化平台](#文档与可视化平台)
 - [架构](#架构)
 - [5分钟快速上手](#5分钟快速上手)
-- [命令行工具 NextRec-CLI](#命令行工具)
+- [命令行工具](#命令行工具)
 - [兼容平台](#兼容平台)
 - [支持模型](#支持模型)
 - [贡献指南](#贡献指南)
@@ -44,12 +45,11 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 - **高效训练与评估**：内置多种优化器、学习率调度、早停、模型检查点与详细的日志管理（Wandb/Swanlab/Tensorboard），开箱即用。
 
 ## NextRec近期进展
-- **03/02/2026** 在v0.5.3中，我们引入了NextRec Studio前端项目，初期作为NextRec CLI的配套辅助工具使用，并提供了相关[教程](nextrec_studio/README.md)
 - **28/01/2026** 在v0.4.39中加入了对onnx导出和加载的支持，并大大加速了数据预处理速度（最高9x加速）
 - **01/01/2026** 新年好，在v0.4.27中加入了多个多目标模型的支持：[APG](nextrec/models/multitask/apg.py), [ESCM](nextrec/models/multitask/escm.py), [HMoE](nextrec/models/multitask/hmoe.py), [Cross Stitch](nextrec/models/multitask/cross_stitch.py)
 - **21/12/2025** 在v0.4.16中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
 - **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/pretrain/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
-- **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html)和[教学代码](/nextrec_cli_preset)
+- **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html)和[示例配置文件](/configs)
 - **06/12/2025** 在v0.4.1中支持了单机多卡的分布式DDP训练，并且提供了配套的[代码](tutorials/distributed)
 - **11/11/2025** NextRec v0.1.0发布，我们提供了10余种排序模型，11种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
 
@@ -85,6 +85,10 @@ pip install nextrec # or pip install -e .
 > pip install "nextrec[tracking]"
 > ```
 
+## 文档与可视化平台
+
+NextRec提供了本地部署的开发文档服务，在完成安装后，通过`nextrec docs`一键启动本地文档服务。通过`nextrec studio`启动本地可视化平台。
+
 ## 示例代码
 
 我们在`tutorials/` 目录提供了多个示例，覆盖排序、召回、多任务、数据处理等场景：
@@ -103,9 +107,9 @@ pip install nextrec # or pip install -e .
 
 如果想了解更多NextRec框架的细节，我们还提供了Jupyter notebook来帮助你了解：
 
-- [如何上手NextRec框架](/tutorials/notebooks/zh/Hands%20on%20nextrec.ipynb)
-- [如何使用数据处理器进行数据预处理](/tutorials/notebooks/zh/Hands%20on%20dataprocessor.ipynb)
-- [使用RQ-VAE构建语义ID](/tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)
+- [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8nextrec.ipynb) [如何上手NextRec框架](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8nextrec.ipynb)
+- [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%A6%82%E4%BD%95%E4%BD%BF%E7%94%A8DataProcessor%E8%BF%9B%E8%A1%8C%E9%A2%84%E5%A4%84%E7%90%86.ipynb) [如何使用数据处理器进行数据预处理](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%A6%82%E4%BD%95%E4%BD%BF%E7%94%A8DataProcessor%E8%BF%9B%E8%A1%8C%E9%A2%84%E5%A4%84%E7%90%86.ipynb)
+- [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E4%BD%BF%E7%94%A8RQ-VAE%E6%9E%84%E5%BB%BA%E8%AF%AD%E4%B9%89ID.ipynb) [使用RQ-VAE构建语义ID](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E4%BD%BF%E7%94%A8RQ-VAE%E6%9E%84%E5%BB%BA%E8%AF%AD%E4%B9%89ID.ipynb)
 
 使用 ONNX 示例前，请先执行 `pip install "nextrec[onnx]"`。
 
@@ -204,7 +208,7 @@ metrics = model.evaluate(
 
 ## 命令行工具
 
-NextRec 提供了强大的命令行界面，支持通过 YAML 配置文件进行模型训练和预测。详细的 CLI 文档请参见：
+NextRec 提供了命令行工具，支持通过 YAML 配置文件进行模型训练和预测。详细的 CLI 文档请参见：
 
 - [NextRec CLI 使用指南](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html) - 完整的 CLI 使用文档
 - [NextRec CLI 配置文件示例](/nextrec_cli_preset/) - CLI 使用配置文件示例
@@ -217,11 +221,11 @@ nextrec --mode=train --train_config=path/to/train_config.yaml
 nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 ```
 
-预测结果固定保存到 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
+预测结果文件将保存至 `{checkpoint_path}/predictions/{name}.{save_data_format}`。
 
 ## 兼容平台
 
-当前最新版本为0.6.9，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.6.10，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|

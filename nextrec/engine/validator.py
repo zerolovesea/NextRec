@@ -18,7 +18,6 @@ from torch.utils.data import DataLoader
 
 from nextrec.basic.loggers import colorize, format_kv
 from nextrec.basic.metrics import compute_confusion_matrix, evaluate_metrics, get_thresholds, needs_group_ids
-from nextrec.data.batch_utils import batch_to_dict
 from nextrec.data.dataloader import RecDataLoader
 from nextrec.data.data_processing import get_group_ids
 from nextrec.utils.console import display_metrics_table, render_confusion_block
@@ -96,11 +95,6 @@ class BaseValidator:
                     sequence_features=self.sequence_features,
                     target=self.target_columns,
                     key_columns=eval_key_columns,
-                    task=self.task,
-                    model_family=self.model_family,
-                    training_mode=self.training_mode,
-                    sampling_mode=self.sampling_mode,
-                    feature_scopes=self.feature_scopes,
                     processor=None,
                 )
                 data_loader = rec_loader.create_dataloader(
@@ -123,8 +117,7 @@ class BaseValidator:
         collected_groups = {name: [] for name in group_by_columns}
         with torch.no_grad():
             for batch_data in data_loader:
-                batch_dict = batch_to_dict(batch_data)
-                X_input, y_true = self.get_input(batch_dict, require_labels=True)
+                X_input, y_true = self.get_input(batch_data, require_labels=True)
                 y_pred = self.training_adapter.forward(self, X_input)
                 if (
                     primary_family != "sequential"
@@ -144,7 +137,7 @@ class BaseValidator:
                     if batch_group_id is not None:
                         collected_group_ids.append(batch_group_id)
                 if group_by_columns:
-                    keys_dict = batch_dict.get("keys") or {}
+                    keys_dict = batch_data.get("keys") or {}
                     for column in group_by_columns:
                         if column not in keys_dict:
                             raise KeyError(

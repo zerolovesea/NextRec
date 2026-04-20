@@ -26,7 +26,6 @@ from torch.utils.data import DataLoader
 from nextrec.basic.asserts import assert_save_format, assert_streaming_data_is_filepath
 from nextrec.basic.loggers import colorize
 from nextrec.basic.session import get_save_path
-from nextrec.data.batch_utils import batch_to_dict
 from nextrec.engine.backends import InferenceBackend
 from nextrec.utils.console import progress
 from nextrec.utils.data import get_expand_columns
@@ -50,7 +49,6 @@ class BasePredictor:
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
-        profiler: StageTimer | None = None,
         expand: dict[str, list[Any]] | None = None,
         key_columns: str | list[str] | None = None,
     ) -> pd.DataFrame: ...
@@ -68,7 +66,6 @@ class BasePredictor:
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
-        profiler: StageTimer | None = None,
         expand: dict[str, list[Any]] | None = None,
         key_columns: str | list[str] | None = None,
     ) -> np.ndarray: ...
@@ -87,7 +84,6 @@ class BasePredictor:
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
-        profiler: StageTimer | None = None,
         expand: dict[str, list[Any]] | None = None,
         key_columns: str | list[str] | None = None,
     ) -> Path: ...
@@ -104,7 +100,6 @@ class BasePredictor:
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
-        profiler: StageTimer | None = None,
         expand: dict[str, list[Any]] | None = None,
         key_columns: str | list[str] | None = None,
     ) -> pd.DataFrame | np.ndarray | Path:
@@ -122,7 +117,6 @@ class BasePredictor:
             prefetch_factor: Number of batches prefetched per worker (only when num_workers > 0).
             num_processes: Number of inference processes for streaming file inference.
             processor: Optional DataProcessor for transforming input data.
-            profiler: Optional StageTimer for profiling pipeline stages.
             expand: Optional mapping of column -> candidate values used to expand
                 each input row into multiple inference rows before prediction. e.g. {"country": ["US", "CA"]} would expand each input row into two rows with country=US and country=CA for prediction.
             key_columns: Column or list of columns to use as keys for the predictions. e.g. "user_id"
@@ -155,7 +149,6 @@ class BasePredictor:
                 prefetch_factor=prefetch_factor,
                 num_processes=num_processes,
                 processor=processor,
-                profiler=profiler,
                 expand=expand,
                 key_columns=predict_key_columns,
             )
@@ -171,7 +164,6 @@ class BasePredictor:
             num_workers=num_workers,
             prefetch_factor=prefetch_factor,
             processor=processor,
-            profiler=profiler,
             expand=expand,
             key_columns=predict_key_columns,
         )
@@ -188,13 +180,13 @@ class BasePredictor:
         prefetch_factor: int | None = None,
         num_processes: int = 1,
         processor: Any | None = None,
-        profiler: StageTimer | None = None,
         expand: dict[str, list[Any]] | None = None,
         key_columns: list[str] | None = None,
     ):
         expand = get_expand_columns(expand)
         predict_key_columns = self.get_predict_keys(key_columns, expand)
         assert_save_format(save_format, model_name="BaseModel-predict-streaming")
+        profiler = self.get_profiler()
 
         if num_processes > 1:
             inference_artifact_path = self.inference_artifact_path
@@ -216,11 +208,7 @@ class BasePredictor:
             part_paths = [
                 parts_dir / f"{target_path.stem}.part{rank}{target_path.suffix}" for rank in range(num_processes)
             ]
-            profile_paths = (
-                [parts_dir / f"{target_path.stem}.profile{rank}.json" for rank in range(num_processes)]
-                if profiler is not None
-                else None
-            )
+            profile_paths = [parts_dir / f"{target_path.stem}.profile{rank}.json" for rank in range(num_processes)]
             error_paths = [parts_dir / f"{target_path.stem}.error{rank}.txt" for rank in range(num_processes)]
 
             ctx = mp.get_context("spawn")
@@ -246,7 +234,7 @@ class BasePredictor:
                             num_processes,
                             expand,
                             predict_key_columns,
-                            profile_paths[rank] if profile_paths else None,
+                            profile_paths[rank],
                             error_paths[rank],
                         ),
                     )
@@ -288,17 +276,15 @@ class BasePredictor:
                 elif save_format == "parquet":
                     lazy_frames = [pl.scan_parquet(path) for path in existing_parts]
                     pl.concat(lazy_frames).sink_parquet(target_path)
-                if profiler is not None:
-                    profiler.add("merge_parts", time.perf_counter() - start)
+                profiler.add("merge_parts", time.perf_counter() - start)
 
             for part_path in part_paths:
                 if part_path.exists():
                     part_path.unlink()
-            if profile_paths:
-                for profile_path in profile_paths:
-                    if profile_path.exists():
-                        profiler.merge(StageTimer.load(profile_path))
-                        profile_path.unlink()
+            for profile_path in profile_paths:
+                if profile_path.exists():
+                    profiler.merge(StageTimer.load(profile_path))
+                    profile_path.unlink()
             for error_path in error_paths:
                 if error_path.exists():
                     error_path.unlink()
@@ -322,7 +308,6 @@ class BasePredictor:
             processor=processor,
             shard_rank=0,
             shard_count=1,
-            profiler=profiler,
             expand=expand,
             key_columns=predict_key_columns,
         )
@@ -339,10 +324,10 @@ class BasePredictor:
         num_workers: int,
         prefetch_factor: int | None,
         processor: Any | None,
-        profiler: StageTimer | None,
         expand: dict[str, list[Any]],
         key_columns: list[str],
     ) -> pd.DataFrame | np.ndarray:
+        profiler = self.get_profiler()
         # if need to include key columns in the output
         with_keys = bool(key_columns) and (return_dataframe or save_path is not None)
 
@@ -357,21 +342,18 @@ class BasePredictor:
             processor=processor,
             key_columns=key_columns,
             expand=expand,
-            profiler=profiler,
         )
 
         y_pred_list = []
         key_buffers = {name: [] for name in key_columns} if with_keys else {}
 
         for batch_data in progress(data_loader, description=backend.progress_description):
-            batch_dict = batch_to_dict(batch_data, with_keys)
-            X_input, _ = self.get_input(batch_dict, require_labels=False)
-            keys = batch_dict.get("keys") if with_keys else None  # key for each sample
+            X_input, _ = self.get_input(batch_data, require_labels=False)
+            keys = batch_data.get("keys") if with_keys else None  # key for each sample
             start = time.perf_counter()
             predictions = list(backend.iter_predict(X_input))  # inference
 
-            if profiler is not None:
-                profiler.add("inference", time.perf_counter() - start)
+            profiler.add("inference", time.perf_counter() - start)
 
             # concatenate predictions and keys
             for prediction in predictions:
@@ -444,8 +426,7 @@ class BasePredictor:
                 df_to_save.to_csv(target_path, index=False)
             elif save_format == "parquet":
                 df_to_save.to_parquet(target_path, index=False)
-            if profiler is not None:
-                profiler.add("write_output", time.perf_counter() - start)
+            profiler.add("write_output", time.perf_counter() - start)
             logging.info("")
             logging.info(colorize(f"Predictions saved to: {target_path}", color="green"))
 
@@ -465,7 +446,6 @@ class BasePredictor:
         processor: Any | None,
         shard_rank: int,
         shard_count: int,
-        profiler: StageTimer | None = None,
         expand: dict[str, list[Any]] | None = None,
         key_columns: list[str] | None = None,
         progress_description: str | None = None,
@@ -473,6 +453,7 @@ class BasePredictor:
         assert_save_format(save_format, model_name="BaseModel-predict-streaming")
         expand = get_expand_columns(expand)
         key_columns = self.get_predict_keys(key_columns, expand)
+        profiler = self.get_profiler()
         with_keys = bool(key_columns)
 
         data_loader = self.prepare_data_loader(
@@ -488,7 +469,6 @@ class BasePredictor:
             shard_rank=shard_rank,
             shard_count=shard_count,
             expand=expand,
-            profiler=profiler,
         )
 
         target_path = get_save_path(
@@ -510,13 +490,11 @@ class BasePredictor:
             description=progress_description or backend.progress_description,
             disable=disable_progress,
         ):
-            batch_dict = batch_to_dict(batch_data, with_keys)
-            X_input, _ = self.get_input(batch_dict, require_labels=False)
-            keys = batch_dict.get("keys") if with_keys else None
+            X_input, _ = self.get_input(batch_data, require_labels=False)
+            keys = batch_data.get("keys") if with_keys else None
             start = time.perf_counter()
             predictions = list(backend.iter_predict(X_input))
-            if profiler is not None:
-                profiler.add("inference", time.perf_counter() - start)
+            profiler.add("inference", time.perf_counter() - start)
 
             for prediction in predictions:
                 y_pred_np = prediction.values
@@ -547,8 +525,7 @@ class BasePredictor:
                     if parquet_writer is None:
                         parquet_writer = pq.ParquetWriter(target_path, table.schema)
                     parquet_writer.write_table(table)
-                if profiler is not None:
-                    profiler.add("write_output", time.perf_counter() - start)
+                profiler.add("write_output", time.perf_counter() - start)
 
         if parquet_writer is not None:
             parquet_writer.close()
@@ -600,7 +577,7 @@ def predict_streaming_worker(
     try:
         model.eval()
         model.set_inference_backend(inference_artifact_path)
-        profiler = StageTimer(enabled=True) if profile_path else None
+        model.profiler = StageTimer(enabled=True)
         model.predict_streaming_with_backend(
             backend=model.inference_backend,
             data=data_path,
@@ -614,12 +591,11 @@ def predict_streaming_worker(
             processor=processor,
             shard_rank=shard_rank,
             shard_count=shard_count,
-            profiler=profiler,
             expand=expand,
             key_columns=key_columns,
         )
-        if profiler is not None:
-            profiler.dump(Path(profile_path))
+        if profile_path is not None:
+            model.profiler.dump(Path(profile_path))
     except BaseException:
         import traceback
 

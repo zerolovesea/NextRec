@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.9-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.10-orange.svg)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
@@ -23,6 +23,7 @@ English | [中文文档](README.md)
 - [Introduction](#introduction)
 - [NextRec Progress](#nextrec-progress)
 - [Installation](#installation)
+- [Documentation and Visualization](#documentation-and-visualization)
 - [Architecture](#architecture)
 - [Tutorials](#tutorials)
 - [5-Minute Quick Start](#5-minute-quick-start)
@@ -46,12 +47,11 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 
 ## NextRec Progress
 
-- **03/02/2026** In v0.5.3, we introduced the NextRec Studio front-end project as a companion tool for the NextRec CLI, and provided a related [tutorial](nextrec_studio/README_en.md).
 - **28/01/2026** Added support for ONNX export and loading in v0.4.39, and significantly accelerated data preprocessing speed (up to 9x speedup)
 - **01/01/2026** Happy New Year! In v0.4.27, added support for multiple multi-task models: [APG](/nextrec/models/multitask/apg.py), [ESCM](/nextrec/models/multitask/escm.py), [HMoE](/nextrec/models/multitask/hmoe.py), [Cross Stitch](/nextrec/models/multitask/cross_stitch.py)
 - **21/12/2025** Added support for [GradNorm](/nextrec/loss/grad_norm.py) in v0.4.16, configurable via `loss_weight='grad_norm'` in the compile method
 - **12/12/2025** Added [RQ-VAE](/nextrec/models/pretrain/rqvae.py), a common module for generative recommendation in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
-- **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html) and [reference code](/nextrec_cli_preset).
+- **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html) and [config templates](/configs).
 - **06/12/2025** Added single-machine multi-GPU DDP training in v0.4.1 with supporting [code](tutorials/distributed).
 - **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 11 multi-task models, 4 match models, and a unified training/logging/metrics system.
 
@@ -88,6 +88,10 @@ pip install nextrec # or pip install -e .
 > pip install "nextrec[tracking]"
 > ```
 
+## Documentation and Visualization
+
+NextRec provides a locally deployable documentation service and visualization platform. After installation, you can start the local docs service with `nextrec docs` and launch the local visualization app with `nextrec studio`.
+
 ## Tutorials
 
 See `tutorials/` for examples covering ranking, match, multi-task learning, and data processing:
@@ -106,9 +110,9 @@ See `tutorials/` for examples covering ranking, match, multi-task learning, and 
 
 To dive deeper into NextRec framework details, Jupyter notebooks are available:
 
-- [Hands on the NextRec framework](/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
-- [Using the data processor for preprocessing](/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
-- [Build semantic ID with RQ-VAE](/tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb)
+- [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb) [Hands on the NextRec framework](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
+- [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb) [Using the data processor for preprocessing](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
+- [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) [Build semantic ID with RQ-VAE](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb)
 
 Before running ONNX examples, install `pip install "nextrec[onnx]"`.
 
@@ -214,6 +218,12 @@ NextRec provides a powerful command-line interface for model training and predic
 - [NextRec CLI Configuration Examples](/nextrec_cli_preset/) - CLI configuration file examples
 
 ```bash
+# Start local docs site
+nextrec docs
+
+# Start local visualization studio
+nextrec studio
+
 # Train a model
 nextrec --mode=train --train_config=path/to/train_config.yaml
 
@@ -225,7 +235,7 @@ Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_d
 
 ## Platform Compatibility
 
-The current version is 0.6.9. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.6.10. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -254,7 +264,7 @@ The current version is 0.6.9. All models and test code have been validated on th
 | [PNN](nextrec/models/ranking/pnn.py) | Product-based neural networks for user response prediction | Supported |
 | [AutoInt](nextrec/models/ranking/autoint.py) | AutoInt: Automatic feature interaction learning via self-attentive neural networks | Supported |
 | [DCN](nextrec/models/ranking/dcn.py) | Deep & cross network for ad click predictions | Supported |
-| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | In Progress |
+| [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | Supported |
 | [DIN](nextrec/models/ranking/din.py) | Deep interest network for click-through rate prediction | Supported |
 | [DIEN](nextrec/models/ranking/dien.py) | Deep interest evolution network for click-through rate prediction | Supported |
 | [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask | Supported |

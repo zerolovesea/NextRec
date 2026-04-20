@@ -2,7 +2,7 @@
 Data processing utilities for NextRec
 
 Date: create on 03/12/2025
-Checkpoint: edit on 07/02/2026
+Checkpoint: edit on 20/04/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 

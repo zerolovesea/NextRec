@@ -42,7 +42,7 @@
 
 作者: Yang Zhou, zyaztec@gmail.com
 创建日期: 2025-12-06
-最后更新: 2026-01-28
+最后更新: 2026-04-20
 """
 
 from nextrec.models.multitask.apg import APG
@@ -88,9 +88,8 @@ def train_model(
         success: 是否训练成功
         metrics: 评估指标字典
     """
-    print("=" * 80)
+    print("-" * 80)
     print(f"Training {model_name}")
-    print("=" * 80)
 
     try:
         # ==============================================================================

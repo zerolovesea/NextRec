@@ -123,7 +123,6 @@ class SASRec(BaseSequentialModel):
             )
 
         # SASRec can consume optional context features in addition to the item history.
-        target_source = self.item_history_feature.name if sequence_mode == "autoregressive" else None
         super().__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
@@ -131,8 +130,6 @@ class SASRec(BaseSequentialModel):
             target=target,
             task=task or self.default_task,
             sequence_mode=sequence_mode,
-            target_source=target_source,
-            target_shift_steps=1 if target_source is not None else 0,
             embedding_l1_reg=embedding_l1_reg,
             dense_l1_reg=dense_l1_reg,
             embedding_l2_reg=embedding_l2_reg,

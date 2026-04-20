@@ -194,7 +194,6 @@ export const store = reactive({
       batch_size: 512,
       num_workers: 4,
       num_processes: null,
-      profile: false,
       device: 'cpu',
       use_onnx: false,
       streaming: true,
