@@ -426,11 +426,10 @@ def display_metrics_table(
         table.add_row(*row)
 
     table_width = estimate_export_width()
-    Console(width=table_width).print(table)
-
-    record_console = Console(file=io.StringIO(), record=True, width=table_width)
-    record_console.print(table)
-    table_text = record_console.export_text(styles=False).rstrip()
+    # Use a single Console render path to avoid duplicate notebook outputs.
+    console = Console(width=table_width, record=True)
+    console.print(table)
+    table_text = console.export_text(styles=False).rstrip()
 
     root_logger = logging.getLogger()
     record = root_logger.makeRecord(

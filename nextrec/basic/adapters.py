@@ -145,7 +145,7 @@ class CandidateListAdapter(TrainingAdapter):
 
     These models expect input features to include a shared candidate-list axis,
     and the adapter handles reshaping between flat batch features and candidate-list inputs.
-    
+
     It also supports in-batch negative sampling for two-tower models when sampling_mode='inbatch',
     and can compute appropriate losses based on the model's configured loss function and similarity metric.
     """

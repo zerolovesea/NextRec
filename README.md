@@ -9,7 +9,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8nextrec.ipynb)
-![Version](https://img.shields.io/badge/Version-0.6.10-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.11-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 
@@ -225,7 +225,7 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 ## 兼容平台
 
-当前最新版本为0.6.10，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.6.11，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
