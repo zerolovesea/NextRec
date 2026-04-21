@@ -3,7 +3,7 @@ Trainer module for NextRec models, providing training loop with support for
 various optimizers, schedulers, loss functions, and metrics.
 
 Date: create on 16/04/2025
-Checkpoint: edit on 16/04/2025
+Checkpoint: edit on 21/04/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -876,7 +876,7 @@ class BaseTrainer:
                     y_true_list.append(y_true.detach().cpu().numpy())
                     y_pred_list.append(y_pred.detach().cpu().numpy())
                     if self.needs_group_ids:
-                        batch_group_id = get_group_ids(data=batch_dict, group_id=self.metric_group_id)
+                        batch_group_id = get_group_ids(data=batch_data, group_id=self.metric_group_id)
                         if batch_group_id is not None:
                             group_ids_list.append(batch_group_id)
             num_batches += 1

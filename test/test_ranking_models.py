@@ -34,11 +34,13 @@ import torch.nn as nn
 from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
 from nextrec.models.ranking.afm import AFM
 from nextrec.models.ranking.autoint import AutoInt
+from nextrec.models.ranking.bst import BST
 from nextrec.models.ranking.dcn import DCN
 from nextrec.models.ranking.dcn_v2 import DCNv2
 from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.models.ranking.dien import DIEN
 from nextrec.models.ranking.din import DIN
+from nextrec.models.ranking.dlrm import DLRM
 from nextrec.models.ranking.eulernet import EulerNet
 from nextrec.models.ranking.ffm import FFM
 from nextrec.models.ranking.fibinet import FiBiNET
@@ -50,6 +52,113 @@ from nextrec.models.ranking.widedeep import WideDeep
 from nextrec.models.ranking.xdeepfm import xDeepFM
 
 logger = logging.getLogger(__name__)
+
+
+class TestBST:
+    def test_bst_initialization(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        device,
+    ):
+        model = BST(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            behavior_feature_name="hist_item_ids",
+            candidate_feature_name="item_id",
+            target=["label"],
+            device=device,
+        )
+        assert model.model_name == "BST"
+        assert model.task == "binary"
+
+    def test_bst_forward_pass(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+    ):
+        model = BST(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            behavior_feature_name="hist_item_ids",
+            candidate_feature_name="item_id",
+            target=["label"],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        output = run_model_inference(model, data)
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+
+    def test_bst_multi_pair_forward_pass(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+    ):
+        model = BST(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            behavior_feature_name=["hist_item_ids", "hist_categories"],
+            candidate_feature_name=["item_id", "category"],
+            target=["label"],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        output = run_model_inference(model, data)
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
+
+
+class TestDLRM:
+    def test_dlrm_initialization(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        device,
+    ):
+        model = DLRM(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label"],
+            device=device,
+        )
+        assert model.model_name == "DLRM"
+        assert model.task == "binary"
+
+    def test_dlrm_forward_pass(
+        self,
+        sample_dense_features,
+        sample_sparse_features,
+        sample_sequence_features,
+        sample_batch_data,
+        device,
+        batch_size,
+    ):
+        model = DLRM(
+            dense_features=sample_dense_features,
+            sparse_features=sample_sparse_features,
+            sequence_features=sample_sequence_features,
+            target=["label"],
+            device=device,
+        )
+        data = {k: v.to(device) for k, v in sample_batch_data.items() if k != "label"}
+        output = run_model_inference(model, data)
+        assert_model_output_shape(output, (batch_size,))
+        assert_model_output_range(output, 0.0, 1.0)
 
 
 class TestFMModel:

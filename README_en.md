@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.11-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.12-orange.svg)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
@@ -52,7 +52,6 @@ NextRec is a modern recommendation framework built on PyTorch, delivering a unif
 - **21/12/2025** Added support for [GradNorm](/nextrec/loss/grad_norm.py) in v0.4.16, configurable via `loss_weight='grad_norm'` in the compile method
 - **12/12/2025** Added [RQ-VAE](/nextrec/models/pretrain/rqvae.py), a common module for generative recommendation in v0.4.9. Paired [dataset](/dataset/ecommerce_task.csv) and [notebook code](tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) are available.
 - **07/12/2025** Released the NextRec CLI tool to run training/inference from configs. See the [guide](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html) and [config templates](/configs).
-- **06/12/2025** Added single-machine multi-GPU DDP training in v0.4.1 with supporting [code](tutorials/distributed).
 - **11/11/2025** NextRec v0.1.0 released with 10+ ranking models, 11 multi-task models, 4 match models, and a unified training/logging/metrics system.
 
 ## Architecture
@@ -100,21 +99,18 @@ See `tutorials/` for examples covering ranking, match, multi-task learning, and 
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) — DIN Deep Interest Network training on e-commerce dataset
 - [example_multitask.py](/tutorials/example_multitask.py) — ESMM multi-task learning training on e-commerce dataset
 - [movielen_matching_dssm.py](/tutorials/movielen_matching_dssm.py) — DSSM retrieval model training on MovieLens 100k dataset
-
 - [example_onnx.py](/tutorials/example_onnx.py) — Train and export models to ONNX format with NextRec
-- [example_distributed_training.py](/tutorials/distributed/example_distributed_training.py) — Single-machine multi-GPU training with NextRec
 
 - [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) — Quickly validate availability of all ranking models
 - [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) — Quickly validate availability of all multi-task models
 - [run_all_matching_models.py](/tutorials/run_all_matching_models.py) — Quickly validate availability of all retrieval models
+- [run_all_sequential_models.py](/tutorials/run_all_sequential_models.py) — Quickly validate availability of all sequential recommendation models
 
 To dive deeper into NextRec framework details, Jupyter notebooks are available:
 
 - [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb) [Hands on the NextRec framework](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
 - [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb) [Using the data processor for preprocessing](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20dataprocessor.ipynb)
 - [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb) [Build semantic ID with RQ-VAE](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Build%20semantic%20ID%20with%20RQ-VAE.ipynb)
-
-Before running ONNX examples, install `pip install "nextrec[onnx]"`.
 
 ## 5-Minute Quick Start
 
@@ -125,90 +121,49 @@ We provide a detailed quick-start guide and paired datasets to help you get fami
 | 1      | 7817    | 0.14704075  | 0.31020382  | 0.77780896  | 0.944897   | 0.62315375  | 0.57124174  | 0.77009535  | 0.3211029   | 315      | 260      | 379      | 146      | 168      | 161      | 138      | 88       | 5        | 312      | [170,175,97,338,105,353,272,546,175,545,463,128,0,0,0]   | [368,414,820,405,548,63,327,0,0,0,0,0,0,0,0]              | 0     |
 | 1      | 3579    | 0.77811223  | 0.80359334  | 0.5185201   | 0.91091245 | 0.043562356 | 0.82142705  | 0.8803686   | 0.33748195 | 149      | 229      | 442      | 6        | 167      | 252      | 25       | 402      | 7        | 168      | [179,48,61,551,284,165,344,151,0,0,0,0,0,0,0]            | [814,0,0,0,0,0,0,0,0,0,0,0,0,0,0]                          | 1     |
 
-Below is a short example showing how to train a DIN (Deep Interest Network) model. You can also run `python tutorials/example_ranking_din.py` directly to execute the training and inference code.
-
-After training starts, you can find detailed training logs at `nextrec_logs/din_tutorial`.
+Below is a short example showing how to train a DeepFM model. After training starts, you can find detailed training logs at `nextrec_logs/din_tutorial`.
 
 ```python
 import pandas as pd
-
-from nextrec.models.ranking.din import DIN
+from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
-df = pd.read_csv('dataset/ranking_task.csv')
+df = pd.read_csv('https://raw.githubusercontent.com/zerolovesea/NextRec/main/dataset/ranking_task.csv')
 
-# CSV loads list-like columns as strings; convert them back to Python lists
-for col in df.columns:
-    if 'sequence' in col:
-        df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
-
-# Define feature columns
 dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1) for i in range(8)]
 
-sparse_features = [SparseFeature(name='user_id', embedding_name='user_emb', vocab_size=int(df['user_id'].max() + 1), embedding_dim=32), SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=int(df['item_id'].max() + 1), embedding_dim=32),]
+sparse_features = [SparseFeature(name='user_id', embedding_name='user_emb', vocab_size=50000, embedding_dim=16), SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=50000, embedding_dim=16),]
 
-sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'sparse_{i}_emb', vocab_size=int(df[f'sparse_{i}'].max() + 1), embedding_dim=32) for i in range(10)])
+sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'sparse_{i}_emb', vocab_size=50000, embedding_dim=16) for i in range(10)])
 
 sequence_features = [
-    SequenceFeature(name='sequence_0', vocab_size=int(df['sequence_0'].apply(lambda x: max(x)).max() + 1), embedding_dim=32, padding_idx=0, embedding_name='item_emb'),
-    SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sequence_1_emb'),]
+    SequenceFeature(name='sequence_0', vocab_size=50000, embedding_dim=16, padding_idx=0, embedding_name='item_emb'),
+    SequenceFeature(name='sequence_1', vocab_size=50000, embedding_dim=16, padding_idx=0, embedding_name='sequence_1_emb'),]
 
-mlp_params = {
-    "hidden_dims": [256, 128, 64],
-    "activation": "relu",
-    "dropout": 0.3,
-}
-
-model = DIN(
+model = DeepFM(
     dense_features=dense_features,
     sparse_features=sparse_features,
     sequence_features=sequence_features,
-    behavior_feature_name="sequence_0",
-    candidate_feature_name="item_id",
-    mlp_params=mlp_params,
-    attention_mlp_params={
-        "hidden_dims": [80, 40],
-        "activation": "sigmoid",
-    },
-    attention_use_softmax=True,
-    target=['label'],                                   # target variable
-    device='cpu',                                         
-    session_id="din_tutorial",                            # experiment id for logs
+    mlp_params={"hidden_dims": [256, 128, 64], "activation": "relu", "dropout": 0.3},
+    target=['label'], 
+    session_id='deepfm_tutorial',
 )
 
-# Compile model; configure optimizer/loss/scheduler via compile()
 model.compile(
     optimizer="adam",
     optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
-    loss="focal",
-    loss_params={"gamma": 2.0, "alpha": 0.25},
+    loss="bce"
 )
 
 model.fit(
     train_data=df,
-    metrics=['auc', 'gauc', 'logloss'],  # metrics to track
-    epochs=3,
-    batch_size=512,
-    shuffle=True,
-    group_id='user_id',                  # group key for GAUC / ranking@K
-    valid_split=0.2,                     # auto split validation (optional)
-    num_workers=4,                       # DataLoader workers
-    use_wandb=False,                     # enable W&B (optional)
-    wandb_kwargs={"project": "NextRec", "name": "din_tutorial"},
-    use_swanlab=False,                   # enable SwanLab (optional)
-    swanlab_kwargs={"project": "NextRec", "name": "din_tutorial"},
-)
-
-# Evaluate after training
-metrics = model.evaluate(
-    df,
+    valid_split=0.2,
     metrics=['auc', 'gauc', 'logloss'],
+    group_id='user_id',
+    epochs=1,
     batch_size=512,
-    group_id='user_id'
 )
 ```
-
-If you want to sync training logs to WandB or SwanLab, install `pip install "nextrec[tracking]"` first.
 
 ## CLI Usage
 
@@ -235,7 +190,7 @@ Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_d
 
 ## Platform Compatibility
 
-The current version is 0.6.11. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.6.12. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|
@@ -267,6 +222,8 @@ The current version is 0.6.11. All models and test code have been validated on t
 | [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | Supported |
 | [DIN](nextrec/models/ranking/din.py) | Deep interest network for click-through rate prediction | Supported |
 | [DIEN](nextrec/models/ranking/dien.py) | Deep interest evolution network for click-through rate prediction | Supported |
+| [BST](nextrec/models/ranking/bst.py) | Behavior Sequence Transformer for E-commerce Recommendation in Alibaba | Supported |
+| [DLRM](nextrec/models/ranking/dlrm.py) | Deep Learning Recommendation Model for Personalization and Recommendation Systems | Supported |
 | [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask | Supported |
 | [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | Supported |
 
@@ -285,7 +242,9 @@ The current version is 0.6.11. All models and test code have been validated on t
 | Model | Paper | Status |
 | ------- | ------- | -------- |
 | [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | Supported |
+| [Tiger](nextrec/models/sequential/tiger.py) | Recommender Systems with Generative Recommendation | Supported |
 | [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | Supported |
+| [GRU4Rec](nextrec/models/sequential/gru4rec.py) | Session-based Recommendations with Recurrent Neural Networks | Supported |
 
 ### Multi-task Models
 
@@ -302,12 +261,6 @@ The current version is 0.6.11. All models and test code have been validated on t
 | [HMOE](nextrec/models/multitask/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | Supported |
 | [SNRTrans](nextrec/models/multitask/snr_trans.py) | SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space | Supported |
 | [AITM](nextrec/models/multitask/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | Supported |
-
-### Generative Models
-
-| Model | Paper | Status |
-| ------- | ------- | -------- |
-| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Recommendation | In Progress |
 
 ### Pretrain Models
 

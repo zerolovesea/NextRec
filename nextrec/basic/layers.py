@@ -209,6 +209,7 @@ class EmbeddingLayer(nn.Module):
         x: dict[str, torch.Tensor],
         features: list[object],
         squeeze_dim: bool = False,
+        sequence_output: Literal["pooled", "raw"] = "pooled",
     ) -> torch.Tensor:
         sparse_embeds = []
         dense_embeds = []
@@ -216,7 +217,15 @@ class EmbeddingLayer(nn.Module):
         for feature in features:
             if isinstance(feature, SparseFeature):
                 embed = self.embed_dict[feature.embedding_name]
-                sparse_embeds.append(embed(x[feature.name].long()).unsqueeze(1))
+                feature_input = x[feature.name].long()
+                if feature_input.dim() > 1:
+                    feature_input = feature_input.view(feature_input.size(0), -1)
+                    if feature_input.size(1) != 1:
+                        raise ValueError(
+                            f"[EmbeddingLayer Error]: Sparse feature '{feature.name}' expects 1 id per sample, got shape {tuple(x[feature.name].shape)}."
+                        )
+                    feature_input = feature_input.squeeze(1)
+                sparse_embeds.append(embed(feature_input).unsqueeze(1))
 
             elif isinstance(feature, SequenceFeature):
                 seq_input = x[feature.name].long()
@@ -225,9 +234,16 @@ class EmbeddingLayer(nn.Module):
 
                 embed = self.embed_dict[feature.embedding_name]
                 seq_emb = embed(seq_input)  # [B, seq_len, emb_dim]
-                pooling_layer = self.sequence_poolings[feature.name]
-                feature_mask = InputMask()(x, feature, seq_input)
-                sparse_embeds.append(pooling_layer(seq_emb, feature_mask).unsqueeze(1))
+                if sequence_output == "raw":
+                    if squeeze_dim:
+                        raise ValueError(
+                            "[EmbeddingLayer Error]: sequence_output='raw' is incompatible with squeeze_dim=True."
+                        )
+                    sparse_embeds.append(seq_emb.unsqueeze(1))
+                else:
+                    pooling_layer = self.sequence_poolings[feature.name]
+                    feature_mask = InputMask()(x, feature, seq_input)
+                    sparse_embeds.append(pooling_layer(seq_emb, feature_mask).unsqueeze(1))
 
             elif isinstance(feature, DenseFeature):
                 dense_embeds.append(self.project_dense(feature, x))
@@ -242,6 +258,20 @@ class EmbeddingLayer(nn.Module):
             if not pieces:
                 raise ValueError("[EmbeddingLayer Error]: No input features found for EmbeddingLayer.")
             return pieces[0] if len(pieces) == 1 else torch.cat(pieces, dim=1)
+
+        if sequence_output == "raw":
+            # Raw mode returns token-level sequence embeddings, so non-sequence inputs are invalid.
+            if dense_embeds:
+                raise ValueError("[EmbeddingLayer Error]: sequence_output='raw' does not support dense features.")
+            if not sparse_embeds:
+                raise ValueError("[EmbeddingLayer Error]: No input features found for EmbeddingLayer.")
+            raw_lengths = {emb.shape[2] for emb in sparse_embeds}
+            if len(raw_lengths) != 1:
+                raise ValueError(
+                    "[EmbeddingLayer Error]: sequence_output='raw' requires all sequence features to share the same effective sequence length. "
+                    f"Got lengths {sorted(raw_lengths)}."
+                )
+            return torch.cat(sparse_embeds, dim=1)
 
         # squeeze_dim=False requires embeddings with identical last dimension
         output_embeddings = list(sparse_embeds)

@@ -38,7 +38,7 @@
 
 作者: NextRec Team
 创建日期: 2026
-最后更新: 2026-01-28
+最后更新: 2026-04-21
 """
 
 import pandas as pd
@@ -54,12 +54,6 @@ from nextrec.data.preprocessor import DataProcessor
 
 # 加载排序任务数据集
 df = pd.read_csv("dataset/ranking_task.csv")
-
-# 将序列特征从字符串格式转换为列表格式
-# 数据集中序列特征以字符串形式存储,需要使用 eval 转换为 Python 列表
-for col in df.columns:
-    if "sequence" in col:
-        df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
 
 # 同一特征做多种预处理变换
 # 变换后会新增列名: {column}_{preprocess_method}

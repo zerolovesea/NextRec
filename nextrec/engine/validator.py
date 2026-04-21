@@ -3,7 +3,7 @@ Trainer module for NextRec models, providing training loop with support for
 various optimizers, schedulers, loss functions, and metrics.
 
 Date: create on 16/04/2025
-Checkpoint: edit on 19/04/2025
+Checkpoint: edit on 21/04/2025
 Author: Yang Zhou, zyaztec@gmail.com
 """
 
@@ -133,7 +133,7 @@ class BaseValidator:
                         raise ValueError(
                             "[BaseModel-evaluate Error] group_id must be specified when grouped metrics are enabled."
                         )
-                    batch_group_id = get_group_ids(data=batch_dict, group_id=group_id)
+                    batch_group_id = get_group_ids(data=batch_data, group_id=group_id)
                     if batch_group_id is not None:
                         collected_group_ids.append(batch_group_id)
                 if group_by_columns:

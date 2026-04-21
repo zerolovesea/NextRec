@@ -28,6 +28,8 @@
     14. DIEN (Deep Interest Evolution Network): 深度兴趣演化网络
     15. NFM (Neural Factorization Machine): 神经因子分解机
     16. MaskNet: 掩码网络
+    17. BST (Behavior Sequence Transformer): 行为序列 Transformer 排序模型
+    18. DLRM (Deep Learning Recommendation Model): 深度学习推荐模型
 
 使用方法:
     直接运行此脚本:
@@ -48,25 +50,27 @@
 
 作者: Yang Zhou, zyaztec@gmail.com
 创建日期: 2025-12-06
-最后更新: 2026-04-20
+最后更新: 2026-04-21
 """
 
+from nextrec.models.ranking.afm import AFM
+from nextrec.models.ranking.autoint import AutoInt
+from nextrec.models.ranking.bst import BST
+from nextrec.models.ranking.dcn import DCN
+from nextrec.models.ranking.deepfm import DeepFM
+from nextrec.models.ranking.dien import DIEN
+from nextrec.models.ranking.din import DIN
+from nextrec.models.ranking.dlrm import DLRM
+from nextrec.models.ranking.eulernet import EulerNet
+from nextrec.models.ranking.ffm import FFM
+from nextrec.models.ranking.fibinet import FiBiNET
 from nextrec.models.ranking.fm import FM
 from nextrec.models.ranking.lr import LR
-from nextrec.models.ranking.eulernet import EulerNet
-from nextrec.models.ranking.deepfm import DeepFM
-from nextrec.models.ranking.din import DIN
-from nextrec.models.ranking.dien import DIEN
-from nextrec.models.ranking.dcn import DCN
-from nextrec.models.ranking.autoint import AutoInt
-from nextrec.models.ranking.widedeep import WideDeep
-from nextrec.models.ranking.xdeepfm import xDeepFM
-from nextrec.models.ranking.fibinet import FiBiNET
-from nextrec.models.ranking.afm import AFM
-from nextrec.models.ranking.ffm import FFM
-from nextrec.models.ranking.pnn import PNN
 from nextrec.models.ranking.masknet import MaskNet
 from nextrec.models.ranking.nfm import NFM
+from nextrec.models.ranking.pnn import PNN
+from nextrec.models.ranking.widedeep import WideDeep
+from nextrec.models.ranking.xdeepfm import xDeepFM
 
 from nextrec.utils.data import generate_ranking_data
 
@@ -109,8 +113,8 @@ def train_model(
         # 1. 确定是否使用序列特征
         # ==============================================================================
 
-        # DIN 和 DIEN 需要序列特征
-        if model_name in ["DIN", "DIEN"]:
+        # DIN、DIEN 和 BST 需要序列特征
+        if model_name in ["DIN", "DIEN", "BST"]:
             seq_feats = sequence_features
         else:
             seq_feats = []
@@ -307,6 +311,22 @@ def main():
                 "senet_reduction": 3,  # SENet 压缩比例
             },
         ),
+        (
+            DLRM,
+            "DLRM",
+            {
+                "bottom_mlp_params": {
+                    "hidden_dims": [128, 64],
+                    "activation": "relu",
+                    "dropout": 0.1,
+                },
+                "top_mlp_params": {
+                    "hidden_dims": [256, 128],
+                    "activation": "relu",
+                    "dropout": 0.2,
+                },
+            },
+        ),
         # 兴趣建模
         (
             DIN,
@@ -332,6 +352,18 @@ def main():
                 "candidate_feature_name": candidate_feature_name,  # 候选物品特征名
                 "use_negsampling": True,  # 使用负采样
                 "neg_behavior_feature_name": "sequence_1",  # 负采样序列特征名
+            },
+        ),
+        (
+            BST,
+            "BST",
+            {
+                "behavior_feature_name": behavior_feature_name,
+                "candidate_feature_name": candidate_feature_name,
+                "num_heads": 8,
+                "num_layers": 1,
+                "dropout": 0.2,
+                "mlp_params": mlp_params,
             },
         ),
         # 掩码网络
