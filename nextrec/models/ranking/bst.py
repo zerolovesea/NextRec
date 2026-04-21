@@ -148,20 +148,14 @@ class BST(BaseRankingModel):
             int(feature.embedding_dim) != self.embed_dim
             for feature in (*self.behavior_features, *self.candidate_features)
         ):
-            raise ValueError(
-                "[BST Error] behavior and candidate features must share the same embedding_dim."
-            )
+            raise ValueError("[BST Error] behavior and candidate features must share the same embedding_dim.")
         if self.embed_dim % num_heads != 0:
             raise ValueError(
                 f"[BST Error] embedding_dim({self.embed_dim}) must be divisible by num_heads({num_heads})."
             )
 
         exclude_feature_names = {feature.name for feature in (*self.behavior_features, *self.candidate_features)}
-        self.other_features = [
-            feature
-            for feature in self.all_features
-            if feature.name not in exclude_feature_names
-        ]
+        self.other_features = [feature for feature in self.all_features if feature.name not in exclude_feature_names]
 
         self.embedding = EmbeddingLayer(features=self.all_features)
         encoder_layer = nn.TransformerEncoderLayer(
@@ -175,7 +169,7 @@ class BST(BaseRankingModel):
         other_dim = self.embedding.compute_output_dim(self.other_features)
         target_dim = self.embedding.compute_output_dim(self.candidate_features)
         transformer_dim = len(self.behavior_features) * self.embed_dim
-        
+
         # behavior fusion [B, Behavior_num * D] + target flatten [B, Target_num * D] + optional context
         mlp_input_dim = transformer_dim + target_dim + other_dim
         mlp_params.setdefault("hidden_dims", [256, 128])
@@ -189,7 +183,7 @@ class BST(BaseRankingModel):
     def forward(self, x) -> torch.Tensor:
         # candidate sparse features -> [B, Target_num, D]
         embed_x_target = self.embedding(x=x, features=self.candidate_features, squeeze_dim=False)
-        
+
         # concat behavior sequence and target embeddings
         transformer_pooling = []
         for behavior_feature in self.behavior_features:
@@ -218,5 +212,5 @@ class BST(BaseRankingModel):
             # auxiliary context features -> [B, Context_dim]
             features.append(self.embedding(x=x, features=self.other_features, squeeze_dim=True))
         logits = self.mlp(torch.cat(features, dim=1))
-        
+
         return logits

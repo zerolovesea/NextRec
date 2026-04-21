@@ -192,5 +192,5 @@ class DLRM(BaseRankingModel):
             # standard DLRM keeps the processed dense embedding alongside interactions
             top_inputs.insert(0, dense_embedding)
         logits = self.top_mlp(torch.cat(top_inputs, dim=1))
-        
+
         return logits
