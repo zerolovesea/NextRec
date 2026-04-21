@@ -14,6 +14,7 @@ import pytest
 import torch
 
 from nextrec.basic.features import SequenceFeature
+from nextrec.models.sequential.gru4rec import GRU4Rec
 from nextrec.models.sequential.hstu import (
     HSTU,
     HSTULayer,
@@ -339,6 +340,61 @@ class TestHSTUModel:
         loss = model.compute_loss(y_pred, y_true)
         assert loss.dim() == 0
         assert torch.isfinite(loss)
+
+
+class TestGRU4RecModel:
+    def test_gru4rec_forward_and_loss(self):
+        sequence_features = [
+            SequenceFeature(
+                name="item_history",
+                vocab_size=20,
+                max_len=6,
+                embedding_dim=8,
+                padding_idx=0,
+            )
+        ]
+        model = GRU4Rec(
+            sequence_features=sequence_features,
+            item_history_name="item_history",
+            hidden_dim=8,
+            num_layers=1,
+            max_seq_len=6,
+            dropout_rate=0.0,
+            target=["next_item"],
+            task="generative",
+            device="cpu",
+            session_id="gru4rec_test",
+        )
+        model.compile(loss="ce")
+
+        x = {
+            "item_history": torch.tensor(
+                [
+                    [1, 2, 3, 4, 0, 0],
+                    [2, 3, 4, 5, 6, 0],
+                ],
+                dtype=torch.long,
+            )
+        }
+        y_true = torch.tensor(
+            [
+                [2, 3, 4, 5, 0, 0],
+                [3, 4, 5, 6, 7, 0],
+            ],
+            dtype=torch.long,
+        )
+
+        y_pred = model.forward(x)
+        assert y_pred.shape == (2, 6, 20)
+        assert_no_nan_or_inf(y_pred, "gru4rec_logits")
+
+        loss = model.compute_loss(y_pred, y_true)
+        assert loss.dim() == 0
+        assert torch.isfinite(loss)
+
+        next_item_logits = model.predict_last(x)
+        assert next_item_logits.shape == (2, 20)
+        assert_no_nan_or_inf(next_item_logits, "gru4rec_last_logits")
 
 
 if __name__ == "__main__":

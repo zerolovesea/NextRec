@@ -39,6 +39,7 @@
 
 from __future__ import annotations
 
+from nextrec.models.sequential.gru4rec import GRU4Rec
 from nextrec.models.sequential.hstu import HSTU
 from nextrec.models.sequential.sasrec import SASRec
 from nextrec.models.sequential.tiger import Tiger
@@ -166,7 +167,17 @@ def main():
                 "use_temporal_bias": False,
                 "tie_embeddings": True,
             },
-        )
+        ),
+        (
+            GRU4Rec,
+            "GRU4Rec",
+            {
+                "hidden_dim": 16,
+                "num_layers": 1,
+                "max_seq_len": 20,
+                "dropout_rate": 0.1,
+            },
+        ),
     ]
 
     successful = 0

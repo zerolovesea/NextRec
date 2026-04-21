@@ -247,7 +247,7 @@ class BaseSequentialModel(BaseModel):
         flat_labels = flat_labels[valid_mask]
 
         if getattr(self, "sequence_loss_mode", "ce") == "sampled_softmax":
-            return self._sampled_softmax_loss(flat_logits, flat_labels)
+            return self.sampled_softmax_loss(flat_logits, flat_labels)
 
         return F.cross_entropy(flat_logits, flat_labels, reduction="mean")
 
@@ -362,7 +362,7 @@ class BaseSequentialModel(BaseModel):
 
         return {"overall": metrics_dict, "grouped": []}
 
-    def _sampled_softmax_loss(self, flat_logits: torch.Tensor, flat_labels: torch.Tensor) -> torch.Tensor:
+    def sampled_softmax_loss(self, flat_logits: torch.Tensor, flat_labels: torch.Tensor) -> torch.Tensor:
         """
         Approximate full-vocab softmax by sampling a subset of negative items.
         The positive label is kept for every example; shared negatives are sampled once per batch.
