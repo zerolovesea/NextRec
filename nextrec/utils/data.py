@@ -22,6 +22,8 @@ import pyarrow.parquet as pq
 import torch
 import yaml
 
+from nextrec.basic.features import SequenceFeature
+
 
 def is_path_data(data: Any) -> bool:
     return isinstance(data, (str, os.PathLike)) or (
@@ -804,6 +806,59 @@ def generate_multitask_data(
         )
 
     return df, dense_features, sparse_features, sequence_features
+
+
+def generate_sequential_data(
+    n_samples: int = 4000,
+    item_vocab_size: int = 200,
+    sequence_max_len: int = 20,
+    embedding_dim: int = 16,
+    seed: int = 42,
+) -> Tuple[pd.DataFrame, List]:
+    """
+    Generate synthetic data for sequential recommendation tasks.
+
+    Returns:
+        tuple: (dataframe, sequence_features)
+    """
+    print(f"Generating {n_samples} synthetic sequential samples...")
+
+    rng = np.random.default_rng(seed)
+    histories = []
+    labels = []
+
+    for _ in range(n_samples):
+        effective_len = int(rng.integers(5, sequence_max_len + 1))
+        full_sequence = rng.integers(1, item_vocab_size, size=effective_len + 1).tolist()
+
+        history = full_sequence[:-1]
+        label = full_sequence[1:]
+
+        pad_len = sequence_max_len - len(history)
+        history = history + [0] * pad_len
+        label = label + [0] * pad_len
+
+        histories.append(history)
+        labels.append(label)
+
+    df = pd.DataFrame(
+        {
+            "item_history": histories,
+            "next_item": labels,
+        }
+    )
+    print(f"Generated data shape: {df.shape}")
+
+    sequence_features = [
+        SequenceFeature(
+            name="item_history",
+            vocab_size=item_vocab_size,
+            max_len=sequence_max_len,
+            embedding_dim=embedding_dim,
+            padding_idx=0,
+        )
+    ]
+    return df, sequence_features
 
 
 def generate_synthetic_embeddings(num_samples=1000, embedding_dim=768):

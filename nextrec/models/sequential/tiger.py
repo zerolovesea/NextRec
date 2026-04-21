@@ -1,11 +1,3 @@
-"""
-Tiger sequential generative matching model.
-
-The implementation lives under the sequential family because Tiger models
-user behavior sequences and predicts the next target item/token with a
-generative objective.
-"""
-
 from __future__ import annotations
 
 from nextrec.models.sequential.sasrec import SASRec

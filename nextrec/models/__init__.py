@@ -20,10 +20,12 @@ from nextrec.models.ranking import (
     AFM,
     AutoInt,
     BaseRankingModel,
+    BST,
     DCN,
     DCNv2,
     DIEN,
     DIN,
+    DLRM,
     DeepFM,
     EulerNet,
     FFM,
@@ -36,7 +38,7 @@ from nextrec.models.ranking import (
     WideDeep,
     xDeepFM,
 )
-from nextrec.models.sequential import BaseSequentialModel, HSTU, SASRec, Tiger
+from nextrec.models.sequential import BaseSequentialModel, GRU4Rec, HSTU, SASRec, Tiger
 
 __all__ = [
     "BaseMatchModel",
@@ -62,10 +64,12 @@ __all__ = [
     "AFM",
     "AutoInt",
     "BaseRankingModel",
+    "BST",
     "DCN",
     "DCNv2",
     "DIEN",
     "DIN",
+    "DLRM",
     "DeepFM",
     "EulerNet",
     "FFM",
@@ -78,6 +82,7 @@ __all__ = [
     "WideDeep",
     "xDeepFM",
     "BaseSequentialModel",
+    "GRU4Rec",
     "HSTU",
     "SASRec",
     "Tiger",

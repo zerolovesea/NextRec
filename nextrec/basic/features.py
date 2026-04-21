@@ -2,7 +2,7 @@
 Feature definitions for NextRec models.
 
 Date: create on 27/10/2025
-Checkpoint: edit on 13/03/2026
+Checkpoint: edit on 21/04/2026
 Author: Yang Zhou, zyaztec@gmail.com
 """
 

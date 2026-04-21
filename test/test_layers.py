@@ -439,6 +439,26 @@ class TestEmbeddingLayer:
 
         logger.info("EmbeddingLayer self_attention test successful")
 
+    def test_embedding_layer_raw_sequence_output(self):
+        batch_size = 8
+        seq_len = 10
+        seq_feature = SequenceFeature(
+            name="history_raw",
+            vocab_size=200,
+            max_len=seq_len,
+            embedding_dim=16,
+            padding_idx=0,
+        )
+        embedding_layer = EmbeddingLayer(features=[seq_feature])
+
+        x = {
+            "history_raw": torch.randint(0, 200, (batch_size, seq_len)),
+        }
+        output = embedding_layer(x, features=[seq_feature], squeeze_dim=False, sequence_output="raw")
+
+        assert output.shape == (batch_size, 1, seq_len, 16)
+        assert not torch.isnan(output).any()
+
     def test_embedding_layer_dense_mlp_projection_to_scalar(self):
         batch_size = 8
         dense_feature = DenseFeature(

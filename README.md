@@ -9,7 +9,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8nextrec.ipynb)
-![Version](https://img.shields.io/badge/Version-0.6.11-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.12-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 
@@ -50,7 +50,6 @@ NextRec是一个基于PyTorch的现代推荐系统框架，旨在为研究工程
 - **21/12/2025** 在v0.4.16中加入了对[GradNorm](/nextrec/loss/grad_norm.py)的支持，通过compile的`loss_weight='grad_norm'`进行配置
 - **12/12/2025** 在v0.4.9中加入了[RQ-VAE](/nextrec/models/pretrain/rqvae.py)模块。配套的[数据集](/dataset/ecommerce_task.csv)和[代码](tutorials/notebooks/zh/使用RQ-VAE构建语义ID.ipynb)已经同步在仓库中
 - **07/12/2025** 发布了NextRec CLI命令行工具，它允许用户根据配置文件进行一键训练和推理，我们提供了相关的[教程](https://zerolovesea.github.io/NextRec/zh/cli/nextrec-cli.html)和[示例配置文件](/configs)
-- **06/12/2025** 在v0.4.1中支持了单机多卡的分布式DDP训练，并且提供了配套的[代码](tutorials/distributed)
 - **11/11/2025** NextRec v0.1.0发布，我们提供了10余种排序模型，11种多任务模型和4种召回模型，以及统一的训练/日志/指标管理系统
 
 ## 架构
@@ -97,21 +96,18 @@ NextRec提供了本地部署的开发文档服务，在完成安装后，通过`
 - [example_ranking_din.py](/tutorials/example_ranking_din.py) - 电商数据集上的DIN 深度兴趣网络训练示例
 - [example_multitask.py](/tutorials/example_multitask.py) - 电商数据集上的ESMM多任务学习训练示例
 - [movielen_matching_dssm.py](/tutorials/movielen_matching_dssm.py) - 基于movielen 100k数据集训练的 DSSM 召回模型示例
-
 - [example_onnx.py](/tutorials/example_onnx.py) - 使用NextRec训练和导出onnx模型
-- [example_distributed_training.py](/tutorials/distributed/example_distributed_training.py) - 使用NextRec进行单机多卡训练的代码示例
 
 - [run_all_ranking_models.py](/tutorials/run_all_ranking_models.py) - 快速校验所有排序模型的可用性
 - [run_all_multitask_models.py](/tutorials/run_all_multitask_models.py) - 快速校验所有多任务模型的可用性
 - [run_all_matching_models.py](/tutorials/run_all_matching_models.py) - 快速校验所有召回模型的可用性
+- [run_all_sequential_models.py](/tutorials/run_all_sequential_models.py) - 快速校验所有序列推荐模型的可用性
 
 如果想了解更多NextRec框架的细节，我们还提供了Jupyter notebook来帮助你了解：
 
 - [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8nextrec.ipynb) [如何上手NextRec框架](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8nextrec.ipynb)
 - [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%A6%82%E4%BD%95%E4%BD%BF%E7%94%A8DataProcessor%E8%BF%9B%E8%A1%8C%E9%A2%84%E5%A4%84%E7%90%86.ipynb) [如何使用数据处理器进行数据预处理](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%A6%82%E4%BD%95%E4%BD%BF%E7%94%A8DataProcessor%E8%BF%9B%E8%A1%8C%E9%A2%84%E5%A4%84%E7%90%86.ipynb)
-- [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E4%BD%BF%E7%94%A8RQ-VAE%E6%9E%84%E5%BB%BA%E8%AF%AD%E4%B9%89ID.ipynb) [使用RQ-VAE构建语义ID](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E4%BD%BF%E7%94%A8RQ-VAE%E6%9E%84%E5%BB%BA%E8%AF%AD%E4%B9%89ID.ipynb)
-
-使用 ONNX 示例前，请先执行 `pip install "nextrec[onnx]"`。
+- [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E4%BD%BF%E7%94%A8RQ-VAE%E6%9E%84%E5%BB%BA%E8%AF%AD%E4%B9%89ID.ipynb) [使用RQ-VAE构建语义ID](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E4%BD%BF%E7%94%A8RQ-VAE%E6%9E%84%E5%BB%BA%E8%AF%AD%E4%B9%89ID.ipynb) 
 
 ## 5分钟快速上手
 
@@ -122,89 +118,49 @@ NextRec提供了本地部署的开发文档服务，在完成安装后，通过`
 | 1      | 7817    | 0.14704075  | 0.31020382  | 0.77780896  | 0.944897   | 0.62315375  | 0.57124174  | 0.77009535  | 0.3211029   | 315      | 260      | 379      | 146      | 168      | 161      | 138      | 88       | 5        | 312      | [170,175,97,338,105,353,272,546,175,545,463,128,0,0,0]   | [368,414,820,405,548,63,327,0,0,0,0,0,0,0,0]              | 0     |
 | 1      | 3579    | 0.77811223  | 0.80359334  | 0.5185201   | 0.91091245 | 0.043562356 | 0.82142705  | 0.8803686   | 0.33748195 | 149      | 229      | 442      | 6        | 167      | 252      | 25       | 402      | 7        | 168      | [179,48,61,551,284,165,344,151,0,0,0,0,0,0,0]            | [814,0,0,0,0,0,0,0,0,0,0,0,0,0,0]                          | 1     |
 
-接下来我们将用一个简短的示例，展示如何使用NextRec训练一个DIN(Deep Interest Network)模型。您也可以直接执行`python tutorials/example_ranking_din.py`来执行训练推理代码。
-
-开始训练以后，你可以在`nextrec_logs/din_tutorial`路径下查看详细的训练日志。
+接下来我们将用一个简短的示例，展示如何使用NextRec训练一个DeepFM模型。你可以在`nextrec_logs/deepfm_tutorial`路径下查看详细的训练日志。
 
 ```python
 import pandas as pd
-from nextrec.models.ranking.din import DIN
+from nextrec.models.ranking.deepfm import DeepFM
 from nextrec.basic.features import DenseFeature, SparseFeature, SequenceFeature
 
-df = pd.read_csv('dataset/ranking_task.csv')
+df = pd.read_csv('https://raw.githubusercontent.com/zerolovesea/NextRec/main/dataset/ranking_task.csv')
 
-# csv 默认将列表读取成文本，我们需要将其转化为对象
-for col in df.columns:
-    if 'sequence' in col:
-        df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
-
-# 我们需要将不同特征进行定义
 dense_features = [DenseFeature(name=f'dense_{i}', input_dim=1) for i in range(8)]
 
-sparse_features = [SparseFeature(name='user_id', embedding_name='user_emb', vocab_size=int(df['user_id'].max() + 1), embedding_dim=32), SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=int(df['item_id'].max() + 1), embedding_dim=32),]
+sparse_features = [SparseFeature(name='user_id', embedding_name='user_emb', vocab_size=50000, embedding_dim=16), SparseFeature(name='item_id', embedding_name='item_emb', vocab_size=50000, embedding_dim=16),]
 
-sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'sparse_{i}_emb', vocab_size=int(df[f'sparse_{i}'].max() + 1), embedding_dim=32) for i in range(10)])
+sparse_features.extend([SparseFeature(name=f'sparse_{i}', embedding_name=f'sparse_{i}_emb', vocab_size=50000, embedding_dim=16) for i in range(10)])
 
 sequence_features = [
-    SequenceFeature(name='sequence_0', vocab_size=int(df['sequence_0'].apply(lambda x: max(x)).max() + 1), embedding_dim=32, padding_idx=0, embedding_name='item_emb'),
-    SequenceFeature(name='sequence_1', vocab_size=int(df['sequence_1'].apply(lambda x: max(x)).max() + 1), embedding_dim=16, padding_idx=0, embedding_name='sequence_1_emb'),]
+    SequenceFeature(name='sequence_0', vocab_size=50000, embedding_dim=16, padding_idx=0, embedding_name='item_emb'),
+    SequenceFeature(name='sequence_1', vocab_size=50000, embedding_dim=16, padding_idx=0, embedding_name='sequence_1_emb'),]
 
-mlp_params = {
-    "hidden_dims": [256, 128, 64],
-    "activation": "relu",
-    "dropout": 0.3,
-}
-
-model = DIN(
+model = DeepFM(
     dense_features=dense_features,
     sparse_features=sparse_features,
     sequence_features=sequence_features,
-    behavior_feature_name="sequence_0",
-    candidate_feature_name="item_id",
-    mlp_params=mlp_params,
-    attention_mlp_params={
-        "hidden_dims": [80, 40],
-        "activation": "sigmoid",
-    },
-    attention_use_softmax=True,
-    target=['label'],                                   # 目标变量
-    device='cpu',                                         
-    session_id="din_tutorial",                            # 实验id，用于存放训练日志
+    mlp_params={"hidden_dims": [256, 128, 64], "activation": "relu", "dropout": 0.3},
+    target=['label'], 
+    session_id='deepfm_tutorial',
 )
 
-# 编译模型，优化器/损失/学习率调度器统一在 compile 中设置
 model.compile(
     optimizer="adam",
     optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
-    loss="focal",
-    loss_params={"gamma": 2.0, "alpha": 0.25},
+    loss="bce"
 )
 
 model.fit(
     train_data=df,
-    metrics=['auc', 'gauc', 'logloss'],  # 添加需要查看的指标
-    epochs=3,
-    batch_size=512,
-    shuffle=True,
-    group_id='user_id',                  # 用于计算 GAUC / ranking@K 的分组列
-    valid_split=0.2,                     # 自动划分验证集（可选）
-    num_workers=4,                       # DataLoader 并行数
-    use_wandb=False,                     # 启用 Wandb（可选）
-    wandb_kwargs={"project": "NextRec", "name": "din_tutorial"},
-    use_swanlab=False,                   # 启用 SwanLab（可选）
-    swanlab_kwargs={"project": "NextRec", "name": "din_tutorial"},
-)
-
-# 训练完成后进行指标评估
-metrics = model.evaluate(
-    df,
+    valid_split=0.2,
     metrics=['auc', 'gauc', 'logloss'],
+    group_id='user_id',
+    epochs=1,
     batch_size=512,
-    group_id='user_id'
 )
 ```
-
-如果要把训练日志同步到 WandB 或 SwanLab，请先执行 `pip install "nextrec[tracking]"`。
 
 ## 命令行工具
 
@@ -225,7 +181,7 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 ## 兼容平台
 
-当前最新版本为0.6.11，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.6.12，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|
@@ -255,6 +211,8 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | [DCN v2](nextrec/models/ranking/dcn_v2.py) | DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems | 已支持 |
 | [DIN](nextrec/models/ranking/din.py) | Deep interest network for click-through rate prediction | 已支持 |
 | [DIEN](nextrec/models/ranking/dien.py) | Deep interest evolution network for click-through rate prediction | 已支持 |
+| [BST](nextrec/models/ranking/bst.py) | Behavior Sequence Transformer for E-commerce Recommendation in Alibaba | 已支持 |
+| [DLRM](nextrec/models/ranking/dlrm.py) | Deep Learning Recommendation Model for Personalization and Recommendation Systems | 已支持 |
 | [MaskNet](nextrec/models/ranking/masknet.py) | MaskNet: Introducing Feature-Wise Multiplication to CTR Ranking Models by Instance-Guided Mask | 已支持 |
 | [EulerNet](nextrec/models/ranking/eulernet.py) | EulerNet: Efficient and Effective Feature Interaction Modeling with Euler's Formula | 已支持 |
 
@@ -273,7 +231,9 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | 模型 | 论文 | 状态 |
 | ------ | ------ | ------ |
 | [SASRec](nextrec/models/sequential/sasrec.py) | Self-Attentive Sequential Recommendation | 已支持 |
+| [Tiger](nextrec/models/sequential/tiger.py) | Recommender Systems with Generative Recommendation | 已支持 |
 | [HSTU](nextrec/models/sequential/hstu.py) | Actions speak louder than words: Trillion-parameter sequential transducers for generative recommendations | 已支持 |
+| [GRU4Rec](nextrec/models/sequential/gru4rec.py) | Session-based Recommendations with Recurrent Neural Networks | 已支持 |
 
 ### 多任务模型
 
@@ -290,12 +250,6 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 | [HMOE](nextrec/models/multitask/hmoe.py) | Improving multi-scenario learning to rank in e-commerce by exploiting task relationships in the label space | 已支持 |
 | [SNRTrans](nextrec/models/multitask/snr_trans.py) | SNR: Sub-Network Routing for Flexible Parameter Sharing in Multi-Task Learning in E-Commerce by Exploiting Task Relationships in the Label Space | 已支持 |
 | [AITM](nextrec/models/multitask/aitm.py) | Modeling the Sequential Dependence among Audience Multi-step Conversions with Multi-task Learning in Targeted Display Advertising | 已支持 |
-
-### 生成式模型
-
-| 模型 | 论文 | 状态 |
-| ------ | ------ | ------ |
-| [TIGER](nextrec/models/generative/tiger.py) | Recommender Systems with Generative Recommendation | 开发中 |
 
 ### 预训练模型
 

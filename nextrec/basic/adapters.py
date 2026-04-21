@@ -127,18 +127,6 @@ class SequentialAdapter(TrainingAdapter):
         return target_tensor.reshape(target_tensor.size(0), -1) if target_tensor is not None else None
 
 
-class MaskedSequentialAdapter(SequentialAdapter):
-    """
-    Adapter for masked sequential pretraining models.
-
-    These models synthesize labels from the input sequence during forward(), so
-    the generic input pipeline should not require explicit labels.
-    """
-
-    def needs_labels(self, model) -> bool:
-        return False
-
-
 class CandidateListAdapter(TrainingAdapter):
     """
     Adapter for pairwise and listwise ranking models with explicit candidate lists.
