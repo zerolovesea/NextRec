@@ -34,11 +34,12 @@ from nextrec.models.ranking import (
     LR,
     MaskNet,
     NFM,
+    OneTrans,
     PNN,
     WideDeep,
     xDeepFM,
 )
-from nextrec.models.sequential import BaseSequentialModel, GRU4Rec, HSTU, SASRec, Tiger
+from nextrec.models.sequential import BaseSequentialModel, GRU4Rec, HLLM, HSTU, SASRec, Tiger
 
 __all__ = [
     "BaseMatchModel",
@@ -78,11 +79,13 @@ __all__ = [
     "LR",
     "MaskNet",
     "NFM",
+    "OneTrans",
     "PNN",
     "WideDeep",
     "xDeepFM",
     "BaseSequentialModel",
     "GRU4Rec",
+    "HLLM",
     "HSTU",
     "SASRec",
     "Tiger",

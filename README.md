@@ -9,7 +9,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/zh/%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8nextrec.ipynb)
-![Version](https://img.shields.io/badge/Version-0.6.13-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.14-orange.svg)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
 
@@ -77,6 +77,14 @@ pip install nextrec # or pip install -e .
 > ```bash
 > pip install "nextrec[onnx]"
 > ```
+>
+> 如果你需要在召回模型中使用 FAISS 向量检索后端，请按需额外安装：
+>
+> ```bash
+> pip install faiss-cpu      # FAISS CPU 版本
+> ```
+>
+> 召回索引依赖 FAISS；如需使用向量召回检索和 full-corpus 评估，请安装 `faiss-cpu`。
 >
 > 如果你需要启用 WandB 或 SwanLab，请额外安装：
 >
@@ -181,7 +189,7 @@ nextrec --mode=predict --predict_config=path/to/predict_config.yaml
 
 ## 兼容平台
 
-当前最新版本为0.6.13，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
+当前最新版本为0.6.14，所有模型和测试代码均已在以下平台通过验证，如果开发者在使用中遇到兼容问题，请在issue区提出错误报告及系统版本：
 
 | 平台 | 配置 | 
 |------|------|

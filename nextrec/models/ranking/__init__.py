@@ -17,6 +17,7 @@ from nextrec.models.ranking.fm import FM
 from nextrec.models.ranking.lr import LR
 from nextrec.models.ranking.masknet import MaskNet
 from nextrec.models.ranking.nfm import NFM
+from nextrec.models.ranking.onetrans import OneTrans
 from nextrec.models.ranking.pnn import PNN
 from nextrec.models.ranking.widedeep import WideDeep
 from nextrec.models.ranking.xdeepfm import xDeepFM
@@ -39,6 +40,7 @@ __all__ = [
     "LR",
     "MaskNet",
     "NFM",
+    "OneTrans",
     "PNN",
     "WideDeep",
     "xDeepFM",

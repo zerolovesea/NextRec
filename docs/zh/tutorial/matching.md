@@ -241,10 +241,10 @@ for k, v in metrics.items():
 
 ```python
 # 提取用户向量
-user_embeddings = model.get_user_embedding(user_df)
+user_embeddings = model.encode_tower("user", user_df)
 
 # 提取物品向量
-item_embeddings = model.get_item_embedding(item_df)
+item_embeddings = model.encode_tower("item", item_df)
 
 print(f"用户向量形状: {user_embeddings.shape}")
 print(f"物品向量形状: {item_embeddings.shape}")
@@ -252,21 +252,49 @@ print(f"物品向量形状: {item_embeddings.shape}")
 
 ### 6.2 近似最近邻检索
 
+向量召回索引使用 FAISS，需要先安装 `faiss-cpu`。`build_item_index` 会分批编码 item 并写入 FAISS 索引。
+
 ```python
-import faiss
+# 分批编码 item，并构建 FAISS 索引
+index = model.build_item_index(
+    item_data=item_df,
+    id_column="item_id",
+    batch_size=512,
+)
 
-# 构建 FAISS 索引
-dimension = item_embeddings.shape[1]
-index = faiss.IndexFlatIP(dimension)  # 内积相似度
-index.add(item_embeddings)
+topk = model.search(
+    index=index,
+    user_data=user_df,
+    user_id_column="user_id",
+    top_k=10,
+)
+print(topk.head())
+```
 
-# 检索 Top-K
-top_k = 10
-distances, indices = index.search(user_embeddings, top_k)
+如果 item 库较大，建议使用 FAISS 分批建索引，并把索引产物保存下来复用：
 
-print("检索结果:")
-for i, (dist, idx) in enumerate(zip(distances[0], indices[0])):
-    print(f"  用户0 - 物品{idx}: {dist:.4f}")
+```python
+index = model.build_item_index(
+    item_data="data/item_features.parquet",
+    id_column="item_id",
+    batch_size=8192,
+    save_dir="artifacts/item_faiss_index",
+)
+```
+
+如果 user 库也很大，避免一次性返回完整 DataFrame，可以分批检索并直接写出结果：
+
+```python
+model.search(
+    index=index,
+    user_data="data/user_features.parquet",
+    user_id_column="user_id",
+    save_path="artifacts/retrieval_topk.parquet",
+    save_format="parquet",
+    top_k=100,
+    batch_size=4096,
+    return_dataframe=False,
+)
 ```
 
 ## 7. 完整代码

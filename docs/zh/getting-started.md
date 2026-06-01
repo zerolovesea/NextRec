@@ -11,6 +11,8 @@ description: NextRec 快速入门指南
 
 如果你需要 ONNX 导出或 ONNX Runtime 推理，请额外安装 `pip install "nextrec[onnx]"`。默认安装不会包含 ONNX 相关依赖，以避免部分 Linux 环境因 `onnxruntime` 版本不可用而安装失败。
 
+如果你需要在召回模型中使用向量检索索引，请按需额外安装 `pip install faiss-cpu`。
+
 
 ## 快速训练一个精排模型
 

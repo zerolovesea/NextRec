@@ -347,6 +347,144 @@ class EmbeddingLayer(nn.Module):
         return self.output_dim
 
 
+class SemanticIdEmbedding(nn.Module):
+    """Embed hierarchical semantic IDs with one lookup table per codebook."""
+
+    def __init__(
+        self,
+        codebook_sizes: list[int] | tuple[int, ...],
+        embedding_dim: int,
+        combiner: Literal["sum", "mean"] = "sum",
+    ):
+        """
+        Initialize the SemanticIdEmbedding module.
+
+        Args:
+            codebook_sizes: List or tuple of integers specifying the size of each codebook.
+            embedding_dim: Dimension of the embedding vectors.
+            combiner: Method to combine embeddings from different codebooks ("sum" or "mean").
+        """
+        super().__init__()
+        self.codebook_sizes = [int(size) for size in codebook_sizes]
+        self.num_codebooks = len(self.codebook_sizes)
+        self.padding_code_ids = torch.tensor(self.codebook_sizes, dtype=torch.long)
+        self.output_padding_idx = int(sum(self.codebook_sizes))
+        self.combiner = combiner
+
+        # create embedding tables for each codebook
+        self.embeddings = nn.ModuleList(
+            [
+                nn.Embedding(
+                    num_embeddings=codebook_size + 1,
+                    embedding_dim=embedding_dim,
+                    padding_idx=codebook_size,
+                )
+                for codebook_size in self.codebook_sizes
+            ]
+        )
+
+        # offsets to map multi-codebook IDs into a vocabulary
+        # e.g. with codebook sizes [100, 200, 50], the offsets would be [0, 100, 300].
+        # level 0: [0-99], level 1: [100-299], level 2: [300-349], padding: 350.
+        offsets = [0]
+        for size in self.codebook_sizes[:-1]:
+            offsets.append(offsets[-1] + size)
+        self.register_buffer("level_offsets", torch.tensor(offsets, dtype=torch.long), persistent=False)
+
+    def forward(self, semantic_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Convert full item semantic IDs into dense item embeddings.
+
+        Args:
+            semantic_ids: Tensor with shape [..., num_codebooks]. Invalid codes
+                are mapped to that codebook's padding row.
+
+        Returns:
+            Tensor with shape [..., embedding_dim], combined by sum or mean.
+        """
+        if semantic_ids.size(-1) != self.num_codebooks:
+            raise ValueError(
+                f"[SemanticIdEmbedding Error] Expected semantic id width {self.num_codebooks}, got {semantic_ids.size(-1)}."
+            )
+
+        pieces = []
+        valid_counts = torch.zeros_like(semantic_ids[..., 0], dtype=torch.float32)
+
+        # iterate through codebooks and embed each level, then combine with sum or mean
+        for level, embedding in enumerate(self.embeddings):
+            # current level codebook size
+            codebook_size = self.codebook_sizes[level]
+            # current level codes
+            codes = semantic_ids[..., level].long()
+
+            # map invalid codes to padding index
+            codes = torch.where(
+                (codes >= 0) & (codes < codebook_size),
+                codes,
+                torch.full_like(codes, codebook_size),
+            )
+            # embed current level codes and append to pieces
+            pieces.append(embedding(codes))
+            # valid codes in case of mean combiner
+            valid_counts = valid_counts + codes.ne(codebook_size).float()
+
+        # sum by embedding level, mean if needed
+        stacked = torch.stack(pieces, dim=-2)
+        item_emb = stacked.sum(dim=-2)
+        if self.combiner == "mean":
+            item_emb = item_emb / valid_counts.clamp_min(1.0).unsqueeze(-1)
+        return item_emb
+
+    def embed_level_tokens(self, input_ids: torch.Tensor, token_type_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Embed single semantic-id tokens.
+
+        Args:
+            input_ids: Token codes for each decoder position.
+            token_type_ids: Codebook level for each token position.
+                e.g. with 3 codebooks, token_type_ids should be in [0,1,2] indicating which codebook each token belongs to.
+
+        Returns:
+            Tensor with shape [*input_ids.shape, embedding_dim].
+        """
+        input_ids = input_ids.long()
+        token_type_ids = token_type_ids.long().remainder(self.num_codebooks)
+        output = torch.zeros(*input_ids.shape, self.embeddings[0].embedding_dim, device=input_ids.device)
+
+        for level, embedding in enumerate(self.embeddings):
+            mask = token_type_ids.eq(level)
+            if torch.any(mask):
+                codebook_size = self.codebook_sizes[level]
+                codes = input_ids[mask].long()
+                codes = torch.where(
+                    (codes >= 0) & (codes < codebook_size),
+                    codes,
+                    torch.full_like(codes, codebook_size),
+                )
+                output[mask] = embedding(codes)
+        return output
+
+    def target_to_flat_vocab(self, semantic_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Map multi-codebook targets into one flat decoder vocabulary.
+
+        Map codebook offset to each level, return the flat vocabulary ids.
+        """
+        if semantic_ids.size(-1) != self.num_codebooks:
+            raise ValueError(
+                f"[SemanticIdEmbedding Error] Expected target semantic id width {self.num_codebooks}, "
+                f"got {semantic_ids.size(-1)}."
+            )
+        targets = []
+        for level, codebook_size in enumerate(self.codebook_sizes):
+            codes = semantic_ids[..., level].long()
+            valid = (codes >= 0) & (codes < codebook_size)
+            flat_ids = self.level_offsets[level].to(codes.device) + codes
+            flat_ids = torch.where(valid, flat_ids, torch.full_like(flat_ids, self.output_padding_idx))
+            targets.append(flat_ids)
+        return torch.stack(targets, dim=-1)
+
+
 class FieldAwareEmbeddingLayer(nn.Module):
     """Field-aware embedding tables for FFM-style interactions."""
 

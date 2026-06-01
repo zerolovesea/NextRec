@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-1.10+-ee4c2c.svg)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)
-![Version](https://img.shields.io/badge/Version-0.6.13-orange.svg)
+![Version](https://img.shields.io/badge/Version-0.6.14-orange.svg)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/zerolovesea/NextRec/blob/main/tutorials/notebooks/en/Hands%20on%20nextrec.ipynb)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zerolovesea/NextRec)
 
@@ -80,6 +80,14 @@ pip install nextrec # or pip install -e .
 > ```bash
 > pip install "nextrec[onnx]"
 > ```
+>
+> If you need the FAISS vector search backend for retrieval models, install it on demand:
+>
+> ```bash
+> pip install faiss-cpu      # FAISS CPU build
+> ```
+>
+> Retrieval indexes require FAISS. Install `faiss-cpu` to use vector retrieval search and full-corpus evaluation.
 >
 > If you want WandB or SwanLab logging, install the optional extra:
 >
@@ -190,7 +198,7 @@ Prediction outputs are saved under `{checkpoint_path}/predictions/{name}.{save_d
 
 ## Platform Compatibility
 
-The current version is 0.6.13. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
+The current version is 0.6.14. All models and test code have been validated on the following platforms. If you encounter compatibility issues, please report them in the issue tracker with your system version:
 
 | Platform | Configuration | 
 |----------|---------------|

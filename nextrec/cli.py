@@ -219,12 +219,6 @@ def train_model(train_config_path: str) -> None:
             dataloader_cfg.get("train_batch_size", 512),
         )
     )
-    shuffle = bool(
-        dataloader_cfg.get(
-            "shuffle",
-            dataloader_cfg.get("train_shuffle", True),
-        )
-    )
 
     # train data basics
     data_path = get_path(data_cfg["path"], config_dir)

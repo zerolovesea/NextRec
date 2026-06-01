@@ -152,10 +152,13 @@ class MatchingHead(nn.Module):
                 raise ValueError(f"Unknown similarity metric: {self.similarity_metric}")
 
             similarity = similarity / self.temperature
+        raw_scores = similarity
         if self.training_mode == "pointwise" and self.apply_sigmoid:
             similarity = torch.sigmoid(similarity)
         return {
             "user_emb": user_emb,
             "item_emb": item_emb,
+            "raw_scores": raw_scores,
+            "logits": raw_scores,
             "scores": similarity,
         }

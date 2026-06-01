@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from nextrec.basic.features import DenseFeature, SequenceFeature, SparseFeature
+from nextrec.basic.features import DenseFeature, SemanticIdFeature, SequenceFeature, SparseFeature
 from nextrec.basic.adapters import SequentialAdapter
 from nextrec.basic.heads import GenerativeMatchingHead
 from nextrec.engine.model import Model as BaseModel
@@ -49,6 +49,7 @@ class BaseSequentialModel(BaseModel):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
+        semantic_id_features: list[SemanticIdFeature] | None = None,
         target: list[str] | str | None = None,
         key_columns: list[str] | str | None = None,
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
@@ -68,6 +69,7 @@ class BaseSequentialModel(BaseModel):
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
+            semantic_id_features=semantic_id_features,
             target=target,
             key_columns=key_columns,
             task=task,
@@ -129,6 +131,9 @@ class BaseSequentialModel(BaseModel):
         self.training_adapter = SequentialAdapter()
 
     def set_head(self):
+        if getattr(self, "disable_default_head", False):
+            self.head = None
+            return
         self.head = GenerativeMatchingHead(vocab_size=int(self.vocab_size), return_logits=True)
 
     def validate_sequence_mode(self) -> None:
@@ -434,6 +439,79 @@ class BaseSequentialModel(BaseModel):
         last_logits, _ = self.select_last_valid_state(logits, padding_mask)
         return last_logits
 
+    @torch.no_grad()
+    def predict_next_logits(
+        self,
+        x: dict[str, torch.Tensor] | torch.Tensor,
+        exclude_padding: bool = True,
+        **kwargs,
+    ) -> torch.Tensor:
+        """
+        Return full-vocabulary logits for the next item at each sequence's last
+        valid position.
+
+        This is the unified sequential-model inference helper. Dataset-level
+        prediction remains Model.predict()/BasePredictor.predict().
+        """
+        output = self.forward(x, **kwargs)
+        if isinstance(output, torch.Tensor):
+            logits = output
+        elif isinstance(output, (tuple, list)) and output and isinstance(output[0], torch.Tensor):
+            logits = output[0]
+        elif hasattr(output, "logits") and isinstance(output.logits, torch.Tensor):
+            logits = output.logits
+        else:
+            raise TypeError(
+                f"[{self.__class__.__name__}-predict_next_logits Error] "
+                f"Expected forward() to return logits as a torch.Tensor, got {type(output)}."
+            )
+
+        if logits.dim() == 3:
+            if isinstance(x, dict):
+                logits = self.predict_last_logits(
+                    logits=logits,
+                    x=x,
+                    sequence_name=self.item_history_feature.name,
+                    max_seq_len=self.max_seq_len,
+                    padding_idx=self.padding_idx,
+                )
+            elif isinstance(x, torch.Tensor):
+                seq = x.long()[:, -self.max_seq_len :]
+                padding_mask = self.build_sequence_padding_mask(seq, padding_idx=self.padding_idx)
+                logits, _ = self.select_last_valid_state(logits, padding_mask)
+            else:
+                raise TypeError(
+                    f"[{self.__class__.__name__}-predict_next_logits Error] "
+                    "Input must be a feature dict or raw sequence tensor."
+                )
+        elif logits.dim() != 2:
+            raise ValueError(
+                f"[{self.__class__.__name__}-predict_next_logits Error] "
+                f"Expected logits to have shape [B, V] or [B, L, V], got {tuple(logits.shape)}."
+            )
+
+        if exclude_padding and 0 <= int(self.padding_idx) < logits.size(-1):
+            logits = logits.clone()
+            logits[:, int(self.padding_idx)] = float("-inf")
+        return logits
+
+    @torch.no_grad()
+    def recommend_topk(
+        self,
+        x: dict[str, torch.Tensor] | torch.Tensor,
+        top_k: int = 10,
+        **kwargs,
+    ) -> torch.Tensor:
+        """Return top-k next-item ids for each input sequence."""
+        top_k = int(top_k)
+        if top_k < 1:
+            raise ValueError(f"[{self.__class__.__name__}-recommend_topk Error] top_k must be >= 1.")
+
+        logits = self.predict_next_logits(x, **kwargs)
+        k = min(top_k, logits.size(-1))
+        _, top_items = torch.topk(logits, k, dim=-1)
+        return top_items
+
     def predict_last(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         """
         Convenience wrapper for next-item inference at the last valid position.
@@ -441,11 +519,4 @@ class BaseSequentialModel(BaseModel):
         Sequential models conventionally produce full-sequence logits during
         forward(), and prediction usually consumes the last valid timestep.
         """
-        logits = self.forward(x)
-        return self.predict_last_logits(
-            logits=logits,
-            x=x,
-            sequence_name=self.item_history_feature.name,
-            max_seq_len=self.max_seq_len,
-            padding_idx=self.padding_idx,
-        )
+        return self.predict_next_logits(x, exclude_padding=False)
