@@ -398,4 +398,4 @@ print(predictions.head())
 
 ## 下一步
 
-- [训练召回模型](./retrieval.md)
+- [训练召回模型](./matching.md)
