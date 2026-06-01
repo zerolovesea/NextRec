@@ -14,7 +14,9 @@ import pytest
 import torch
 
 from nextrec.basic.features import SequenceFeature
+from nextrec.engine.predictor import BasePredictor
 from nextrec.models.sequential.gru4rec import GRU4Rec
+from nextrec.models.sequential.hllm import HLLM
 from nextrec.models.sequential.hstu import (
     HSTU,
     HSTULayer,
@@ -85,9 +87,10 @@ class TestRelativePositionBias:
         num_heads = 8
         rab = RelativePositionBias(num_heads=num_heads)
 
-        assert rab.num_heads == num_heads
         assert rab.num_buckets == 32  # default
-        assert rab.embedding.num_embeddings == 32
+        assert rab.max_distance == 128  # default
+        assert rab.relative_attention_bias is rab.embedding
+        assert rab.embedding.num_embeddings == rab.num_buckets
         assert rab.embedding.embedding_dim == num_heads
         logger.info("RelativePositionBias initialization successful")
 
@@ -103,8 +106,8 @@ class TestRelativePositionBias:
 
         bias = rab(seq_len=seq_len, device=device)
 
-        # Output shape: [1, num_heads, seq_len, seq_len]
-        assert bias.shape == (1, num_heads, seq_len, seq_len)
+        # Output shape: [num_heads, seq_len, seq_len]
+        assert bias.shape == (num_heads, seq_len, seq_len)
         assert_no_nan_or_inf(bias, "RAB output")
         logger.info(f"RAB output shape: {bias.shape}")
 
@@ -118,7 +121,7 @@ class TestRelativePositionBias:
 
         for seq_len in [10, 50, 100]:
             bias = rab(seq_len=seq_len, device=device)
-            assert bias.shape == (1, 4, seq_len, seq_len)
+            assert bias.shape == (4, seq_len, seq_len)
             logger.info(f"RAB works for seq_len={seq_len}")
 
 
@@ -340,6 +343,63 @@ class TestHSTUModel:
         loss = model.compute_loss(y_pred, y_true)
         assert loss.dim() == 0
         assert torch.isfinite(loss)
+
+
+class TestSequentialPredictionHelpers:
+    def test_hllm_hstu_keep_dataset_predict_api(self):
+        assert HLLM.predict is BasePredictor.predict
+        assert HSTU.predict is BasePredictor.predict
+
+    def test_hllm_hstu_sequence_prediction_helpers(self):
+        sequence_features = [
+            SequenceFeature(
+                name="item_history",
+                vocab_size=20,
+                max_len=5,
+                embedding_dim=8,
+                padding_idx=0,
+            )
+        ]
+        x = {
+            "item_history": torch.tensor(
+                [
+                    [1, 2, 3, 0, 0],
+                    [4, 5, 0, 0, 0],
+                ],
+                dtype=torch.long,
+            )
+        }
+
+        models = [
+            HLLM(
+                sequence_features=sequence_features,
+                hidden_dim=8,
+                num_heads=2,
+                num_layers=1,
+                use_time_embedding=False,
+                device="cpu",
+                session_id="hllm_predict_helpers_test",
+            ),
+            HSTU(
+                sequence_features=sequence_features,
+                hidden_dim=8,
+                num_heads=2,
+                num_layers=1,
+                ff_hidden_dim=16,
+                max_seq_len=5,
+                dropout_rate=0.0,
+                use_temporal_bias=False,
+                device="cpu",
+                session_id="hstu_predict_helpers_test",
+            ),
+        ]
+
+        for model in models:
+            logits = model.predict_next_logits(x)
+            raw_topk = model.recommend_topk(x["item_history"], top_k=3)
+            assert logits.shape == (2, 20)
+            assert raw_topk.shape == (2, 3)
+            assert torch.all(raw_topk.ne(model.padding_idx))
 
 
 class TestGRU4RecModel:

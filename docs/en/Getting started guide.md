@@ -12,6 +12,8 @@ If you also want WandB or SwanLab logging, install the optional tracking extra w
 
 If you need ONNX export or ONNX Runtime inference, install the optional ONNX extra with `pip install "nextrec[onnx]"`. ONNX dependencies are not installed by default because some Linux environments do not provide a compatible `onnxruntime` build.
 
+If you need vector retrieval indexes for retrieval models, install FAISS on demand with `pip install faiss-cpu`.
+
 ## 2. Data & Feature Primer
 
 Recommender models usually mix multiple signal types and convert them into vectors:

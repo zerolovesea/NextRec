@@ -178,15 +178,19 @@ class AutoInt(BaseRankingModel):
         )
 
     def forward(self, x):
-        # Get embeddings field-by-field so mixed dimensions can be projected safely
+        # Get embeddings field-by-field once so mixed dimensions can be projected safely,
+        # while reusing the raw field embeddings for the wide/DNN branches.
         field_embeddings = []
+        flat_inputs = []
         for idx, feature in enumerate(self.interaction_features):
             feature_emb = self.embedding(x=x, features=[feature], squeeze_dim=False)
             feature_emb = feature_emb.squeeze(1)  # [Batch, Dim_embedding]
+            flat_inputs.append(feature_emb)
             if self.need_projection and self.projection_layers is not None:
                 feature_emb = self.projection_layers[idx](feature_emb)
             field_embeddings.append(feature_emb.unsqueeze(1))  # [Batch, 1, Dim_attention]
         embeddings = torch.cat(field_embeddings, dim=1)
+        flat_input = torch.cat(flat_inputs, dim=1)
 
         # Apply multi-head self-attention layers
         attention_output = embeddings
@@ -196,8 +200,6 @@ class AutoInt(BaseRankingModel):
         # Attention branch
         attention_output_flat = attention_output.flatten(start_dim=1)  # [Batch, num_fields * Dim_attention]
         logits = self.attn_fc(attention_output_flat)  # [Batch, 1]
-
-        flat_input = self.embedding(x=x, features=self.interaction_features, squeeze_dim=True)
 
         # Optional DNN branch
         if self.use_dnn and self.mlp is not None:

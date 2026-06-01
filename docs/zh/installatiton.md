@@ -30,6 +30,14 @@ pip install nextrec
 > pip install "nextrec[onnx]"
 > ```
 >
+> 如果你需要在召回模型中使用 FAISS 向量检索后端，请按需额外安装：
+>
+> ```bash
+> pip install faiss-cpu      # FAISS CPU 版本
+> ```
+>
+> 召回索引依赖 FAISS；如需使用向量召回检索和 full-corpus 评估，请安装 `faiss-cpu`。
+>
 > 如果你需要 WandB 或 SwanLab，请额外安装：
 >
 > ```bash
@@ -58,6 +66,12 @@ pip install ".[tracking]"
 
 ```bash
 pip install ".[onnx]"
+```
+
+如果你需要 FAISS 召回检索后端，还需要继续执行：
+
+```bash
+pip install faiss-cpu
 ```
 
 ## 快速校验

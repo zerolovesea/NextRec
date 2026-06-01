@@ -7,6 +7,7 @@ Author: Yang Zhou, zyaztec@gmail.com
 """
 
 import torch
+import numpy as np
 
 from nextrec.loss.listwise import (
     ApproxNDCGLoss,
@@ -48,16 +49,24 @@ def select_feature_objects(
 
 
 def compute_pair_scores(model, data, batch_size: int = 512):
-    user_emb = model.encode_user(data, batch_size=batch_size)
-    item_emb = model.encode_item(data, batch_size=batch_size)
+    data_loader = model.prepare_feature_data(
+        data=data,
+        features=model.all_features,
+        batch_size=batch_size,
+    )
+    score_batches = []
     with torch.no_grad():
-        user_tensor = torch.as_tensor(user_emb, device=model.device)
-        item_tensor = torch.as_tensor(item_emb, device=model.device)
-        scores = model.compute_similarity(user_tensor, item_tensor)
-        mode = model.training_mode
-        if mode == "pointwise":
-            scores = torch.sigmoid(scores)
-    return scores.detach().cpu().numpy()
+        for batch_data in data_loader:
+            x_input = model.build_feature_tensors(batch_data["features"], model.all_features)
+            output = model.call_model(x_input)
+            if isinstance(output, dict) and "scores" in output:
+                scores = output["scores"]
+            else:
+                scores = output
+            score_batches.append(scores.detach().cpu().numpy())
+    if not score_batches:
+        return np.asarray([], dtype=np.float32)
+    return np.concatenate(score_batches, axis=0)
 
 
 def prepare_ranking_targets(y_pred: torch.Tensor, y_true: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

@@ -195,6 +195,43 @@ class DenseFeature(BaseFeature):
         self.pretrained_weight = pretrained_weight
 
 
+class SemanticIdFeature(BaseFeature):
+    def __init__(
+        self,
+        name: str,
+        codebook_sizes: list[int] | tuple[int, ...] | int,
+        max_len: int = 50,
+        embedding_dim: int | None = None,
+        padding_idx: int | None = None,
+        combiner: Literal["sum", "mean"] = "sum",
+    ):
+        """
+        Multi-level semantic-id feature for generative retrieval models.
+
+        The input value is expected to be ``[B, L, K]`` for a history of semantic
+        ids, where ``K`` is the number of codebooks. Each codebook owns a
+        separate embedding lookup table.
+        """
+        if isinstance(codebook_sizes, int):
+            if codebook_sizes <= 0:
+                raise ValueError("[Features Error] SemanticIdFeature: codebook_sizes must be positive.")
+            codebook_sizes = [int(codebook_sizes)]
+        self.codebook_sizes = [int(size) for size in codebook_sizes]
+        if not self.codebook_sizes or any(size <= 0 for size in self.codebook_sizes):
+            raise ValueError("[Features Error] SemanticIdFeature: codebook_sizes must be positive integers.")
+        if combiner not in {"sum", "mean"}:
+            raise ValueError(f"[Features Error] SemanticIdFeature: combiner must be 'sum' or 'mean', got {combiner!r}.")
+
+        self.name = name
+        self.num_codebooks = len(self.codebook_sizes)
+        self.max_len = int(max_len)
+        self.padding_idx = padding_idx
+        self.combiner = combiner
+        self.embedding_dim = (
+            get_auto_embedding_dim(max(self.codebook_sizes)) if embedding_dim is None else int(embedding_dim)
+        )
+
+
 class FeatureSet:
     def set_all_features(
         self,
@@ -203,12 +240,16 @@ class FeatureSet:
         sequence_features: list[SequenceFeature] | None = None,
         target: str | list[str] | None = None,
         key_columns: str | list[str] | None = None,
+        semantic_id_features: list[SemanticIdFeature] | None = None,
     ):
         self.dense_features = list(dense_features) if dense_features else []
         self.sparse_features = list(sparse_features) if sparse_features else []
         self.sequence_features = list(sequence_features) if sequence_features else []
+        self.semantic_id_features = list(semantic_id_features) if semantic_id_features else []
 
-        self.all_features = self.dense_features + self.sparse_features + self.sequence_features
+        self.all_features = (
+            self.dense_features + self.sparse_features + self.sequence_features + self.semantic_id_features
+        )
         self.feature_names = [feat.name for feat in self.all_features]
         self.feature_scopes = {feat.name: "shared" for feat in self.all_features}
         self.target_columns = to_list(target)

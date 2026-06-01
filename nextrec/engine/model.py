@@ -28,7 +28,7 @@ from nextrec.basic.asserts import (
     assert_task_family_compatibility,
     assert_training_mode,
 )
-from nextrec.basic.features import DenseFeature, FeatureSet, SequenceFeature, SparseFeature
+from nextrec.basic.features import DenseFeature, FeatureSet, SemanticIdFeature, SequenceFeature, SparseFeature
 from nextrec.basic.session import create_session, get_save_path
 from nextrec.basic.summary import SummarySet
 from nextrec.data.data_processing import get_column_data
@@ -68,6 +68,7 @@ class Model(BaseTrainer, BaseValidator, BasePredictor, Exporter, SummarySet, Fea
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
+        semantic_id_features: list[SemanticIdFeature] | None = None,
         target: list[str] | str | None = None,
         key_columns: list[str] | str | None = None,
         task: TaskTypeInput | list[TaskTypeInput] | None = None,
@@ -114,7 +115,14 @@ class Model(BaseTrainer, BaseValidator, BasePredictor, Exporter, SummarySet, Fea
         self.checkpoint_path = os.path.join(self.session_path, self.model_name.upper() + "_checkpoint.pt")
         self.best_path = os.path.join(self.session_path, self.model_name.upper() + "_best.pt")
         self.features_config_path = os.path.join(self.session_path, "features_config.pkl")
-        self.set_all_features(dense_features, sparse_features, sequence_features, target, key_columns)
+        self.set_all_features(
+            dense_features=dense_features,
+            sparse_features=sparse_features,
+            sequence_features=sequence_features,
+            target=target,
+            key_columns=key_columns,
+            semantic_id_features=semantic_id_features,
+        )
 
         self.task = self.default_task if task is None else task
         self.nums_task = len(self.task) if isinstance(self.task, list) else 1
@@ -468,12 +476,14 @@ class Model(BaseTrainer, BaseValidator, BasePredictor, Exporter, SummarySet, Fea
         dense_features = [feature for feature in all_features if isinstance(feature, DenseFeature)]
         sparse_features = [feature for feature in all_features if isinstance(feature, SparseFeature)]
         sequence_features = [feature for feature in all_features if isinstance(feature, SequenceFeature)]
+        semantic_id_features = [feature for feature in all_features if isinstance(feature, SemanticIdFeature)]
         self.set_all_features(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
             target=target,
             key_columns=key_columns,
+            semantic_id_features=semantic_id_features,
         )
 
         cfg_version = features_config.get("version")
@@ -561,8 +571,9 @@ class Model(BaseTrainer, BaseValidator, BasePredictor, Exporter, SummarySet, Fea
         dense_features = [feature for feature in all_features if isinstance(feature, DenseFeature)]
         sparse_features = [feature for feature in all_features if isinstance(feature, SparseFeature)]
         sequence_features = [feature for feature in all_features if isinstance(feature, SequenceFeature)]
+        semantic_id_features = [feature for feature in all_features if isinstance(feature, SemanticIdFeature)]
 
-        model = cls(
+        init_kwargs = dict(
             dense_features=dense_features,
             sparse_features=sparse_features,
             sequence_features=sequence_features,
@@ -572,6 +583,9 @@ class Model(BaseTrainer, BaseValidator, BasePredictor, Exporter, SummarySet, Fea
             session_id=session_id,
             **kwargs,
         )
+        if semantic_id_features:
+            init_kwargs["semantic_id_features"] = semantic_id_features
+        model = cls(**init_kwargs)
         if model_file.suffix.lower() == ".onnx":
             model.set_inference_backend(model_file)
             logging.info(

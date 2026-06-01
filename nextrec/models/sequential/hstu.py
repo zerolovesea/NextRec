@@ -1,5 +1,4 @@
 """
-[Info: this version is not released yet, i need to more research on source code and paper]
 Date: create on 01/12/2025
 Checkpoint: edit on 07/02/2026
 Author: Yang Zhou, zyaztec@gmail.com
@@ -67,17 +66,12 @@ def relative_position_bucket(
     max_distance: int = 128,
 ) -> torch.Tensor:
     """
-    map the relative position (i-j) to a bucket in [0, num_buckets).
+    Map relative position (i-j) to a bucket in [0, num_buckets).
+    Only the causal direction is needed for autoregressive attention.
     """
-    # only need the negative part for causal attention
-    n = -relative_position
-    n = torch.clamp(n, min=0)
-
-    # when the distance is small, keep it exact
+    n = torch.clamp(-relative_position, min=0)
     max_exact = num_buckets // 2
     is_small = n < max_exact
-
-    # when the distance is too far, do log scaling
     large_val = (
         max_exact
         + (
@@ -85,15 +79,13 @@ def relative_position_bucket(
         ).long()
     )
     large_val = torch.clamp(large_val, max=num_buckets - 1)
-
-    buckets = torch.where(is_small, n.long(), large_val)
-    return buckets
+    return torch.where(is_small, n.long(), large_val)
 
 
 class RelativePositionBias(nn.Module):
     """
     Compute relative position bias (RAB) for HSTU attention.
-    The input is the sequence length T, output is [1, num_heads, seq_len, seq_len].
+    Output shape: [num_heads, seq_len, seq_len].
     """
 
     def __init__(
@@ -103,41 +95,32 @@ class RelativePositionBias(nn.Module):
         max_distance: int = 128,
     ):
         super().__init__()
-        self.num_heads = num_heads
         self.num_buckets = num_buckets
         self.max_distance = max_distance
-        self.embedding = nn.Embedding(num_buckets, num_heads)
+        self.relative_attention_bias = nn.Embedding(num_buckets, num_heads)
+        self.embedding = self.relative_attention_bias
 
     def forward(self, seq_len: int, device: torch.device) -> torch.Tensor:
-        # positions: [T]
         ctx = torch.arange(seq_len, device=device)[:, None]
         mem = torch.arange(seq_len, device=device)[None, :]
-        rel_pos = (
-            mem - ctx
-        )  # a matrix to describe all relative positions for each [i,j] pair, shape = [seq_len, seq_len]
+        rel_pos = mem - ctx
         buckets = relative_position_bucket(
             rel_pos,
             num_buckets=self.num_buckets,
             max_distance=self.max_distance,
-        )  # map to buckets
-        values = self.embedding(
-            buckets
-        )  # embedding vector for each [i,j] pair, shape = [seq_len, seq_len, embedding_dim=num_heads]
-        return values.permute(2, 0, 1).unsqueeze(0)  # [1, num_heads, seq_len, seq_len]
+        )
+        return self.embedding(buckets).permute(2, 0, 1)
 
 
 class TemporalBias(nn.Module):
     """
-    Temporal attention bias using logarithmic bucketing of time differences.
-
-    Quantizes timestamp differences into log-spaced buckets, capturing both
-    recent and long-term temporal patterns.
+    Temporal attention bias using logarithmic buckets of pairwise timestamp differences.
+    Output shape: [B, num_heads, seq_len, seq_len].
     """
 
     def __init__(self, num_buckets: int = 64, num_heads: int = 2):
         super().__init__()
         self.num_buckets = num_buckets
-        self.num_heads = num_heads
         self.temporal_attention_bias = nn.Embedding(num_buckets, num_heads)
 
     def temporal_bucket(self, time_diff: torch.Tensor) -> torch.Tensor:
@@ -146,28 +129,16 @@ class TemporalBias(nn.Module):
         return torch.clamp(buckets, min=0, max=self.num_buckets - 1)
 
     def forward(self, timestamps: torch.Tensor) -> torch.Tensor:
-        """
-        Compute temporal bias matrix.
-
-        Args:
-            timestamps: [B, L] unix timestamps
-
-        Returns:
-            bias: [B, num_heads, L, L]
-        """
-        time_diff = timestamps.unsqueeze(2) - timestamps.unsqueeze(1)  # [B, L, L]
-        buckets = self.temporal_bucket(time_diff)
-        bias = self.temporal_attention_bias(buckets)  # [B, L, L, H]
-        return bias.permute(0, 3, 1, 2)  # [B, H, L, L]
+        buckets = self.temporal_bucket(timestamps.unsqueeze(2) - timestamps.unsqueeze(1))
+        return self.temporal_attention_bias(buckets).permute(0, 3, 1, 2)
 
 
 class HSTUPointwiseAttention(nn.Module):
     """
-    Pointwise aggregation attention that implements HSTU without softmax:
-        1) [U, V, Q, K] = split( φ1(f1(X)) ), U: gate, V: value, Q: query, K: key
-        2) AV = φ2(QK^T + rab) V / N, av is attention-weighted value
-        3) Y  = f2( Norm(AV) ⊙ U ), y is output
-    φ1, φ2 use SiLU; Norm uses LayerNorm.
+    Pointwise aggregation attention without softmax:
+        [U, V, Q, K] = split(SiLU(f1(X)))
+        AV = SiLU(QK^T + rab) V
+        Y = Norm(AV) * U
     """
 
     def __init__(
@@ -185,18 +156,13 @@ class HSTUPointwiseAttention(nn.Module):
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
         self.head_dim = hidden_dim // num_heads
-        self.alpha = alpha if alpha is not None else (self.head_dim**-0.5)
-        # project input to 4 * hidden_dim for U, V, Q, K
+        self.alpha = alpha
         self.in_proj = nn.Linear(hidden_dim, 4 * hidden_dim, bias=True)
-        # project output back to hidden_dim
-        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=True)
         self.dropout = nn.Dropout(dropout)
         self.attn_norm = RMSNorm(hidden_dim) if use_rms_norm else nn.LayerNorm(hidden_dim)
 
     def reshape_heads(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        [B, T, D] -> [B, H, T, head_dim]
-        """
+        """[B, T, D] -> [B, H, T, head_dim]."""
         B, T, D = x.shape
         return x.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
 
@@ -205,51 +171,40 @@ class HSTUPointwiseAttention(nn.Module):
         x: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,  # [T, T] with 0 or -inf
         key_padding_mask: Optional[torch.Tensor] = None,  # [B, T], True = pad
-        rab: Optional[torch.Tensor] = None,  # [1, H, T, T] or None
+        rab: Optional[torch.Tensor] = None,  # [H, T, T], [1, H, T, T], or [B, H, T, T]
     ) -> torch.Tensor:
         B, T, D = x.shape
 
-        # Eq.(1): [U, V, Q, K] = split( φ1(f1(X)) )
-        h = F.silu(self.in_proj(x))  # [B, T, 4D]
-        U, V, Q, K = h.chunk(4, dim=-1)  # each [B, T, D]
+        # Eq.(1): one projection followed by SiLU, then split into the four HSTU streams.
+        U, V, Q, K = F.silu(self.in_proj(x)).chunk(4, dim=-1)
+        Qh, Kh, Vh, Uh = (self.reshape_heads(tensor) for tensor in (Q, K, V, U))
 
-        Qh = self.reshape_heads(Q)  # [B, H, T, d_head]
-        Kh = self.reshape_heads(K)  # [B, H, T, d_head]
-        Vh = self.reshape_heads(V)  # [B, H, T, d_head]
-        Uh = self.reshape_heads(U)  # [B, H, T, d_head]
+        logits = torch.matmul(Qh, Kh.transpose(-2, -1))
+        if self.alpha is not None:
+            logits = logits * self.alpha
 
-        # attention logits: QK^T (without 1/sqrt(d) and softmax)
-        logits = torch.matmul(Qh, Kh.transpose(-2, -1)) * self.alpha  # [B, H, T, T]
-
-        # add relative position bias (rab^p), and future extensible rab^t
         if rab is not None:
-            # rab: [1, H, T, T] or [B, H, T, T]
-            logits = logits + rab
+            if rab.dim() == 3:
+                logits = logits + rab.unsqueeze(0)
+            else:
+                logits = logits + rab
 
-        # causal mask: attention_mask is usually an upper triangular matrix of -inf with shape [T, T]
         if attention_mask is not None:
             logits = logits + attention_mask.view(1, 1, T, T)
-
-        # padding mask: key_padding_mask is usually [B, T], True = pad
         if key_padding_mask is not None:
-            # valid: 1 for non-pad, 0 for pad
-            valid = (~key_padding_mask).float()  # [B, T]
-            valid = valid.view(B, 1, 1, T)  # [B, 1, 1, T]
-            logits = logits.masked_fill(valid == 0, float("-inf"))
+            logits = logits.masked_fill(key_padding_mask.view(B, 1, 1, T), float("-inf"))
 
-        # Note: F.silu(-inf) = nan, so we need to handle -inf values carefully
+        # F.silu(-inf) can produce NaN on some kernels, so replace masked -inf before activation.
         logits_safe = logits.masked_fill(torch.isinf(logits) & (logits < 0), -1e9)
-        attention = F.silu(logits_safe)  # [B, H, T, T]
-        AV = torch.matmul(attention, Vh)  # [B, H, T, head_dim]
-        AV = AV.transpose(1, 2).contiguous().view(B, T, D)  # reshape back to [B, T, D]
+        AV = torch.matmul(F.silu(logits_safe), Vh)
+        AV = AV.transpose(1, 2).contiguous().view(B, T, D)
         U_flat = Uh.transpose(1, 2).contiguous().view(B, T, D)
-        y = self.out_proj(self.dropout(self.attn_norm(AV) * U_flat))  # [B, T, D]
-        return y
+        return self.attn_norm(AV) * U_flat
 
 
 class HSTULayer(nn.Module):
     """
-    HSTUPointwiseAttention + Residual Connection
+    HSTUPointwiseAttention with residual connection and a compact point-wise FFN.
     """
 
     def __init__(
@@ -304,16 +259,11 @@ class HSTULayer(nn.Module):
         key_padding_mask: Optional[torch.Tensor] = None,
         timestamps: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
-        x: [B, T, D]
-        """
-        B, T, D = x.shape
-        device = x.device
         rab = None
         if self.use_rab_pos:
-            rab = self.rel_pos_bias(seq_len=T, device=device)  # [1, H, T, T]
+            rab = self.rel_pos_bias(seq_len=x.size(1), device=x.device)
         if self.use_temporal_bias and timestamps is not None:
-            time_bias = self.temporal_bias(timestamps)  # [B, H, T, T]
+            time_bias = self.temporal_bias(timestamps)
             rab = time_bias if rab is None else rab + time_bias
         out = self.attention(
             x=x,
@@ -329,10 +279,7 @@ class HSTULayer(nn.Module):
 class HSTU(BaseSequentialModel):
     """
     HSTU encoder for next-item prediction in a causal autoregressive setup.
-    Pipeline:
-      1) Embed tokens from the behavior history
-      2) Apply stacked HSTU layers with causal mask and optional temporal bias
-      3) Produce vocabulary logits for every position via tied LM head
+    It returns full-vocabulary logits for every sequence position.
     """
 
     @property
@@ -341,14 +288,16 @@ class HSTU(BaseSequentialModel):
 
     @property
     def default_task(self) -> str:
-        return "sequential"
+        return "generative"
 
     def __init__(
         self,
-        sequence_features: list[SequenceFeature],
+        sequence_features: list[SequenceFeature] | None = None,
         dense_features: Optional[list[DenseFeature]] = None,
         sparse_features: Optional[list[SparseFeature]] = None,
         item_history_name: str = "item_history",
+        num_items: int | None = None,
+        embed_dim: int | None = None,
         hidden_dim: Optional[int] = None,
         num_heads: int = 8,
         num_layers: int = 4,
@@ -376,7 +325,18 @@ class HSTU(BaseSequentialModel):
         **kwargs,
     ):
         if not sequence_features:
-            raise ValueError("[HSTU Error] HSTU requires at least one SequenceFeature (user behavior history).")
+            if num_items is None:
+                raise ValueError("[HSTU Error] HSTU requires sequence_features or num_items.")
+            hidden_for_feature = int(embed_dim or hidden_dim or 64)
+            sequence_features = [
+                SequenceFeature(
+                    name=item_history_name,
+                    vocab_size=int(num_items) + 1,
+                    max_len=max_seq_len,
+                    embedding_dim=hidden_for_feature,
+                    padding_idx=0,
+                )
+            ]
 
         if num_blocks is not None:
             num_layers = num_blocks
@@ -385,7 +345,7 @@ class HSTU(BaseSequentialModel):
 
         self.item_history_feature = select_feature_objects(sequence_features, [item_history_name], "item_history")[0]
 
-        self.hidden_dim = hidden_dim or max(int(self.item_history_feature.embedding_dim or 0), 32)
+        self.hidden_dim = int(embed_dim or hidden_dim or max(int(self.item_history_feature.embedding_dim or 0), 32))
         self.ff_hidden_dim = ff_hidden_dim or (self.hidden_dim * 4)
         # Make hidden_dim divisible by num_heads
         if self.hidden_dim % num_heads != 0:
@@ -394,12 +354,14 @@ class HSTU(BaseSequentialModel):
         self.padding_idx = (
             self.item_history_feature.padding_idx if self.item_history_feature.padding_idx is not None else 0
         )
-        self.vocab_size = self.item_history_feature.vocab_size
+        self.num_items = int(num_items or (int(self.item_history_feature.vocab_size) - 1))
+        self.vocab_size = self.num_items + 1
         self.max_seq_len = max_seq_len
 
         if sequence_mode != "autoregressive":
             raise ValueError("[HSTU Error] HSTU currently only supports sequence_mode='autoregressive'.")
 
+        self.disable_default_head = True
         super().__init__(
             dense_features=dense_features,
             sparse_features=sparse_features,
@@ -441,33 +403,44 @@ class HSTU(BaseSequentialModel):
         )
 
         self.final_norm = RMSNorm(self.hidden_dim) if use_rms_norm else nn.LayerNorm(self.hidden_dim)
-        self.output_proj = nn.Linear(self.hidden_dim, self.vocab_size, bias=False)
-        if tie_embeddings:
-            self.output_proj.weight = self.item_embedding.weight
 
         self.register_regularization_weights(
             embedding_attr="item_embedding",
-            include_modules=["layers", "output_proj"],
+            include_modules=["layers"],
         )
 
-    def forward(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
-        seq, padding_mask, valid_mask, attention_mask = self.prepare_sequence_batch(
-            x=x,
-            sequence_name=self.item_history_feature.name,
-            max_seq_len=self.max_seq_len,
-            padding_idx=self.padding_idx,
-        )
-        B, T = seq.shape
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.trunc_normal_(module.weight, std=0.02)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.Embedding):
+                nn.init.trunc_normal_(module.weight, std=0.02)
+                if module.padding_idx is not None:
+                    module.weight.data[module.padding_idx].zero_()
+            elif isinstance(module, nn.LayerNorm):
+                nn.init.ones_(module.weight)
+                nn.init.zeros_(module.bias)
+
+    def _encode_sequence(
+        self,
+        seq: torch.Tensor,
+        padding_mask: torch.Tensor,
+        valid_mask: torch.Tensor,
+        attention_mask: torch.Tensor,
+        timestamps: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        _, T = seq.shape
         device = seq.device
-        token_emb = self.item_embedding(seq)  # [B, T, D]
-        hidden_states = self.emb_dropout(token_emb * (self.hidden_dim**0.5))
+        hidden_states = self.emb_dropout(self.item_embedding(seq))
 
         if attention_mask is not None and attention_mask.dtype == torch.bool:
             additive_mask = torch.zeros((T, T), device=device, dtype=hidden_states.dtype)
             additive_mask = additive_mask.masked_fill(attention_mask, float("-inf"))
             attention_mask = additive_mask
-
-        timestamps = x.get("timestamps")
 
         for layer in self.layers:
             hidden_states = layer(
@@ -476,8 +449,70 @@ class HSTU(BaseSequentialModel):
                 key_padding_mask=padding_mask,
                 timestamps=timestamps,
             )
-        hidden_states = self.final_norm(hidden_states)  # [B, T, D]
+        hidden_states = self.final_norm(hidden_states)
+        return hidden_states * valid_mask
 
-        hidden_states = hidden_states * valid_mask
-        logits = self.output_proj(hidden_states)  # [B, T, vocab_size]
-        return logits
+    def forward(
+        self,
+        x: dict[str, torch.Tensor] | torch.Tensor,
+        timestamps: Optional[torch.Tensor] = None,
+        targets: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor | tuple[torch.Tensor, Optional[torch.Tensor]]:
+        called_with_dict = isinstance(x, dict)
+        if called_with_dict:
+            input_dict = x
+            seq, padding_mask, valid_mask, attention_mask = self.prepare_sequence_batch(
+                x=input_dict,
+                sequence_name=self.item_history_feature.name,
+                max_seq_len=self.max_seq_len,
+                padding_idx=self.padding_idx,
+            )
+            timestamps = input_dict.get("timestamps", timestamps)
+        else:
+            seq = x.long()[:, -self.max_seq_len :]
+            padding_mask = seq.eq(self.padding_idx)
+            valid_mask = (~padding_mask).unsqueeze(-1).float()
+            attention_mask = torch.triu(
+                torch.ones((seq.size(1), seq.size(1)), dtype=torch.bool, device=seq.device),
+                diagonal=1,
+            )
+            if timestamps is not None:
+                timestamps = timestamps[:, -seq.size(1) :]
+        hidden_states = self._encode_sequence(
+            seq=seq,
+            padding_mask=padding_mask,
+            valid_mask=valid_mask,
+            attention_mask=attention_mask,
+            timestamps=timestamps,
+        )
+        logits = hidden_states @ self.item_embedding.weight.T  # [B, T, num_items + 1]
+
+        if called_with_dict:
+            return logits
+
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(
+                logits.reshape(-1, self.vocab_size),
+                targets.long().reshape(-1),
+                ignore_index=self.padding_idx,
+            )
+        return logits, loss
+
+    def encode(self, input_ids: torch.Tensor, timestamps: Optional[torch.Tensor] = None) -> torch.Tensor:
+        seq = input_ids.long()[:, -self.max_seq_len :]
+        padding_mask = seq.eq(self.padding_idx)
+        valid_mask = (~padding_mask).unsqueeze(-1).float()
+        attention_mask = torch.triu(
+            torch.ones((seq.size(1), seq.size(1)), dtype=torch.bool, device=seq.device),
+            diagonal=1,
+        )
+        if timestamps is not None:
+            timestamps = timestamps[:, -seq.size(1) :]
+        return self._encode_sequence(
+            seq=seq,
+            padding_mask=padding_mask,
+            valid_mask=valid_mask,
+            attention_mask=attention_mask,
+            timestamps=timestamps,
+        )

@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader, Dataset, IterableDataset, get_worker_in
 from nextrec.basic.features import (
     DenseFeature,
     FeatureSet,
+    SemanticIdFeature,
     SequenceFeature,
     SparseFeature,
 )
@@ -81,6 +82,7 @@ class FileDataset(FeatureSet, IterableDataset):
         dense_features: list[DenseFeature],
         sparse_features: list[SparseFeature],
         sequence_features: list[SequenceFeature],
+        semantic_id_features: list[SemanticIdFeature] | None,
         target_columns: list[str],
         key_columns: list[str] | None = None,
         chunk_size: int = 10000,
@@ -116,11 +118,12 @@ class FileDataset(FeatureSet, IterableDataset):
         self.schema = dict(schema or {})
 
         self.set_all_features(
-            dense_features,
-            sparse_features,
-            sequence_features,
-            target_columns,
-            key_columns,
+            dense_features=dense_features,
+            sparse_features=sparse_features,
+            sequence_features=sequence_features,
+            target=target_columns,
+            key_columns=key_columns,
+            semantic_id_features=semantic_id_features,
         )
         self.total_files = len(file_paths)
 
@@ -213,6 +216,7 @@ class RecDataLoader(FeatureSet):
         dense_features: list[DenseFeature] | None = None,
         sparse_features: list[SparseFeature] | None = None,
         sequence_features: list[SequenceFeature] | None = None,
+        semantic_id_features: list[SemanticIdFeature] | None = None,
         target: list[str] | None | str = None,
         key_columns: str | list[str] | None = None,
         processor: DataProcessor | None = None,
@@ -233,7 +237,14 @@ class RecDataLoader(FeatureSet):
         """
         self.processor = processor
         self.expand = expand or {}
-        self.set_all_features(dense_features, sparse_features, sequence_features, target, key_columns)
+        self.set_all_features(
+            dense_features=dense_features,
+            sparse_features=sparse_features,
+            sequence_features=sequence_features,
+            target=target,
+            key_columns=key_columns,
+            semantic_id_features=semantic_id_features,
+        )
 
     def create_dataloader(
         self,
@@ -444,6 +455,7 @@ class RecDataLoader(FeatureSet):
             dense_features=self.dense_features,
             sparse_features=self.sparse_features,
             sequence_features=self.sequence_features,
+            semantic_id_features=self.semantic_id_features,
             target_columns=self.target_columns,
             key_columns=self.key_columns,
             chunk_size=chunk_size,
@@ -513,6 +525,53 @@ def prepare_array_column(column, dtype) -> np.ndarray:
     return np.asarray(column, dtype=dtype)
 
 
+def prepare_semantic_id_column(column, feature: SemanticIdFeature) -> np.ndarray:
+    """
+    Transform semantic-id into [N, L, K] int64 arrays.
+    A single target semantic id [K] is normalized to [N, K] and left unpadded.
+    """
+    values = to_object_array(column)
+    arrays = [np.asarray(item, dtype=np.int64) for item in values]
+    if not arrays:
+        return np.empty((0, feature.max_len, feature.num_codebooks), dtype=np.int64)
+
+    num_codebooks = feature.num_codebooks
+    pad_values = np.asarray(
+        [
+            feature.padding_idx if feature.padding_idx is not None else codebook_size
+            for codebook_size in feature.codebook_sizes
+        ],
+        dtype=np.int64,
+    )
+
+    first_ndim = arrays[0].ndim
+    if first_ndim <= 1:
+        normalized = []
+        for arr in arrays:
+            flat = arr.reshape(-1)
+            if flat.size != num_codebooks:
+                raise ValueError(
+                    f"[RecDataLoader Error] SemanticIdFeature '{feature.name}' expects {num_codebooks} code levels, "
+                    f"got shape {tuple(arr.shape)}."
+                )
+            normalized.append(flat)
+        return np.stack(normalized).astype(np.int64)
+
+    padded = []
+    for arr in arrays:
+        if arr.ndim != 2 or arr.shape[1] != num_codebooks:
+            raise ValueError(
+                f"[RecDataLoader Error] SemanticIdFeature '{feature.name}' expects shape [seq_len, {num_codebooks}], "
+                f"got {tuple(arr.shape)}."
+            )
+        seq = arr[: feature.max_len]
+        if seq.shape[0] < feature.max_len:
+            pad = np.tile(pad_values.reshape(1, -1), (feature.max_len - seq.shape[0], 1))
+            seq = np.concatenate([seq, pad], axis=0)
+        padded.append(seq)
+    return np.stack(padded).astype(np.int64)
+
+
 def build_batch_schema(target_columns: list[str]) -> BatchSchema:
     schema: BatchSchema = {
         "feature_scopes": {},
@@ -545,6 +604,9 @@ def build_tensors_from_data(
             raise ValueError(f"[RecDataLoader Error] Feature column '{feature.name}' not found in data")
         if isinstance(feature, SequenceFeature):
             arr = prepare_sequence_column(column, feature)
+            tensor = to_tensor(arr, dtype=torch.long)
+        elif isinstance(feature, SemanticIdFeature):
+            arr = prepare_semantic_id_column(column, feature)
             tensor = to_tensor(arr, dtype=torch.long)
         elif isinstance(feature, DenseFeature):
             arr = prepare_array_column(column, dtype=np.float32)

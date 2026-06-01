@@ -49,6 +49,8 @@ features:
 pip install nextrec
 ```
 
+如果需要在召回模型中使用向量检索索引，请按需额外安装 `pip install faiss-cpu`。
+
 ## 快速开始
 
 ```python
