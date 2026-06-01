@@ -17,7 +17,7 @@ description: NextRec 教程与示例，涵盖排序、召回、多任务、ONNX 
 
 ## 召回模型（Match）
 
-- [训练召回模型](./retrieval.md)
+- [训练召回模型](./matching.md)
 
 ## 多任务学习（Multi-Task）
 

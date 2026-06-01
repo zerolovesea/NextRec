@@ -410,4 +410,4 @@ print(f"ONNX 模型已保存: {onnx_path}")
 ## 下一步
 
 - [训练多任务模型](./multitask.md)
-- [训练召回模型](./retrieval.md)
+- [训练召回模型](./matching.md)

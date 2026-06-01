@@ -50,7 +50,7 @@ export default defineConfig({
           { text: '概览', link: '/zh/tutorial/index' },
           { text: '训练精排模型', link: '/zh/tutorial/ranking' },
           { text: '训练多任务模型', link: '/zh/tutorial/multitask' },
-          { text: '训练召回模型', link: '/zh/tutorial/retrieval' },
+          { text: '训练召回模型', link: '/zh/tutorial/matching' },
         ]
       },
       {
@@ -99,7 +99,7 @@ export default defineConfig({
             { text: '概览', link: '/zh/tutorial/index' },
             { text: '训练精排模型', link: '/zh/tutorial/ranking' },
             { text: '训练多任务模型', link: '/zh/tutorial/multitask' },
-            { text: '训练召回模型', link: '/zh/tutorial/retrieval' },
+            { text: '训练召回模型', link: '/zh/tutorial/matching' },
           ]
         },
         {
